@@ -1,0 +1,218 @@
+// User Types
+export interface User {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  phone?: string;
+  avatar?: string;
+  dateOfBirth?: string;
+  gender?: 'male' | 'female' | 'other';
+  loyaltyPoints: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UserAddress {
+  id: string;
+  userId: string;
+  type: 'home' | 'work' | 'other';
+  firstName: string;
+  lastName: string;
+  addressLine1: string;
+  addressLine2?: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  country: string;
+  phone: string;
+  isDefault: boolean;
+}
+
+// Product Types
+export interface Product {
+  id: string;
+  name: string;
+  description: string;
+  price: number;
+  originalPrice?: number;
+  discountPercentage?: number;
+  category: string;
+  subcategory: string;
+  brand: string;
+  images: string[];
+  colors: ProductColor[];
+  sizes: ProductSize[];
+  inStock: boolean;
+  rating: number;
+  reviewCount: number;
+  tags: string[];
+  isNew: boolean;
+  isTrending: boolean;
+  isOnSale: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProductColor {
+  id: string;
+  name: string;
+  hexCode: string;
+  inStock: boolean;
+}
+
+export interface ProductSize {
+  id: string;
+  name: string;
+  inStock: boolean;
+}
+
+export interface ProductReview {
+  id: string;
+  productId: string;
+  userId: string;
+  userName: string;
+  userAvatar?: string;
+  rating: number;
+  title: string;
+  comment: string;
+  images?: string[];
+  helpfulCount: number;
+  createdAt: string;
+}
+
+// Cart Types
+export interface CartItem {
+  id: string;
+  productId: string;
+  product: Product;
+  color: ProductColor;
+  size: ProductSize;
+  quantity: number;
+  price: number;
+}
+
+export interface Cart {
+  id: string;
+  userId: string;
+  items: CartItem[];
+  subtotal: number;
+  tax: number;
+  shipping: number;
+  total: number;
+  updatedAt: string;
+}
+
+// Order Types
+export interface Order {
+  id: string;
+  userId: string;
+  orderNumber: string;
+  status: OrderStatus;
+  items: OrderItem[];
+  subtotal: number;
+  tax: number;
+  shipping: number;
+  discount: number;
+  total: number;
+  shippingAddress: UserAddress;
+  billingAddress: UserAddress;
+  paymentMethod: PaymentMethod;
+  trackingNumber?: string;
+  estimatedDelivery?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface OrderItem {
+  id: string;
+  productId: string;
+  product: Product;
+  color: ProductColor;
+  size: ProductSize;
+  quantity: number;
+  price: number;
+}
+
+export type OrderStatus = 
+  | 'pending'
+  | 'confirmed'
+  | 'processing'
+  | 'shipped'
+  | 'delivered'
+  | 'cancelled'
+  | 'returned';
+
+// Payment Types
+export interface PaymentMethod {
+  id: string;
+  userId: string;
+  type: 'card' | 'paypal' | 'apple_pay' | 'google_pay';
+  last4?: string;
+  brand?: string;
+  isDefault: boolean;
+  expiryMonth?: number;
+  expiryYear?: number;
+}
+
+// Wishlist Types
+export interface WishlistItem {
+  id: string;
+  userId: string;
+  productId: string;
+  product: Product;
+  createdAt: string;
+}
+
+// Category Types
+export interface Category {
+  id: string;
+  name: string;
+  slug: string;
+  image: string;
+  description?: string;
+  parentId?: string;
+  subcategories?: Category[];
+}
+
+// Navigation Types
+export type RootStackParamList = {
+  Splash: undefined;
+  Onboarding: undefined;
+  Auth: undefined;
+  Main: undefined;
+};
+
+export type AuthStackParamList = {
+  Login: undefined;
+  Register: undefined;
+  ForgotPassword: undefined;
+};
+
+export type MainTabParamList = {
+  Home: undefined;
+  Categories: undefined;
+  New: undefined;
+  Bag: undefined;
+  Profile: undefined;
+};
+
+
+
+// API Response Types
+export interface ApiResponse<T> {
+  success: boolean;
+  data?: T;
+  message?: string;
+  error?: string;
+}
+
+export interface PaginatedResponse<T> {
+  data: T[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
