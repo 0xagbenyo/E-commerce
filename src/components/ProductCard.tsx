@@ -24,7 +24,7 @@ export interface ProductCardProps {
   style?: any;
 }
 
-export const ProductCard: React.FC<ProductCardProps> = ({
+export const ProductCard: React.FC<ProductCardProps> = React.memo(({
   product,
   onPress,
   onWishlistPress,
@@ -32,7 +32,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   style,
 }) => {
   const formatPrice = (price: number) => {
-    return `$${price.toFixed(2)}`;
+    return `GH₵${price.toFixed(2)}`;
   };
 
   const calculateDiscount = () => {
@@ -51,11 +51,17 @@ export const ProductCard: React.FC<ProductCardProps> = ({
       activeOpacity={0.9}
     >
       <View style={styles.imageContainer}>
-        <Image
-          source={{ uri: product.images[0] }}
-          style={styles.image}
-          resizeMode="cover"
-        />
+        {product.images && product.images.length > 0 && product.images[0] ? (
+          <Image
+            source={{ uri: product.images[0] }}
+            style={styles.image}
+            resizeMode="cover"
+          />
+        ) : (
+          <View style={styles.placeholderImage}>
+            <Ionicons name="image-outline" size={40} color={Colors.TEXT_SECONDARY} />
+          </View>
+        )}
         
         {/* Wishlist Button */}
         <TouchableOpacity
@@ -90,6 +96,12 @@ export const ProductCard: React.FC<ProductCardProps> = ({
           {product.brand}
         </Text>
         
+        {product.company && (
+          <Text style={styles.company} numberOfLines={1}>
+            {product.company}
+          </Text>
+        )}
+        
         <Text style={styles.name} numberOfLines={2}>
           {product.name}
         </Text>
@@ -107,16 +119,27 @@ export const ProductCard: React.FC<ProductCardProps> = ({
         </View>
 
         {/* Rating */}
-        <View style={styles.ratingContainer}>
-          <Ionicons name="star" size={12} color={Colors.WARNING} />
-          <Text style={styles.rating}>
-            {product.rating.toFixed(1)} ({product.reviewCount})
-          </Text>
-        </View>
+        {product.rating > 0 && (
+          <View style={styles.ratingContainer}>
+            <Ionicons name="star" size={12} color={Colors.WARNING} />
+            <Text style={styles.rating}>
+              {product.rating.toFixed(1)} ({product.reviewCount})
+            </Text>
+          </View>
+        )}
       </View>
     </TouchableOpacity>
   );
-};
+}, (prevProps, nextProps) => {
+  // Custom comparison function for better performance
+  return (
+    prevProps.product.id === nextProps.product.id &&
+    prevProps.product.price === nextProps.product.price &&
+    prevProps.product.images?.[0] === nextProps.product.images?.[0] &&
+    prevProps.isWishlisted === nextProps.isWishlisted &&
+    prevProps.style === nextProps.style
+  );
+});
 
 const styles = StyleSheet.create({
   container: {
@@ -139,6 +162,14 @@ const styles = StyleSheet.create({
   image: {
     width: '100%',
     height: '100%',
+  },
+  
+  placeholderImage: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: Colors.LIGHT_GRAY,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   
   wishlistButton: {
@@ -194,6 +225,14 @@ const styles = StyleSheet.create({
     color: Colors.TEXT_SECONDARY,
     fontWeight: Typography.FONT_WEIGHT_MEDIUM,
     marginBottom: Spacing.MARGIN_XS,
+  },
+  
+  company: {
+    fontSize: Typography.FONT_SIZE_XS,
+    color: Colors.TEXT_SECONDARY,
+    fontWeight: Typography.FONT_WEIGHT_REGULAR,
+    marginBottom: Spacing.MARGIN_XS,
+    fontStyle: 'italic',
   },
   
   name: {

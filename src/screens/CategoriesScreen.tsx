@@ -167,16 +167,20 @@ export const CategoriesScreen: React.FC = () => {
     </View>
   );
 
+  const renderContent = () => (
+    <View>
+      {renderProductGrid(picksForYou, 'Picks for You')}
+      {renderProductGrid(trendsStore, '', true)}
+    </View>
+  );
+
   return (
     <SafeAreaView style={styles.container}>
       {renderHeader()}
       <View style={styles.content}>
         {renderSidebar()}
         <View style={styles.mainContent}>
-          <ScrollView showsVerticalScrollIndicator={false}>
-            {renderProductGrid(picksForYou, 'Picks for You')}
-            {renderProductGrid(trendsStore, '', true)}
-          </ScrollView>
+          {renderContent()}
         </View>
       </View>
     </SafeAreaView>

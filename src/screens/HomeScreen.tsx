@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
 	View,
 	Text,
@@ -8,11 +8,15 @@ import {
 	Dimensions,
 	Image,
 	ScrollView,
+	ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { Colors } from '../constants/colors';
+import { useNewArrivals, useProductsByCategory } from '../hooks/erpnext';
+import { ProductCard } from '../components/ProductCard';
+import { Product } from '../types';
 
 const { width } = Dimensions.get('window');
 
@@ -53,6 +57,19 @@ const latestItems = [
 ];
 
 const categories = ['All', 'Women', 'Kids', 'Men', 'Curve', 'Home'];
+
+// Map UI category names to ERPNext item_group names
+// You may need to adjust these based on your actual ERPNext item group names
+const mapCategoryToItemGroup = (category: string): string | null => {
+  const categoryMap: Record<string, string> = {
+    'Women': 'Women',
+    'Men': 'Men',
+    'Kids': 'Kids',
+    'Curve': 'Curve',
+    'Home': 'Home',
+  };
+  return category === 'All' ? null : (categoryMap[category] || null);
+};
 const filterTabs = [
 	{ id: '1', name: 'For You', icon: null, active: true },
 	{ id: '2', name: 'New In', icon: 'sparkles' },
@@ -64,7 +81,47 @@ export const HomeScreen: React.FC = () => {
 	const [selectedCategory, setSelectedCategory] = useState('All');
 	const [selectedFilter, setSelectedFilter] = useState('All');
 	const [carouselIndex, setCarouselIndex] = useState(0);
+	const carouselRef = useRef<FlatList>(null);
 	const navigation = useNavigation();
+	
+	// Map category to item group name
+	const itemGroupName = mapCategoryToItemGroup(selectedCategory);
+	
+	// Fetch new arrivals from API (only when "All" is selected) - reduced limit for faster loading
+	const { data: newArrivals, loading: newArrivalsLoading, error: newArrivalsError, retry: retryNewArrivals } = useNewArrivals(12);
+	
+	// Fetch products by category when a category is selected (not "All")
+	const { data: categoryProducts, loading: categoryLoading, error: categoryError, retry: retryCategoryProducts } = useProductsByCategory(
+		itemGroupName || '',
+		itemGroupName ? 50 : 0 // Only fetch if category is selected
+	);
+	
+	// Products to display - only show when a specific category is selected
+	const displayedProducts = selectedCategory === 'All' 
+		? [] 
+		: (categoryProducts || []);
+	
+	const isLoadingProducts = categoryLoading;
+	const productsError = categoryError;
+
+	// Auto-scroll carousel (only when "All" category is selected)
+	useEffect(() => {
+		if (selectedCategory !== 'All') {
+			return; // Don't auto-scroll when viewing a category
+		}
+
+		const interval = setInterval(() => {
+			if (carouselRef.current) {
+				setCarouselIndex((prevIndex) => {
+					const nextIndex = (prevIndex + 1) % latestItems.length;
+					carouselRef.current?.scrollToIndex({ index: nextIndex, animated: true });
+					return nextIndex;
+				});
+			}
+		}, 3000); // Change slide every 3 seconds
+
+		return () => clearInterval(interval);
+	}, [selectedCategory]); // Only depend on selectedCategory, use functional update for carouselIndex
 
 	const renderHeader = () => (
 		<View style={styles.header}>
@@ -105,6 +162,7 @@ export const HomeScreen: React.FC = () => {
 				</TouchableOpacity>
 			</View>
 			<FlatList
+				ref={carouselRef}
 				horizontal
 				pagingEnabled
 				showsHorizontalScrollIndicator={false}
@@ -122,6 +180,13 @@ export const HomeScreen: React.FC = () => {
 					setCarouselIndex(Math.round(x / width));
 				}}
 				scrollEventThrottle={16}
+				onScrollToIndexFailed={(info) => {
+					// Handle scroll to index failure gracefully
+					const wait = new Promise(resolve => setTimeout(resolve, 500));
+					wait.then(() => {
+						carouselRef.current?.scrollToIndex({ index: info.index, animated: true });
+					});
+				}}
 			/>
 			<View style={styles.carouselDots}>
 				{latestItems.map((_, idx) => (
@@ -279,6 +344,52 @@ export const HomeScreen: React.FC = () => {
 		</View>
 	);
 
+	const renderNewArrivals = () => (
+		<View style={styles.section}>
+			<View style={styles.sectionHeader}>
+				<View style={styles.sectionTitleContainer}>
+					<Ionicons name="sparkles" size={20} color={Colors.SHEIN_PINK} />
+					<Text style={styles.sectionTitle}>New Arrivals</Text>
+				</View>
+				<TouchableOpacity>
+					<Text style={styles.viewMoreText}>View more {'>'}</Text>
+				</TouchableOpacity>
+			</View>
+			{newArrivalsLoading ? (
+				<View style={styles.loadingContainer}>
+					<ActivityIndicator size="large" color={Colors.SHEIN_PINK} />
+					<Text style={styles.loadingText}>Loading new arrivals...</Text>
+				</View>
+			) : newArrivalsError ? (
+				<View style={styles.errorContainer}>
+					<Ionicons name="alert-circle-outline" size={32} color={Colors.ERROR} />
+					<Text style={styles.errorText}>Failed to load new arrivals</Text>
+					<Text style={styles.errorSubtext}>{newArrivalsError.message}</Text>
+					<TouchableOpacity
+						style={styles.retryButton}
+						onPress={retryNewArrivals}
+					>
+						<Ionicons name="refresh" size={20} color={Colors.WHITE} />
+						<Text style={styles.retryButtonText}>Retry</Text>
+					</TouchableOpacity>
+				</View>
+			) : newArrivals && newArrivals.length > 0 ? (
+			<FlatList
+				data={newArrivals}
+				horizontal
+				showsHorizontalScrollIndicator={false}
+				contentContainerStyle={styles.newArrivalsList}
+				renderItem={renderNewArrivalItem}
+				keyExtractor={(item) => item.id}
+			/>
+			) : (
+				<View style={styles.emptyContainer}>
+					<Text style={styles.emptyText}>No new arrivals available</Text>
+				</View>
+			)}
+		</View>
+	);
+
 	const renderMainProducts = () => (
 		<View style={styles.mainProducts}>
 			{mainProducts.map((product) => (
@@ -297,7 +408,107 @@ export const HomeScreen: React.FC = () => {
 		</View>
 	);
 
-	const renderSection = ({ item }: { item: { type: string; data?: any } }) => {
+	const handleProductPress = useCallback((productId: string) => {
+		(navigation as any).navigate('ProductDetails', { productId });
+	}, [navigation]);
+
+	const handleWishlistPress = useCallback((productId: string) => {
+		console.log('Toggle wishlist for:', productId);
+	}, []);
+
+	const renderCategoryProductItem = ({ item }: { item: Product }) => (
+		<ProductCard
+			product={item}
+			onPress={handleProductPress}
+			onWishlistPress={handleWishlistPress}
+			style={styles.categoryProductCard}
+		/>
+	);
+
+	const renderNewArrivalItem = ({ item }: { item: Product }) => (
+		<ProductCard
+			product={item}
+			onPress={handleProductPress}
+			onWishlistPress={handleWishlistPress}
+			style={styles.newArrivalCard}
+		/>
+	);
+
+	const renderCategoryProducts = () => {
+		// Only show category products when a specific category is selected (not "All")
+		if (selectedCategory === 'All') {
+			return null;
+		}
+
+		return (
+			<View style={styles.categoryView}>
+				<View style={styles.categoryHeader}>
+					<Text style={styles.categoryTitle}>{selectedCategory}</Text>
+					<TouchableOpacity onPress={() => setSelectedCategory('All')}>
+						<Ionicons name="close" size={24} color={Colors.BLACK} />
+					</TouchableOpacity>
+				</View>
+
+				{isLoadingProducts ? (
+					<View style={styles.loadingContainer}>
+						<ActivityIndicator size="large" color={Colors.SHEIN_PINK} />
+						<Text style={styles.loadingText}>Loading {selectedCategory} items...</Text>
+					</View>
+				) : productsError ? (
+					<View style={styles.errorContainer}>
+						<Ionicons name="alert-circle-outline" size={32} color={Colors.ERROR} />
+						<Text style={styles.errorText}>Failed to load {selectedCategory} items</Text>
+						<Text style={styles.errorSubtext}>{productsError.message}</Text>
+						<TouchableOpacity
+							style={styles.retryButton}
+							onPress={retryCategoryProducts}
+						>
+							<Ionicons name="refresh" size={20} color={Colors.WHITE} />
+							<Text style={styles.retryButtonText}>Retry</Text>
+						</TouchableOpacity>
+					</View>
+				) : displayedProducts && displayedProducts.length > 0 ? (
+					<FlatList
+						data={displayedProducts}
+						numColumns={2}
+						showsVerticalScrollIndicator={false}
+						contentContainerStyle={styles.categoryProductsList}
+						renderItem={renderCategoryProductItem}
+						keyExtractor={(item) => item.id}
+					/>
+				) : (
+					<View style={styles.emptyContainer}>
+						<Ionicons name="grid-outline" size={48} color={Colors.TEXT_SECONDARY} />
+						<Text style={styles.emptyText}>No items found in {selectedCategory}</Text>
+					</View>
+				)}
+			</View>
+		);
+	};
+
+	// Show full homepage when "All" is selected, otherwise only header and tabs
+	const sections = useMemo(() => selectedCategory === 'All' ? [
+		{ type: 'header', id: 'header' },
+		{ type: 'categoryTabs', id: 'categoryTabs' },
+		{ type: 'shippingBanner', id: 'shippingBanner' },
+		{ type: 'latestCarousel', id: 'latestCarousel' },
+		{ type: 'newArrivals', id: 'newArrivals' },
+		{ type: 'superDeals', id: 'superDeals' },
+		{ type: 'buy6Get60', id: 'buy6Get60' },
+		{ type: 'discount10to50', id: 'discount10to50' },
+		{ type: 'filterTabs', id: 'filterTabs' },
+		{ type: 'mainProducts', id: 'mainProducts' },
+	] : [
+		{ type: 'header', id: 'header' },
+		{ type: 'categoryTabs', id: 'categoryTabs' },
+	], [selectedCategory]);
+
+	const renderSectionMemo = ({ item }: { item: { type: string; data?: any } }) => {
+		// Hide all sections except header and category tabs when a category is selected
+		if (selectedCategory !== 'All' && item.type !== 'header' && item.type !== 'categoryTabs') {
+			return null;
+		}
+
 		switch (item.type) {
 			case 'header':
 				return renderHeader();
@@ -307,6 +518,8 @@ export const HomeScreen: React.FC = () => {
 				return renderShippingBanner();
 			case 'latestCarousel':
 				return renderLatestCarousel();
+			case 'newArrivals':
+				return renderNewArrivals();
 			case 'superDeals':
 				return renderSuperDeals();
 			case 'buy6Get60':
@@ -322,25 +535,14 @@ export const HomeScreen: React.FC = () => {
 		}
 	};
 
-	const sections = [
-		{ type: 'header', id: 'header' },
-		{ type: 'categoryTabs', id: 'categoryTabs' },
-		{ type: 'shippingBanner', id: 'shippingBanner' },
-		{ type: 'latestCarousel', id: 'latestCarousel' },
-		{ type: 'superDeals', id: 'superDeals' },
-		{ type: 'buy6Get60', id: 'buy6Get60' },
-		{ type: 'discount10to50', id: 'discount10to50' },
-		{ type: 'filterTabs', id: 'filterTabs' },
-		{ type: 'mainProducts', id: 'mainProducts' },
-	];
-
 	return (
 		<SafeAreaView style={styles.container}>
 			<FlatList
 				data={sections}
-				renderItem={renderSection}
+				renderItem={renderSectionMemo}
 				keyExtractor={(item) => item.id}
 				showsVerticalScrollIndicator={false}
+				ListFooterComponent={renderCategoryProducts}
 			/>
 		</SafeAreaView>
 	);
@@ -588,6 +790,106 @@ const styles = StyleSheet.create({
 		fontSize: 16,
 		fontWeight: '500',
 		color: Colors.BLACK,
+	},
+	newArrivalsList: {
+		paddingHorizontal: 16,
+		paddingBottom: 16,
+	},
+	newArrivalCard: {
+		marginRight: 12,
+		width: 160,
+	},
+	loadingContainer: {
+		padding: 40,
+		alignItems: 'center',
+		justifyContent: 'center',
+	},
+	loadingText: {
+		marginTop: 12,
+		fontSize: 14,
+		color: Colors.TEXT_SECONDARY,
+	},
+	errorContainer: {
+		padding: 40,
+		alignItems: 'center',
+		justifyContent: 'center',
+	},
+	errorText: {
+		marginTop: 12,
+		fontSize: 16,
+		color: Colors.ERROR,
+		fontWeight: '600',
+	},
+	errorSubtext: {
+		marginTop: 8,
+		marginBottom: 20,
+		fontSize: 12,
+		color: Colors.TEXT_SECONDARY,
+		textAlign: 'center',
+	},
+	retryButton: {
+		flexDirection: 'row',
+		alignItems: 'center',
+		justifyContent: 'center',
+		backgroundColor: Colors.SHEIN_PINK,
+		paddingVertical: 12,
+		paddingHorizontal: 24,
+		borderRadius: 8,
+		marginTop: 16,
+	},
+	retryButtonText: {
+		color: Colors.WHITE,
+		fontSize: 16,
+		fontWeight: '600',
+		marginLeft: 8,
+	},
+	emptyContainer: {
+		padding: 40,
+		alignItems: 'center',
+		justifyContent: 'center',
+	},
+	emptyText: {
+		fontSize: 14,
+		color: Colors.TEXT_SECONDARY,
+	},
+	categoryView: {
+		flex: 1,
+		paddingTop: 16,
+	},
+	categoryHeader: {
+		flexDirection: 'row',
+		justifyContent: 'space-between',
+		alignItems: 'center',
+		paddingHorizontal: 16,
+		paddingBottom: 16,
+		borderBottomWidth: 1,
+		borderBottomColor: Colors.BORDER,
+	},
+	categoryTitle: {
+		fontSize: 24,
+		fontWeight: 'bold',
+		color: Colors.BLACK,
+	},
+	categoryProductsList: {
+		paddingHorizontal: 16,
+		paddingTop: 16,
+		paddingBottom: 100,
+	},
+	categoryProductCard: {
+		marginHorizontal: 4,
+		marginBottom: 16,
+	},
+	emptyPageContainer: {
+		flex: 1,
+		justifyContent: 'center',
+		alignItems: 'center',
+		paddingVertical: 100,
+	},
+	emptyPageText: {
+		fontSize: 16,
+		color: Colors.TEXT_SECONDARY,
+		marginTop: 16,
+		textAlign: 'center',
 	},
 });
 

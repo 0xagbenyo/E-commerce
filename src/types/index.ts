@@ -30,6 +30,11 @@ export interface UserAddress {
 }
 
 // Product Types
+export interface ProductSpecification {
+  label: string;
+  description: string;
+}
+
 export interface Product {
   id: string;
   name: string;
@@ -40,9 +45,12 @@ export interface Product {
   category: string;
   subcategory: string;
   brand: string;
-  images: string[];
+  company?: string;
+  images: string[]; // For listings - uses website_image
+  slideshowImages?: string[]; // For detail page - uses slideshow field
   colors: ProductColor[];
   sizes: ProductSize[];
+  specifications?: ProductSpecification[]; // Website Specifications table (Label, Description)
   inStock: boolean;
   rating: number;
   reviewCount: number;
@@ -181,6 +189,11 @@ export type RootStackParamList = {
   Onboarding: undefined;
   Auth: undefined;
   Main: undefined;
+  ProductDetails: { productId: string };
+  Checkout: undefined;
+  OrderSuccess: { orderId?: string };
+  OrderHistory: undefined;
+  Settings: undefined;
 };
 
 export type AuthStackParamList = {

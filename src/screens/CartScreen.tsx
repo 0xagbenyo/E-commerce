@@ -218,12 +218,11 @@ export const CartScreen: React.FC = () => {
       {renderHeader()}
       {renderFilterTabs()}
       <ScrollView showsVerticalScrollIndicator={false}>
-        <FlatList
-          data={cartItems}
-          renderItem={renderCartItem}
-          keyExtractor={(item) => item.id}
-          scrollEnabled={false}
-        />
+        {cartItems.map((item) => (
+          <View key={item.id}>
+            {renderCartItem({ item })}
+          </View>
+        ))}
         {renderPromotionsBanner()}
       </ScrollView>
       {renderCheckoutBar()}

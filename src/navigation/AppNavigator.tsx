@@ -124,6 +124,11 @@ export const AppNavigator = () => {
         <Stack.Screen name="Onboarding" component={OnboardingScreen} />
         <Stack.Screen name="Auth" component={AuthNavigator} />
         <Stack.Screen name="Main" component={MainTabNavigator} />
+        <Stack.Screen 
+          name="ProductDetails" 
+          component={ProductDetailsScreen}
+          options={{ presentation: 'card' }}
+        />
         <Stack.Screen name="Splash" component={SplashScreen} />
       </Stack.Navigator>
     </NavigationContainer>
