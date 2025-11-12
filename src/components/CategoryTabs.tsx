@@ -27,7 +27,7 @@ interface CategoryTabsProps {
 export const CategoryTabs: React.FC<CategoryTabsProps> = ({
   selectedCategory,
   onSelectCategory,
-  categories = ['All', 'Women', 'Kids', 'Men', 'Curve', 'Home'],
+  categories = ['All', 'Women', 'Kids', 'Men', 'Curve'],
   variant = 'default',
   showMenuIcon = false,
   onMenuPress,

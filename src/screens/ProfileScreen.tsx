@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -6,151 +6,331 @@ import {
   ScrollView,
   TouchableOpacity,
   FlatList,
+  ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { Colors } from '../constants/colors';
-
-// Mock data for profile
-const userMetrics = [
-  { id: '1', label: '4 Coupons', value: '4' },
-  { id: '2', label: '0 Points', value: '0' },
-  { id: '3', label: 'Wallet', icon: 'wallet' },
-  { id: '4', label: 'Gift Card', icon: 'gift' },
-];
-
-const orderStatuses = [
-  { id: '1', label: 'Unpaid', icon: 'document-outline' },
-  { id: '2', label: 'Processing', icon: 'cube-outline' },
-  { id: '3', label: 'Shipped', icon: 'car-outline' },
-  { id: '4', label: 'Review', icon: 'chatbubble-outline' },
-  { id: '5', label: 'Returns', icon: 'arrow-undo-outline' },
-];
-
-const activities = [
-  { id: '1', label: 'Following', icon: 'person-add-outline', value: '0 following' },
-  { id: '2', label: 'History', icon: 'time-outline', value: '33 item' },
-  { id: '3', label: 'Wishlist', icon: 'heart-outline', value: '0 item' },
-];
+import { useUserSession } from '../context/UserContext';
+import { useWishlist } from '../hooks/erpnext';
+import { useShoppingCart } from '../hooks/erpnext';
+import { useOrders } from '../hooks/erpnext';
+import { usePricingRules } from '../hooks/erpnext';
+import { getERPNextClient } from '../services/erpnext';
+import { mapERPWebsiteItemToProduct } from '../services/mappers';
 
 const services = [
   { id: '1', label: 'Customer Service', icon: 'headset-outline' },
-  { id: '2', label: 'Check In', icon: 'checkmark-circle-outline' },
-  { id: '3', label: 'Survey Center', icon: 'document-text-outline' },
-  { id: '4', label: 'Share&Earn', icon: 'share-outline' },
-];
-
-const promotionalProducts = [
-  {
-    id: '1',
-    name: 'Glamora Plus Size Shirt',
-    price: 'GH₵6.55',
-    originalPrice: 'GH₵13.10',
-    discount: '-50%',
-    image: '👕',
-    brand: 'GLAMORA',
-    category: 'CURVE',
-    timer: '23:59:49:9',
-    bestseller: '#1 Bestseller in Yellow Plus Size Shirts',
-    colors: ['#007AFF', '#F4A460', '#FF69B4', '#FF0000'],
-  },
-  {
-    id: '2',
-    name: 'Glamora Women\'s Solid Color Skirt',
-    price: 'GH₵4.00',
-    image: '👗',
-    discount: '50% OFF Now!',
-    isFave: true,
-  },
 ];
 
 export const ProfileScreen: React.FC = () => {
-  const [showCouponAlert, setShowCouponAlert] = useState(true);
+  const [userDetails, setUserDetails] = useState<any>(null);
+  const [loadingUser, setLoadingUser] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const navigation = useNavigation();
+  const { user } = useUserSession();
+  
+  // Fetch user details
+  useEffect(() => {
+    const fetchUserDetails = async () => {
+      if (!user?.email) {
+        setLoadingUser(false);
+        return;
+      }
+      
+      try {
+        setLoadingUser(true);
+        const client = getERPNextClient();
+        const userData = await client.getUserByEmail(user.email);
+        setUserDetails(userData);
+      } catch (error) {
+        console.error('Error fetching user details:', error);
+      } finally {
+        setLoadingUser(false);
+      }
+    };
+    
+    fetchUserDetails();
+  }, [user?.email]);
+  
+  // Fetch wishlist count
+  const { wishlistItems, refresh: refreshWishlist } = useWishlist(user?.email || null);
+  const wishlistCount = wishlistItems?.length || 0;
+  
+  // Fetch cart count
+  const { cartItems, refresh: refreshCart } = useShoppingCart(user?.email || null);
+  const cartCount = cartItems?.length || 0;
+  
+  // Fetch orders - using user email as customer identifier
+  // Note: This might need adjustment if your ERPNext uses Customer doctype
+  const { data: orders } = useOrders(user?.email || '', undefined);
+  const orderCount = orders?.length || 0;
+  
+  // Fetch pricing rules for discount banner
+  const { data: pricingRules = [] } = usePricingRules();
+  
+  // Get the latest/active pricing rule
+  const latestPricingRule = pricingRules && pricingRules.length > 0 ? pricingRules[0] : null;
+  const discountPercent = latestPricingRule?.discount_percentage || (latestPricingRule as any)?.discount_percentage || 0;
+  
+  // State for pricing rule products
+  const [pricingRuleProducts, setPricingRuleProducts] = useState<any[]>([]);
+  
+  // Fetch products for the latest pricing rule
+  useEffect(() => {
+    const fetchPricingRuleProducts = async () => {
+      if (!latestPricingRule || discountPercent === 0) {
+        setPricingRuleProducts([]);
+        return;
+      }
+      
+      try {
+        const client = getERPNextClient();
+        const ruleAny = latestPricingRule as any;
+        const products: any[] = [];
+        
+        // Fetch products by item codes
+        if (ruleAny.items && Array.isArray(ruleAny.items) && ruleAny.items.length > 0) {
+          for (const item of ruleAny.items) {
+            try {
+              const itemCode = item.item_code || item.item;
+              if (itemCode) {
+                let websiteItem;
+                try {
+                  websiteItem = await client.getWebsiteItem(itemCode);
+                } catch (error) {
+                  // Try search fallback
+                  const searchResults = await client.searchWebsiteItems(itemCode);
+                  if (searchResults && searchResults.length > 0) {
+                    websiteItem = searchResults[0];
+                  }
+                }
+                if (websiteItem) {
+                  const product = mapERPWebsiteItemToProduct(websiteItem);
+                  products.push(product);
+                }
+              }
+            } catch (error) {
+              // Skip items that can't be found
+              continue;
+            }
+          }
+        }
+        
+        // Fetch products by item groups
+        if (ruleAny.item_groups && Array.isArray(ruleAny.item_groups) && ruleAny.item_groups.length > 0) {
+          for (const group of ruleAny.item_groups) {
+            try {
+              const groupName = group.item_group || group.name;
+              if (groupName) {
+                const groupItems = await client.getItemsByGroup(groupName, 10);
+                const groupProducts = groupItems.map((item: any) => mapERPWebsiteItemToProduct(item));
+                products.push(...groupProducts);
+              }
+            } catch (error) {
+              // Skip groups that can't be found
+              continue;
+            }
+          }
+        }
+        
+        setPricingRuleProducts(products);
+      } catch (error) {
+        console.error('Error fetching pricing rule products:', error);
+        setPricingRuleProducts([]);
+      }
+    };
+    
+    fetchPricingRuleProducts();
+  }, [latestPricingRule, discountPercent]);
+  
+  // Handle pull-to-refresh
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      // Refresh user details
+      if (user?.email) {
+        const client = getERPNextClient();
+        const userData = await client.getUserByEmail(user.email);
+        setUserDetails(userData);
+      }
+      
+      // Refresh wishlist and cart
+      if (refreshWishlist) refreshWishlist();
+      if (refreshCart) refreshCart();
+    } catch (error) {
+      console.error('Error refreshing profile:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+  
+  // Calculate order status counts
+  const unpaidCount = orders?.filter(o => o.status === 'pending').length || 0;
+  const processingCount = orders?.filter(o => o.status === 'processing').length || 0;
+  const shippedCount = orders?.filter(o => o.status === 'shipped').length || 0;
+  
+  // Get user display name
+  const getUserDisplayName = () => {
+    if (userDetails) {
+      return userDetails.full_name || 
+             `${userDetails.first_name || ''} ${userDetails.last_name || ''}`.trim() ||
+             userDetails.name ||
+             user?.email?.split('@')[0] ||
+             'User';
+    }
+    return user?.email?.split('@')[0] || user?.fullName || 'User';
+  };
+  
+  // Get user initials for avatar
+  const getUserInitials = () => {
+    const name = getUserDisplayName();
+    if (name && name.length > 0) {
+      const parts = name.split(' ');
+      if (parts.length >= 2) {
+        return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+      }
+      return name[0].toUpperCase();
+    }
+    return 'U';
+  };
 
-  const renderHeader = () => (
-    <View style={styles.header}>
-      <View style={styles.profileInfo}>
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>I</Text>
-        </View>
-        <View style={styles.userInfo}>
-          <View style={styles.usernameRow}>
-            <Text style={styles.username}>isabelquarshie7</Text>
-            <View style={styles.googleBadge}>
-              <Text style={styles.googleText}>G</Text>
-            </View>
-            <View style={styles.membershipBadge}>
-              <Text style={styles.membershipText}>S0</Text>
-            </View>
-          </View>
-          <View style={styles.profileEditRow}>
-            <Text style={styles.profileLabel}>My Profile</Text>
-            <Ionicons name="pencil" size={16} color={Colors.BLACK} />
+  const renderHeader = () => {
+    if (loadingUser) {
+      return (
+        <View style={styles.header}>
+          <View style={styles.profileInfo}>
+            <ActivityIndicator size="small" color={Colors.SHEIN_PINK} />
+            <Text style={styles.loadingText}>Loading profile...</Text>
           </View>
         </View>
-        <View style={styles.headerActions}>
-          <TouchableOpacity style={styles.headerIcon}>
-            <Ionicons name="grid" size={20} color={Colors.BLACK} />
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={styles.headerIcon}
-            onPress={() => console.log('Settings pressed')}
-          >
-            <Ionicons name="settings-outline" size={20} color={Colors.BLACK} />
-          </TouchableOpacity>
+      );
+    }
+    
+    if (!user?.email) {
+      return (
+        <View style={styles.header}>
+          <View style={styles.profileInfo}>
+            <Text style={styles.loadingText}>Please log in to view your profile</Text>
+          </View>
+        </View>
+      );
+    }
+    
+    return (
+      <View style={styles.header}>
+        <View style={styles.profileInfo}>
+          <View style={styles.avatar}>
+            <Text style={styles.avatarText}>{getUserInitials()}</Text>
+          </View>
+          <View style={styles.userInfo}>
+            <View style={styles.usernameRow}>
+              <Text style={styles.username}>{getUserDisplayName()}</Text>
+              <View style={styles.membershipBadge}>
+                <Text style={styles.membershipText}>S0</Text>
+              </View>
+            </View>
+            <View style={styles.profileEditRow}>
+              <Text style={styles.profileLabel}>My Profile</Text>
+              <Ionicons name="pencil" size={16} color={Colors.BLACK} />
+            </View>
+          </View>
+          <View style={styles.headerActions}>
+            <TouchableOpacity style={styles.headerIcon}>
+              <Ionicons name="grid" size={20} color={Colors.BLACK} />
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.headerIcon}
+              onPress={() => (navigation as any).navigate('Settings')}
+            >
+              <Ionicons name="settings-outline" size={20} color={Colors.BLACK} />
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
-    </View>
-  );
+    );
+  };
 
   const renderUserMetrics = () => (
     <View style={styles.metricsContainer}>
-      {userMetrics.map((metric) => (
-        <View key={metric.id} style={styles.metricItem}>
-          {metric.icon ? (
-            <Ionicons name={metric.icon as any} size={24} color={Colors.BLACK} />
-          ) : (
-            <Text style={styles.metricValue}>{metric.value}</Text>
-          )}
-          <Text style={styles.metricLabel}>{metric.label}</Text>
-        </View>
-      ))}
+      <View style={styles.metricItem}>
+        <Text style={styles.metricValue}>0</Text>
+        <Text style={styles.metricLabel}>Coupons</Text>
+      </View>
+      <View style={styles.metricItem}>
+        <Text style={styles.metricValue}>0</Text>
+        <Text style={styles.metricLabel}>Points</Text>
+      </View>
+      <View style={styles.metricItem}>
+        <Ionicons name="wallet" size={24} color={Colors.BLACK} />
+        <Text style={styles.metricLabel}>Wallet</Text>
+      </View>
+      <View style={styles.metricItem}>
+        <Ionicons name="gift" size={24} color={Colors.BLACK} />
+        <Text style={styles.metricLabel}>Gift Card</Text>
+      </View>
     </View>
   );
 
-  const renderCouponAlert = () => (
-    showCouponAlert && (
-      <View style={styles.couponAlert}>
-        <Text style={styles.couponAlertText}>
-          You have 4 coupon(s) that will expire!
+  const renderPricingRuleBanner = () => {
+    // Only show banner if there's an active pricing rule with a discount
+    if (!latestPricingRule || discountPercent === 0) {
+      return null;
+    }
+    
+    const handleBannerPress = () => {
+      // Navigate to AllDeals screen with the pricing rule products
+      (navigation as any).navigate('AllDeals', { 
+        deals: pricingRuleProducts
+      });
+    };
+    
+    return (
+      <TouchableOpacity 
+        style={styles.pricingRuleBanner}
+        onPress={handleBannerPress}
+        activeOpacity={0.8}
+      >
+        <Ionicons name="pricetag" size={20} color={Colors.SHEIN_PINK} />
+        <Text style={styles.pricingRuleBannerText}>
+          Get {discountPercent}% Off - Tap to view deals!
         </Text>
-        <TouchableOpacity 
-          style={styles.closeButton}
-          onPress={() => setShowCouponAlert(false)}
-        >
-          <Ionicons name="close" size={20} color={Colors.BLACK} />
-        </TouchableOpacity>
-      </View>
-    )
-  );
+        <Ionicons name="chevron-forward" size={16} color={Colors.SHEIN_PINK} />
+      </TouchableOpacity>
+    );
+  };
 
   const renderOrdersSection = () => (
     <View style={styles.section}>
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>My Orders</Text>
-        <TouchableOpacity onPress={() => console.log('OrderHistory pressed')}>
+        <TouchableOpacity onPress={() => (navigation as any).navigate('OrderHistory')}>
           <Text style={styles.viewAllText}>View all {'>'}</Text>
         </TouchableOpacity>
       </View>
       <View style={styles.orderStatuses}>
-        {orderStatuses.map((status) => (
-          <View key={status.id} style={styles.orderStatus}>
-            <Ionicons name={status.icon as any} size={24} color={Colors.BLACK} />
-            <Text style={styles.orderStatusLabel}>{status.label}</Text>
-          </View>
-        ))}
+        <View style={styles.orderStatus}>
+          <Ionicons name="document-outline" size={24} color={Colors.BLACK} />
+          <Text style={styles.orderStatusLabel}>Unpaid ({unpaidCount})</Text>
+        </View>
+        <View style={styles.orderStatus}>
+          <Ionicons name="cube-outline" size={24} color={Colors.BLACK} />
+          <Text style={styles.orderStatusLabel}>Processing ({processingCount})</Text>
+        </View>
+        <View style={styles.orderStatus}>
+          <Ionicons name="car-outline" size={24} color={Colors.BLACK} />
+          <Text style={styles.orderStatusLabel}>Shipped ({shippedCount})</Text>
+        </View>
+        <View style={styles.orderStatus}>
+          <Ionicons name="chatbubble-outline" size={24} color={Colors.BLACK} />
+          <Text style={styles.orderStatusLabel}>Review</Text>
+        </View>
+        <View style={styles.orderStatus}>
+          <Ionicons name="arrow-undo-outline" size={24} color={Colors.BLACK} />
+          <Text style={styles.orderStatusLabel}>Returns</Text>
+        </View>
       </View>
     </View>
   );
@@ -158,18 +338,18 @@ export const ProfileScreen: React.FC = () => {
   const renderActivitiesSection = () => (
     <View style={styles.section}>
       <View style={styles.activitiesContainer}>
-        {activities.map((activity, index) => (
-          <View key={activity.id} style={styles.activityItem}>
-            <View style={styles.activityContent}>
-              <Ionicons name={activity.icon as any} size={20} color={Colors.BLACK} />
-              <Text style={styles.activityLabel}>{activity.label}</Text>
-              <Text style={styles.activityValue}>{activity.value}</Text>
-            </View>
-            {index < activities.length - 1 && (
-              <Ionicons name="chevron-forward" size={16} color={Colors.TEXT_SECONDARY} />
-            )}
+        <TouchableOpacity 
+          style={styles.activityItem}
+          onPress={() => (navigation as any).navigate('Wishlist')}
+          activeOpacity={0.7}
+        >
+          <View style={styles.activityContent}>
+            <Ionicons name="heart-outline" size={20} color={Colors.BLACK} />
+            <Text style={styles.activityLabel}>Wishlist</Text>
+            <Text style={styles.activityValue}>{wishlistCount} item{wishlistCount !== 1 ? 's' : ''}</Text>
           </View>
-        ))}
+          <Ionicons name="chevron-forward" size={16} color={Colors.TEXT_SECONDARY} />
+        </TouchableOpacity>
       </View>
     </View>
   );
@@ -187,77 +367,26 @@ export const ProfileScreen: React.FC = () => {
     </View>
   );
 
-  const renderPromotionalProducts = () => (
-    <View style={styles.section}>
-      <View style={styles.productsContainer}>
-        {promotionalProducts.map((product) => (
-          <View key={product.id} style={styles.productCard}>
-            {product.isFave && (
-              <View style={styles.faveBanner}>
-                <Text style={styles.faveText}>Your faves are on sale!</Text>
-              </View>
-            )}
-            <View style={styles.productImage}>
-              <Text style={styles.productEmoji}>{product.image}</Text>
-              {product.brand && (
-                <View style={styles.brandInfo}>
-                  <Text style={styles.brandName}>{product.brand}</Text>
-                  <View style={styles.categoryBadge}>
-                    <Text style={styles.categoryText}>{product.category}</Text>
-                  </View>
-                </View>
-              )}
-              {product.timer && (
-                <View style={styles.timerContainer}>
-                  <Text style={styles.timerText}>{product.timer} | {product.discount}</Text>
-                </View>
-              )}
-              {product.colors && (
-                <View style={styles.colorSwatches}>
-                  {product.colors.map((color, index) => (
-                    <View 
-                      key={index} 
-                      style={[styles.colorSwatch, { backgroundColor: color }]} 
-                    />
-                  ))}
-                </View>
-              )}
-            </View>
-            <View style={styles.productInfo}>
-              <Text style={styles.productName} numberOfLines={2}>{product.name}</Text>
-              {product.bestseller && (
-                <Text style={styles.bestsellerText} numberOfLines={1}>{product.bestseller}</Text>
-              )}
-              <Text style={styles.productPrice}>{product.price}</Text>
-              {product.originalPrice && (
-                <Text style={styles.originalPrice}>{product.originalPrice}</Text>
-              )}
-              <Text style={styles.estimatedText}>Estimated</Text>
-              <TouchableOpacity style={styles.addToCartButton}>
-                <Ionicons name="add" size={20} color={Colors.WHITE} />
-              </TouchableOpacity>
-            </View>
-            {product.discount && !product.timer && (
-              <View style={styles.discountTag}>
-                <Text style={styles.discountText}>{product.discount}</Text>
-              </View>
-            )}
-          </View>
-        ))}
-      </View>
-    </View>
-  );
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView 
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={Colors.SHEIN_PINK}
+            colors={[Colors.SHEIN_PINK]}
+          />
+        }
+      >
         {renderHeader()}
         {renderUserMetrics()}
-        {renderCouponAlert()}
+        {renderPricingRuleBanner()}
         {renderOrdersSection()}
         {renderActivitiesSection()}
         {renderServicesSection()}
-        {renderPromotionalProducts()}
       </ScrollView>
     </SafeAreaView>
   );
@@ -371,24 +500,28 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: Colors.TEXT_SECONDARY,
   },
-  couponAlert: {
+  pricingRuleBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFF3E0',
+    backgroundColor: '#FFF0F5',
     marginHorizontal: 16,
     marginVertical: 12,
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderRadius: 8,
+    gap: 8,
   },
-  couponAlertText: {
+  pricingRuleBannerText: {
     flex: 1,
     fontSize: 14,
-    color: Colors.SHEIN_ORANGE,
+    color: Colors.SHEIN_PINK,
     fontWeight: '500',
   },
-  closeButton: {
-    padding: 4,
+  loadingText: {
+    fontSize: 14,
+    color: Colors.TEXT_SECONDARY,
+    textAlign: 'center',
+    paddingVertical: 16,
   },
   section: {
     paddingVertical: 16,

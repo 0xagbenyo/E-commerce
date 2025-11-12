@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   StyleSheet,
   TouchableOpacity,
   Dimensions,
+  RefreshControl,
 } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -26,6 +27,17 @@ export const AllDealsScreen: React.FC = () => {
   const route = useRoute();
   const navigation = useNavigation();
   const { deals = [] } = (route.params as RouteParams) || {};
+  const [refreshing, setRefreshing] = useState(false);
+  
+  // Handle pull-to-refresh
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    // AllDealsScreen receives deals from route params, so refresh by navigating back and forth
+    // or just simulate refresh
+    setTimeout(() => {
+      setRefreshing(false);
+    }, 1000);
+  }, []);
 
   // Sort deals by discount percentage (highest first)
   const sortedDeals = useMemo(() => {
@@ -54,6 +66,14 @@ export const AllDealsScreen: React.FC = () => {
         numColumns={2}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.gridContainer}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={Colors.SHEIN_PINK}
+            colors={[Colors.SHEIN_PINK]}
+          />
+        }
         renderItem={({ item, index }) => {
           const isLeftColumn = index % 2 === 0;
           const row = Math.floor(index / 2);

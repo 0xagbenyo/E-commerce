@@ -23,6 +23,7 @@ import { ProductDetailsScreen } from '../screens/ProductDetailsScreen';
 import { CheckoutScreen } from '../screens/CheckoutScreen';
 import { OrderSuccessScreen } from '../screens/OrderSuccessScreen';
 import { OrderHistoryScreen } from '../screens/OrderHistoryScreen';
+import { InvoiceDetailsScreen } from '../screens/InvoiceDetailsScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
 import { WishlistScreen } from '../screens/WishlistScreen';
 
@@ -145,6 +146,21 @@ export const AppNavigator = () => {
         <Stack.Screen 
           name="Wishlist" 
           component={WishlistScreen}
+          options={{ presentation: 'card' }}
+        />
+        <Stack.Screen 
+          name="Cart" 
+          component={CartScreen}
+          options={{ presentation: 'card' }}
+        />
+        <Stack.Screen 
+          name="OrderHistory" 
+          component={OrderHistoryScreen}
+          options={{ presentation: 'card' }}
+        />
+        <Stack.Screen 
+          name="InvoiceDetails" 
+          component={InvoiceDetailsScreen}
           options={{ presentation: 'card' }}
         />
         <Stack.Screen name="Splash" component={SplashScreen} />

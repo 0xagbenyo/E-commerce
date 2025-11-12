@@ -20,6 +20,7 @@ export interface ProductCardProps {
   product: Product;
   onPress?: (productId: string) => void;
   onWishlistPress?: (productId: string) => void;
+  onCartPress?: (productId: string) => void;
   isWishlisted?: boolean;
   style?: any;
   variant?: 'tall' | 'medium' | 'short'; // For staggered layout
@@ -30,6 +31,7 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({
   product,
   onPress,
   onWishlistPress,
+  onCartPress,
   isWishlisted = false,
   style,
   variant = 'medium',
@@ -139,6 +141,21 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({
               name={isWishlisted ? 'heart' : 'heart-outline'}
               size={20}
               color={isWishlisted ? Colors.VIBRANT_PINK : Colors.WHITE}
+            />
+          </TouchableOpacity>
+        )}
+
+        {/* Cart Button */}
+        {onCartPress && (
+          <TouchableOpacity
+            style={styles.cartButton}
+            onPress={() => onCartPress(product.id)}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Ionicons
+              name="cart-outline"
+              size={20}
+              color={Colors.WHITE}
             />
           </TouchableOpacity>
         )}
@@ -265,6 +282,18 @@ const styles = StyleSheet.create({
   wishlistButton: {
     position: 'absolute',
     top: Spacing.MARGIN_SM,
+    right: Spacing.MARGIN_SM,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  
+  cartButton: {
+    position: 'absolute',
+    bottom: Spacing.MARGIN_SM,
     right: Spacing.MARGIN_SM,
     width: 32,
     height: 32,

@@ -16,6 +16,9 @@ import {
   Cart,
   CartItem,
   WishlistItem,
+  ProductReview,
+  SalesInvoice,
+  SalesInvoiceItem,
 } from '../types';
 
 /**
@@ -372,6 +375,7 @@ export const mapERPWebsiteItemToProduct = (websiteItem: any): Product => {
     isOnSale: discountPercentage > 0 || (websiteItem.offers && websiteItem.offers.length > 0),
     createdAt: websiteItem.creation || new Date().toISOString(),
     updatedAt: websiteItem.modified || new Date().toISOString(),
+    itemCode: websiteItem.item_code || websiteItem.item || undefined, // Item doctype code for cart operations
   };
 };
 
@@ -799,4 +803,95 @@ export const transformERPListResponse = <T>(
   mapper: (item: any) => T
 ): T[] => {
   return data.map(mapper);
+};
+
+/**
+ * Map ERPNext Item Review to ProductReview type
+ */
+export const mapERPItemReviewToProductReview = (erpReview: any, websiteItemName: string): ProductReview => {
+  // Extract user name from user field (could be email or name)
+  const userName = erpReview.user || erpReview.customer || 'Anonymous';
+  // If it's an email, extract the name part
+  const displayName = userName.includes('@') 
+    ? userName.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
+    : userName;
+
+  // Parse rating as a float from ERPNext
+  // Use custom_rating_float field (Float field) - fallback to rating field if not available
+  // Handle various formats: number, string, or null/undefined
+  let rating = 0;
+  
+  // Try custom_rating_float first, then fallback to rating field
+  const ratingSource = erpReview.custom_rating_float !== null && erpReview.custom_rating_float !== undefined
+    ? erpReview.custom_rating_float
+    : erpReview.rating;
+  
+  if (ratingSource !== null && ratingSource !== undefined) {
+    if (typeof ratingSource === 'number') {
+      rating = ratingSource;
+    } else if (typeof ratingSource === 'string') {
+      rating = parseFloat(ratingSource);
+      if (isNaN(rating)) {
+        rating = 0;
+      }
+    }
+  }
+  
+  // Debug: Log rating parsing
+  console.log(`Review ${erpReview.name}: custom_rating_float =`, erpReview.custom_rating_float, 'rating =', erpReview.rating, 'parsed =', rating);
+  
+  // Ensure rating is between 0 and 5 (keep as float, don't round)
+  const normalizedRating = Math.max(0, Math.min(5, rating));
+
+  return {
+    id: erpReview.name,
+    productId: erpReview.website_item || websiteItemName,
+    userId: erpReview.user || erpReview.customer || '',
+    userName: displayName,
+    userAvatar: undefined, // ERPNext doesn't typically store avatars in reviews
+    rating: normalizedRating,
+    title: erpReview.review_title || '',
+    comment: stripHtmlTags(erpReview.comment || ''),
+    images: undefined, // Item Review doctype doesn't have image fields in the provided schema
+    helpfulCount: 0, // Not in the provided schema
+    createdAt: erpReview.published_on || erpReview.creation || new Date().toISOString(),
+  };
+};
+
+/**
+ * Map ERPNext Sales Invoice to SalesInvoice type
+ */
+export const mapERPSalesInvoiceToSalesInvoice = (erpInvoice: any): SalesInvoice => {
+  // Use posting_date if available, otherwise fallback to date or creation
+  const invoiceDate = erpInvoice.posting_date || erpInvoice.date || erpInvoice.creation || '';
+  
+  // Items are only available when fetching the full document, not in list queries
+  // For list queries, items will be empty array (will be fetched when viewing details)
+  const items = erpInvoice.items && Array.isArray(erpInvoice.items) && erpInvoice.items.length > 0
+    ? erpInvoice.items.map((item: any) => mapERPSalesInvoiceItemToSalesInvoiceItem(item))
+    : [];
+  
+  return {
+    id: erpInvoice.name,
+    invoiceNumber: erpInvoice.name,
+    customer: erpInvoice.customer || '',
+    date: invoiceDate,
+    postingTime: erpInvoice.posting_time || undefined,
+    grandTotal: erpInvoice.grand_total || 0,
+    status: erpInvoice.status || 'Draft',
+    items: items,
+  };
+};
+
+/**
+ * Map ERPNext Sales Invoice Item to SalesInvoiceItem type
+ */
+const mapERPSalesInvoiceItemToSalesInvoiceItem = (erpItem: any): SalesInvoiceItem => {
+  return {
+    itemCode: erpItem.item_code || '',
+    itemName: erpItem.item_name || undefined,
+    quantity: erpItem.qty || erpItem.quantity || 0,
+    rate: erpItem.rate || 0,
+    amount: erpItem.amount || 0,
+  };
 };

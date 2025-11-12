@@ -60,6 +60,7 @@ export interface Product {
   isOnSale: boolean;
   createdAt: string;
   updatedAt: string;
+  itemCode?: string; // Item doctype code (from Website Item's item_code field)
 }
 
 export interface ProductColor {
@@ -142,6 +143,26 @@ export interface OrderItem {
   price: number;
 }
 
+// Sales Invoice Types
+export interface SalesInvoice {
+  id: string;
+  invoiceNumber: string;
+  customer: string;
+  date: string;
+  postingTime?: string;
+  grandTotal: number;
+  status: string;
+  items: SalesInvoiceItem[];
+}
+
+export interface SalesInvoiceItem {
+  itemCode: string;
+  itemName?: string;
+  quantity: number;
+  rate: number;
+  amount: number;
+}
+
 export type OrderStatus = 
   | 'pending'
   | 'confirmed'
@@ -193,9 +214,11 @@ export type RootStackParamList = {
   CategoryProducts: { categoryName: string; parentName: string };
   AllDeals: { deals: Product[] };
   Wishlist: undefined;
+  Cart: undefined;
   Checkout: undefined;
   OrderSuccess: { orderId?: string };
   OrderHistory: undefined;
+  InvoiceDetails: { invoiceId: string };
   Settings: undefined;
 };
 

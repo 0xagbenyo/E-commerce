@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import {
   Alert,
   ActivityIndicator,
   TextInput,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -20,10 +21,12 @@ import { Colors } from '../constants/colors';
 import { Typography } from '../constants/typography';
 import { Spacing } from '../constants/spacing';
 import { Product, ProductColor, ProductSize } from '../types';
-import { useProduct, usePricingRules } from '../hooks/erpnext';
+import { useProduct, usePricingRules, useProductReviews, useCartActions } from '../hooks/erpnext';
 import { getERPNextClient } from '../services/erpnext';
 import { mapERPWebsiteItemToProduct } from '../services/mappers';
 import { getProductDiscount } from '../utils/pricingRules';
+import { useUserSession } from '../context/UserContext';
+import { Toast } from '../components/Toast';
 
 const { width, height } = Dimensions.get('window');
 
@@ -37,6 +40,34 @@ export const ProductDetailsScreen: React.FC = () => {
   // Fetch product data from API
   const { data: product, loading, error, retry } = useProduct(productId || '');
   const { data: pricingRules = [] } = usePricingRules();
+  const { data: reviews = [], loading: reviewsLoading, refresh: refreshReviews } = useProductReviews(productId || null);
+  const { user } = useUserSession();
+  const [submittingReview, setSubmittingReview] = useState(false);
+  
+  // Cart actions
+  const { addToCart: addItemToCart, isLoading: isAddingToCart } = useCartActions();
+  
+  // Toast state
+  const [toastVisible, setToastVisible] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
+  
+  // Pull-to-refresh state
+  const [refreshing, setRefreshing] = useState(false);
+  
+  // Handle pull-to-refresh
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([
+        retry(),
+        refreshReviews(),
+      ]);
+    } catch (error) {
+      console.error('Error refreshing product data:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [retry, refreshReviews]);
   
   const [selectedColor, setSelectedColor] = useState<ProductColor | null>(null);
   const [selectedSize, setSelectedSize] = useState<ProductSize | null>(null);
@@ -252,22 +283,42 @@ export const ProductDetailsScreen: React.FC = () => {
     return product.price;
   };
 
-  const handleAddToCart = () => {
-    if (!product) return;
+  const handleAddToCart = async () => {
+    if (!product) {
+      Alert.alert('Error', 'Product information is not available.');
+      return;
+    }
+    
+    if (!user?.email) {
+      Alert.alert('Login Required', 'Please log in to add items to your cart.');
+      return;
+    }
     
     if (!selectedSize && product.sizes && product.sizes.length > 0) {
       Alert.alert('Select Size', 'Please select a size before adding to cart.');
       return;
     }
     
-    Alert.alert(
-      'Added to Cart',
-      `${product.name}${selectedSize ? ` (${selectedSize.name})` : ''}${selectedColor ? `, ${selectedColor.name}` : ''} has been added to your cart!`,
-      [
-        { text: 'Continue Shopping', style: 'cancel' },
-        { text: 'View Cart', onPress: () => navigation.navigate('Cart' as never) },
-      ]
-    );
+    try {
+      // Get the item_code from the raw Website Item data or product
+      // The Website Item has an 'item_code' field that links to the Item doctype
+      // This is what we need to add to the cart
+      const itemCode = rawWebsiteItem?.item_code || product?.itemCode || productId;
+      
+      console.log('Adding to cart:', { itemCode, quantity, productId, rawWebsiteItem: rawWebsiteItem?.item_code, productItemCode: product?.itemCode });
+      
+      const success = await addItemToCart(itemCode, quantity);
+      
+      if (success) {
+        setToastMessage('Item added to cart!');
+        setToastVisible(true);
+      } else {
+        Alert.alert('Error', 'Failed to add item to cart. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error adding to cart:', error);
+      Alert.alert('Error', 'Failed to add item to cart. Please try again.');
+    }
   };
 
   const handleBuyNow = () => {
@@ -695,7 +746,28 @@ export const ProductDetailsScreen: React.FC = () => {
     );
   };
 
-  const handleSubmitReview = () => {
+  const handleSubmitReview = async () => {
+    // Check if user is logged in
+    if (!user?.email) {
+      Alert.alert(
+        'Login Required',
+        'Please log in to submit a review.',
+        [
+          {
+            text: 'Cancel',
+            style: 'cancel',
+          },
+          {
+            text: 'Login',
+            onPress: () => {
+              (navigation as any).navigate('Login');
+            },
+          },
+        ]
+      );
+      return;
+    }
+
     if (reviewRating === 0) {
       Alert.alert('Rating Required', 'Please select a rating before submitting your review.');
       return;
@@ -709,22 +781,49 @@ export const ProductDetailsScreen: React.FC = () => {
       return;
     }
 
-    // TODO: Submit review to API
-    Alert.alert(
-      'Review Submitted',
-      'Thank you for your review! It will be published after moderation.',
-      [
-        {
-          text: 'OK',
-          onPress: () => {
-            setShowReviewForm(false);
-            setReviewRating(0);
-            setReviewTitle('');
-            setReviewComment('');
+    if (!productId) {
+      Alert.alert('Error', 'Product ID is missing.');
+      return;
+    }
+
+    setSubmittingReview(true);
+
+    try {
+      const client = getERPNextClient();
+      await client.createItemReview(productId, user.email, {
+        rating: reviewRating,
+        review_title: reviewTitle.trim(),
+        comment: reviewComment.trim(),
+      });
+
+      // Success - refresh reviews and reset form
+      Alert.alert(
+        'Review Submitted',
+        'Thank you for your review! It has been published.',
+        [
+          {
+            text: 'OK',
+            onPress: () => {
+              setShowReviewForm(false);
+              setReviewRating(0);
+              setReviewTitle('');
+              setReviewComment('');
+              // Refresh reviews list
+              refreshReviews();
+            },
           },
-        },
-      ]
-    );
+        ]
+      );
+    } catch (error: any) {
+      console.error('Error submitting review:', error);
+      Alert.alert(
+        'Error',
+        error.message || 'Failed to submit review. Please try again.',
+        [{ text: 'OK' }]
+      );
+    } finally {
+      setSubmittingReview(false);
+    }
   };
 
   const renderReviewForm = () => {
@@ -791,10 +890,15 @@ export const ProductDetailsScreen: React.FC = () => {
             <Text style={styles.reviewFormButtonTextCancel}>Cancel</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.reviewFormButton, styles.reviewFormButtonSubmit]}
+            style={[styles.reviewFormButton, styles.reviewFormButtonSubmit, submittingReview && styles.reviewFormButtonDisabled]}
             onPress={handleSubmitReview}
+            disabled={submittingReview}
           >
-            <Text style={styles.reviewFormButtonTextSubmit}>Submit Review</Text>
+            {submittingReview ? (
+              <ActivityIndicator size="small" color={Colors.WHITE} />
+            ) : (
+              <Text style={styles.reviewFormButtonTextSubmit}>Submit Review</Text>
+            )}
           </TouchableOpacity>
         </View>
       </View>
@@ -874,11 +978,16 @@ export const ProductDetailsScreen: React.FC = () => {
   };
 
   const renderIndividualReviews = () => {
-    // Note: Individual reviews would need to come from a custom ERPNext doctype
-    // For now, we show a message that reviews are based on the product's rating
-    // In a real implementation, you would fetch reviews from a custom "Product Review" doctype
-    
-    if (!product || product.reviewCount === 0) {
+    if (reviewsLoading) {
+      return (
+        <View style={styles.individualReviewsContainer}>
+          <ActivityIndicator size="small" color={Colors.SHEIN_PINK} />
+          <Text style={styles.loadingReviewsText}>Loading reviews...</Text>
+        </View>
+      );
+    }
+
+    if (!reviews || reviews.length === 0) {
       return (
         <View style={styles.individualReviewsContainer}>
           <Text style={styles.noReviewsText}>
@@ -888,18 +997,58 @@ export const ProductDetailsScreen: React.FC = () => {
       );
     }
 
-    // If you have a custom review doctype in ERPNext, you would fetch it here:
-    // const reviews = await client.getReviews(productId);
-    // For now, we show a placeholder message
-    
     return (
       <View style={styles.individualReviewsContainer}>
-        <Text style={styles.reviewsNoteText}>
-          Individual reviews are based on the product's overall rating of {product.rating.toFixed(2)} stars from {product.reviewCount} reviews.
-        </Text>
-        <Text style={styles.reviewsNoteSubtext}>
-          To display individual customer reviews, implement a custom "Product Review" doctype in ERPNext and fetch reviews using the ERPNext API.
-        </Text>
+        {reviews.map((review) => (
+          <View key={review.id} style={styles.reviewItem}>
+            <View style={styles.reviewHeader}>
+              <View style={styles.reviewUserInfo}>
+                <View style={styles.reviewAvatar}>
+                  <Text style={styles.reviewAvatarText}>
+                    {review.userName.charAt(0).toUpperCase()}
+                  </Text>
+                </View>
+                <View style={styles.reviewUserDetails}>
+                  <Text style={styles.reviewUserName}>{review.userName}</Text>
+                  <Text style={styles.reviewDate}>
+                    {new Date(review.createdAt).toLocaleDateString('en-US', {
+                      year: 'numeric',
+                      month: 'short',
+                      day: 'numeric',
+                    })}
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.reviewRating}>
+                {[1, 2, 3, 4, 5].map((star) => {
+                  // Get rating as float - ensure it's a number
+                  const ratingValue = typeof review.rating === 'number' 
+                    ? review.rating 
+                    : (typeof review.rating === 'string' ? parseFloat(review.rating) : 0) || 0;
+                  
+                  // Fill star if current star number is less than or equal to the rating
+                  // For example: rating 4.5 fills stars 1, 2, 3, 4 (and half of 5 if we had half stars)
+                  const isFilled = star <= ratingValue;
+                  
+                  return (
+                    <Ionicons
+                      key={star}
+                      name="star"
+                      size={14}
+                      color={isFilled ? Colors.WARNING : Colors.LIGHT_GRAY}
+                    />
+                  );
+                })}
+              </View>
+            </View>
+            {review.title && (
+              <Text style={styles.reviewTitle}>{review.title}</Text>
+            )}
+            {review.comment && (
+              <Text style={styles.reviewComment}>{review.comment}</Text>
+            )}
+          </View>
+        ))}
       </View>
     );
   };
@@ -910,8 +1059,39 @@ export const ProductDetailsScreen: React.FC = () => {
     return (
       <View style={styles.reviewsSection}>
         <View style={styles.reviewsHeader}>
-          <Text style={styles.reviewsTitle}>Reviews ({(product.reviewCount || 0) > 0 ? `${product.reviewCount}+` : '0'})</Text>
-            </View>
+          <Text style={styles.reviewsTitle}>Reviews ({reviews && reviews.length > 0 ? `${reviews.length}` : '0'})</Text>
+          <TouchableOpacity
+            style={styles.addReviewButton}
+            onPress={() => {
+              if (!user?.email) {
+                Alert.alert(
+                  'Login Required',
+                  'Please log in to write a review.',
+                  [
+                    {
+                      text: 'Cancel',
+                      style: 'cancel',
+                    },
+                    {
+                      text: 'Login',
+                      onPress: () => {
+                        (navigation as any).navigate('Login');
+                      },
+                    },
+                  ]
+                );
+              } else {
+                setShowReviewForm(true);
+              }
+            }}
+          >
+            <Ionicons name="add-circle-outline" size={20} color={Colors.SHEIN_PINK} />
+            <Text style={styles.addReviewButtonText}>Write Review</Text>
+          </TouchableOpacity>
+        </View>
+        
+        {/* Review Form */}
+        {renderReviewForm()}
         
         {/* Overall Rating */}
         <View style={styles.overallRatingContainer}>
@@ -1147,6 +1327,15 @@ export const ProductDetailsScreen: React.FC = () => {
           </View>
         )}
 
+        {/* Color Options */}
+        {renderColorOptions()}
+
+        {/* Size Options */}
+        {renderSizeOptions()}
+
+        {/* Quantity Selector */}
+        {renderQuantitySelector()}
+
       </View>
     );
   };
@@ -1224,6 +1413,12 @@ export const ProductDetailsScreen: React.FC = () => {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
+      <Toast
+        message={toastMessage}
+        type="success"
+        visible={toastVisible}
+        onHide={() => setToastVisible(false)}
+      />
       {renderTopNavigation()}
       {renderTabs()}
       <ScrollView
@@ -1231,6 +1426,14 @@ export const ProductDetailsScreen: React.FC = () => {
         showsVerticalScrollIndicator={false}
         onScroll={handleScroll}
         scrollEventThrottle={16}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={Colors.SHEIN_PINK}
+            colors={[Colors.SHEIN_PINK]}
+          />
+        }
       >
         {renderImageCarousel()}
         
@@ -1288,9 +1491,13 @@ export const ProductDetailsScreen: React.FC = () => {
         <TouchableOpacity
           style={styles.addToCartBottomButton}
           onPress={handleAddToCart}
-          disabled={!product?.inStock}
+          disabled={!product?.inStock || isAddingToCart || !product}
         >
-          <Text style={styles.addToCartBottomText}>Add to Cart</Text>
+          {isAddingToCart ? (
+            <ActivityIndicator size="small" color={Colors.WHITE} />
+          ) : (
+            <Text style={styles.addToCartBottomText}>Add to Cart</Text>
+          )}
           {calculateDiscount() > 0 && (
             <Text style={styles.addToCartBottomDiscount}>
               {calculateDiscount()}% off discount
@@ -1630,12 +1837,30 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing.PADDING_MD,
   },
   reviewsHeader: {
-    marginBottom: Spacing.MARGIN_SM,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: Spacing.MARGIN_MD,
   },
   reviewsTitle: {
-    fontSize: Typography.FONT_SIZE_MD,
+    fontSize: Typography.FONT_SIZE_XL,
     fontWeight: Typography.FONT_WEIGHT_BOLD,
     color: Colors.TEXT_PRIMARY,
+  },
+  addReviewButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.MARGIN_XS,
+    paddingHorizontal: Spacing.PADDING_MD,
+    paddingVertical: Spacing.PADDING_SM,
+    borderRadius: Spacing.BORDER_RADIUS_MD,
+    borderWidth: 1,
+    borderColor: Colors.SHEIN_PINK,
+  },
+  addReviewButtonText: {
+    fontSize: Typography.FONT_SIZE_SM,
+    fontWeight: Typography.FONT_WEIGHT_MEDIUM,
+    color: Colors.SHEIN_PINK,
   },
   overallRatingContainer: {
     flexDirection: 'row',
@@ -1747,34 +1972,62 @@ const styles = StyleSheet.create({
     color: Colors.TEXT_PRIMARY,
   },
   individualReviewsContainer: {
-    gap: Spacing.MARGIN_SM,
+    paddingVertical: Spacing.PADDING_MD,
+  },
+  loadingReviewsText: {
+    fontSize: Typography.FONT_SIZE_SM,
+    color: Colors.TEXT_SECONDARY,
+    textAlign: 'center',
+    marginTop: Spacing.MARGIN_SM,
+  },
+  noReviewsText: {
+    fontSize: Typography.FONT_SIZE_MD,
+    color: Colors.TEXT_SECONDARY,
+    textAlign: 'center',
+    paddingVertical: Spacing.PADDING_LG,
   },
   reviewItem: {
-    marginBottom: Spacing.MARGIN_SM,
-    paddingBottom: Spacing.PADDING_SM,
+    paddingVertical: Spacing.PADDING_MD,
     borderBottomWidth: 1,
     borderBottomColor: Colors.BORDER,
-  },
-  reviewItemHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: Spacing.MARGIN_SM,
   },
   reviewHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     marginBottom: Spacing.MARGIN_SM,
   },
-  reviewerName: {
-    fontSize: Typography.FONT_SIZE_MD,
-    fontWeight: Typography.FONT_WEIGHT_SEMIBOLD,
-    color: Colors.TEXT_PRIMARY,
-  },
-  reviewStars: {
+  reviewUserInfo: {
     flexDirection: 'row',
-    gap: 2,
+    alignItems: 'center',
+    flex: 1,
+  },
+  reviewAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: Colors.SHEIN_PINK,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: Spacing.MARGIN_SM,
+  },
+  reviewAvatarText: {
+    fontSize: Typography.FONT_SIZE_MD,
+    fontWeight: Typography.FONT_WEIGHT_BOLD,
+    color: Colors.WHITE,
+  },
+  reviewUserDetails: {
+    flex: 1,
+  },
+  reviewUserName: {
+    fontSize: Typography.FONT_SIZE_MD,
+    fontWeight: Typography.FONT_WEIGHT_MEDIUM,
+    color: Colors.TEXT_PRIMARY,
+    marginBottom: 2,
+  },
+  reviewDate: {
+    fontSize: Typography.FONT_SIZE_SM,
+    color: Colors.TEXT_SECONDARY,
   },
   reviewRating: {
     flexDirection: 'row',
@@ -1782,24 +2035,19 @@ const styles = StyleSheet.create({
   },
   reviewTitle: {
     fontSize: Typography.FONT_SIZE_MD,
-    fontWeight: Typography.FONT_WEIGHT_SEMIBOLD,
+    fontWeight: Typography.FONT_WEIGHT_MEDIUM,
     color: Colors.TEXT_PRIMARY,
-    marginBottom: Spacing.MARGIN_SM,
+    marginBottom: Spacing.MARGIN_XS,
   },
   reviewComment: {
     fontSize: Typography.FONT_SIZE_SM,
     color: Colors.TEXT_SECONDARY,
-    lineHeight: Typography.FONT_SIZE_SM * 1.4,
-    marginBottom: Spacing.MARGIN_SM,
+    lineHeight: 20,
   },
   reviewFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-  },
-  reviewDate: {
-    fontSize: Typography.FONT_SIZE_XS,
-    color: Colors.TEXT_SECONDARY,
   },
   helpfulButton: {
     flexDirection: 'row',
@@ -1984,6 +2232,9 @@ const styles = StyleSheet.create({
   reviewFormButtonSubmit: {
     backgroundColor: Colors.SHEIN_PINK,
   },
+  reviewFormButtonDisabled: {
+    opacity: 0.6,
+  },
   reviewFormButtonTextCancel: {
     color: Colors.TEXT_PRIMARY,
     fontSize: Typography.FONT_SIZE_MD,
@@ -2012,13 +2263,6 @@ const styles = StyleSheet.create({
     color: Colors.WHITE,
     fontSize: Typography.FONT_SIZE_SM,
     fontWeight: Typography.FONT_WEIGHT_BOLD,
-  },
-  noReviewsText: {
-    fontSize: Typography.FONT_SIZE_SM,
-    color: Colors.TEXT_SECONDARY,
-    fontStyle: 'italic',
-    textAlign: 'center',
-    padding: Spacing.PADDING_LG,
   },
   reviewDetails: {
     fontSize: Typography.FONT_SIZE_XS,

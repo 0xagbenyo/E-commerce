@@ -571,6 +571,45 @@ class ERPNextClient {
     }
   }
 
+  // Get User by email
+  async getUserByEmail(email: string): Promise<any> {
+    try {
+      const response = await this.client.get(`${API_VERSION}/User`, {
+        params: {
+          fields: JSON.stringify(['name', 'email', 'full_name', 'first_name', 'last_name', 'middle_name', 'mobile_no']),
+          filters: JSON.stringify([
+            ['email', '=', email]
+          ]),
+          limit_page_length: 1,
+        },
+      });
+
+      if (response.data.data && response.data.data.length > 0) {
+        const user = response.data.data[0];
+        // Fetch full user document to get image field (not queryable in list views)
+        if (user.name) {
+          try {
+            const fullUser = await this.client.get(`${API_VERSION}/User/${user.name}`);
+            if (fullUser.data.data) {
+              return { ...user, image: fullUser.data.data.image };
+            }
+          } catch (error) {
+            // If fetching full document fails, return user without image
+            console.warn('Could not fetch full user document for image:', error);
+          }
+        }
+        return user;
+      }
+      return null;
+    } catch (error) {
+      // If user not found, return null instead of throwing
+      if ((error as any)?.response?.status === 404 || (error as any)?.response?.status === 417) {
+        return null;
+      }
+      throw this.handleError(error);
+    }
+  }
+
   // CUSTOMERS
   async getCustomer(customerId: string): Promise<any> {
     try {
@@ -1276,17 +1315,32 @@ class ERPNextClient {
     limit: number = 20
   ): Promise<any[]> {
     try {
+      // Return empty array if customerId is empty or invalid
+      if (!customerId || customerId.trim() === '') {
+        return [];
+      }
+
       const filters = [['Sales Order', 'customer', '=', customerId]];
       if (company) {
         filters.push(['Sales Order', 'company', '=', company]);
       }
 
-      let url = `${API_VERSION}/Sales Order?fields=["name","customer","company","status","total","posting_date"]&limit_page_length=${limit}`;
-      url += `&filters=${encodeURIComponent(JSON.stringify(filters))}`;
-
-      const response = await this.client.get(url);
-      return response.data.data;
+      const response = await this.client.get(`${API_VERSION}/Sales Order`, {
+        params: {
+          fields: JSON.stringify(['name', 'customer', 'company', 'status', 'total', 'posting_date']),
+          filters: JSON.stringify(filters),
+          limit_page_length: limit,
+        },
+      });
+      
+      return response.data.data || [];
     } catch (error) {
+      // If it's a JSON decode error or filter error, return empty array
+      const errorMessage = (error as any)?.response?.data?.exc || (error as any)?.message || '';
+      if (errorMessage.includes('JSONDecodeError') || errorMessage.includes('Expecting value')) {
+        console.warn('Invalid filters for Sales Order query, returning empty array');
+        return [];
+      }
       throw this.handleError(error);
     }
   }
@@ -1303,7 +1357,92 @@ class ERPNextClient {
     }
   }
 
-  // INVOICES
+  // SALES INVOICES
+  async getSalesInvoices(
+    userEmail: string,
+    limit: number = 20
+  ): Promise<any[]> {
+    try {
+      // Return empty array if userEmail is empty or invalid
+      if (!userEmail || userEmail.trim() === '') {
+        return [];
+      }
+
+      // Use session client for user-specific operations
+      const sessionClient = this.getSessionClient();
+
+      // Filter by custom_user field to get invoices for the logged-in user
+      const filters = [['Sales Invoice', 'custom_user', '=', userEmail]];
+
+      const response = await sessionClient.get(`${API_VERSION}/Sales Invoice`, {
+        params: {
+          fields: JSON.stringify(['name', 'customer', 'posting_date', 'grand_total', 'status', 'custom_user']),
+          filters: JSON.stringify(filters),
+          limit_page_length: limit,
+          order_by: 'posting_date desc',
+        },
+      });
+      
+      const invoices = response.data.data || [];
+      console.log(`📄 Fetched ${invoices.length} Sales Invoices for user ${userEmail}`);
+      if (invoices.length > 0) {
+        console.log('Sample invoice:', {
+          name: invoices[0].name,
+          customer: invoices[0].customer,
+          custom_user: invoices[0].custom_user,
+          posting_date: invoices[0].posting_date,
+          grand_total: invoices[0].grand_total,
+          status: invoices[0].status,
+        });
+      }
+      
+      return invoices;
+    } catch (error) {
+      console.error('Error fetching Sales Invoices:', error);
+      // If it's a JSON decode error or filter error, return empty array
+      const errorMessage = (error as any)?.response?.data?.exc || (error as any)?.message || '';
+      if (errorMessage.includes('JSONDecodeError') || errorMessage.includes('Expecting value')) {
+        console.warn('Invalid filters for Sales Invoice query, returning empty array');
+        return [];
+      }
+      throw this.handleError(error);
+    }
+  }
+
+  async getSalesInvoice(invoiceName: string): Promise<any> {
+    try {
+      // Use session client for user-specific operations
+      const sessionClient = this.getSessionClient();
+      
+      // Fetch the full invoice document by name to get child table data (items)
+      const response = await sessionClient.get(`${API_VERSION}/Sales Invoice/${invoiceName}`);
+      
+      if (response.data.data) {
+        const invoice = response.data.data;
+        
+        console.log('Sales Invoice fetched:', {
+          name: invoice.name,
+          customer: invoice.customer,
+          date: invoice.date,
+          posting_time: invoice.posting_time,
+          itemsCount: invoice.items?.length || 0,
+          items: invoice.items,
+        });
+        
+        return invoice;
+      }
+      
+      return null;
+    } catch (error) {
+      // If invoice not found, return null instead of throwing
+      if ((error as any)?.response?.status === 404 || (error as any)?.response?.status === 417) {
+        return null;
+      }
+      throw this.handleError(error);
+    }
+  }
+
+  // INVOICES (Legacy - keeping for backward compatibility)
   async createInvoice(invoiceData: {
     customer: string;
     company: string;
@@ -1650,11 +1789,12 @@ class ERPNextClient {
       // Use session client for user-specific operations
       const sessionClient = this.getSessionClient();
       
-      // Fetch wishlist by user email
-      // Note: Child tables need to be expanded explicitly in ERPNext API
-      const response = await sessionClient.get(`${API_VERSION}/Wishlist`, {
+      console.log('Fetching wishlist for user:', userEmail);
+      
+      // First, get the wishlist name by querying with filters
+      const listResponse = await sessionClient.get(`${API_VERSION}/Wishlist`, {
         params: {
-          fields: JSON.stringify(['name', 'user', 'items']),
+          fields: JSON.stringify(['name', 'user']),
           filters: JSON.stringify([
             ['Wishlist', 'user', '=', userEmail]
           ]),
@@ -1662,21 +1802,71 @@ class ERPNextClient {
         },
       });
       
-      if (response.data.data && response.data.data.length > 0) {
-        const wishlist = response.data.data[0];
+      if (!listResponse.data.data || listResponse.data.data.length === 0) {
+        console.log('No wishlist found for user:', userEmail);
+        return null;
+      }
+      
+      const wishlistName = listResponse.data.data[0].name;
+      console.log('Found wishlist name:', wishlistName);
+      
+      // Fetch the full wishlist document by name to get child table data
+      // ERPNext child tables are typically only available when fetching a single document by name
+      const response = await sessionClient.get(`${API_VERSION}/Wishlist/${wishlistName}`);
+      
+      if (response.data.data) {
+        const wishlist = response.data.data;
         
-        // If items is not an array or is empty, ensure it's initialized
-        if (!wishlist.items || !Array.isArray(wishlist.items)) {
-          wishlist.items = [];
+        console.log('Wishlist fetched:', {
+          name: wishlist.name,
+          user: wishlist.user,
+          itemsCount: wishlist.items?.length || 0,
+          items: wishlist.items,
+          allKeys: Object.keys(wishlist),
+        });
+        
+        // Check for child table in different possible formats
+        // ERPNext might return child tables with different names
+        let items = wishlist.items;
+        
+        // Try alternative child table names
+        if (!items || !Array.isArray(items) || items.length === 0) {
+          const possibleTableNames = ['items', 'wishlist_items', 'wishlist_item', 'item'];
+          for (const tableName of possibleTableNames) {
+            if (wishlist[tableName] && Array.isArray(wishlist[tableName]) && wishlist[tableName].length > 0) {
+              console.log(`Found items in alternative table name: ${tableName}`);
+              items = wishlist[tableName];
+              break;
+            }
+          }
         }
+        
+        // Ensure items is an array
+        if (!items || !Array.isArray(items)) {
+          console.log('Items is not an array, initializing empty array');
+          items = [];
+        }
+        
+        // Attach items to wishlist object
+        wishlist.items = items;
+        
+        console.log('Final wishlist:', {
+          name: wishlist.name,
+          user: wishlist.user,
+          itemsCount: wishlist.items.length,
+          items: wishlist.items,
+        });
         
         return wishlist;
       }
       
+      console.log('No wishlist data in response');
       return null;
     } catch (error) {
+      console.error('Error fetching wishlist:', error);
       // If wishlist doesn't exist, return null instead of throwing
       if ((error as any)?.response?.status === 404 || (error as any)?.response?.status === 417) {
+        console.log('Wishlist not found (404/417), returning null');
         return null;
       }
       throw this.handleError(error);
@@ -1876,6 +2066,382 @@ class ERPNextClient {
       });
       return response.data.data;
     } catch (error) {
+      throw this.handleError(error);
+    }
+  }
+
+  /**
+   * Get all reviews for a specific Website Item
+   * @param websiteItemName - The name (ID) of the Website Item
+   * @returns Array of review documents
+   */
+  async getItemReviews(websiteItemName: string): Promise<any[]> {
+    try {
+      const response = await this.client.get(
+        `${API_VERSION}/Item Review?filters=[["website_item","=","${websiteItemName}"]]&fields=["name","website_item","user","customer","review_title","rating","custom_rating_float","comment","published_on","creation"]&order_by=creation desc&limit_page_length=100`
+      );
+      
+      if (response.data && response.data.data) {
+        // Debug: Log raw rating values from ERPNext
+        console.log('Raw reviews from ERPNext:', response.data.data.map((r: any) => ({
+          name: r.name,
+          rating: r.rating,
+          custom_rating_float: r.custom_rating_float,
+          ratingType: typeof r.rating,
+          customRatingFloatType: typeof r.custom_rating_float,
+        })));
+        return response.data.data;
+      }
+      return [];
+    } catch (error) {
+      console.error('Error fetching item reviews:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Create a new review for a Website Item
+   * Requires session authentication (user must be logged in)
+   * @param websiteItemName - The name (ID) of the Website Item
+   * @param userEmail - The email of the logged-in user
+   * @param reviewData - Review data including rating, title, comment
+   * @returns Created review document
+   */
+  async createItemReview(
+    websiteItemName: string,
+    userEmail: string,
+    reviewData: {
+      rating: number;
+      review_title: string;
+      comment: string;
+    }
+  ): Promise<any> {
+    if (!userEmail) {
+      throw new Error('User email is required to create a review');
+    }
+
+    const sessionClient = this.getSessionClient();
+
+    // Ensure rating is sent as a float number to custom_rating_float field
+    // Convert to float explicitly
+    let ratingValue = 0;
+    if (typeof reviewData.rating === 'number') {
+      ratingValue = reviewData.rating;
+    } else if (typeof reviewData.rating === 'string') {
+      ratingValue = parseFloat(reviewData.rating) || 0;
+    }
+    
+    // Ensure rating is between 1 and 5
+    const normalizedRating = Math.max(1.0, Math.min(5.0, ratingValue));
+    
+    // Convert to float explicitly
+    const floatRating = parseFloat(normalizedRating.toFixed(1));
+
+    // Debug: Log what we're sending
+    console.log('Creating review with rating:', {
+      original: reviewData.rating,
+      originalType: typeof reviewData.rating,
+      normalized: floatRating,
+      normalizedType: typeof floatRating,
+      value: floatRating,
+    });
+
+    // Create the review document
+    // Use custom_rating_float field (Float field type) to store rating
+    const reviewPayload = {
+      website_item: websiteItemName,
+      user: userEmail,
+      custom_rating_float: floatRating, // Send as float to custom_rating_float field
+      review_title: reviewData.review_title,
+      comment: reviewData.comment,
+      published_on: new Date().toISOString().split('T')[0], // Today's date in YYYY-MM-DD format
+    };
+
+    console.log('Review payload being sent to ERPNext:', JSON.stringify(reviewPayload, null, 2));
+
+    const response = await sessionClient.post(`${API_VERSION}/Item Review`, reviewPayload);
+    return response.data.data;
+  }
+
+  /**
+   * Get shopping cart for a user
+   * Fetches the Shopping Cart document for the given user email
+   * Structure:
+   *   - user: userEmail (Link field)
+   *   - items: Child table array with:
+   *     - item_code: Link to Item doctype
+   *     - quantity: Integer
+   */
+  async getShoppingCart(userEmail: string): Promise<any> {
+    try {
+      const sessionClient = this.getSessionClient();
+      
+      // First, query for the cart by user email
+      const queryResponse = await sessionClient.get(
+        `${API_VERSION}/Shopping Cart?filters=[["user","=","${userEmail}"]]&fields=["name","user"]&limit_page_length=1`
+      );
+      
+      if (!queryResponse.data || !queryResponse.data.data || queryResponse.data.data.length === 0) {
+        console.log('No shopping cart found for user:', userEmail);
+        return null;
+      }
+      
+      const cartName = queryResponse.data.data[0].name;
+      console.log('Found shopping cart:', cartName);
+      
+      // Fetch the full cart document by name to get child table data
+      const response = await sessionClient.get(`${API_VERSION}/Shopping Cart/${cartName}`);
+      
+      if (response.data && response.data.data) {
+        const cart = response.data.data;
+        
+        // Ensure items array exists
+        let items = cart.items || [];
+        
+        // Handle different possible field names for child table
+        if (!items || !Array.isArray(items)) {
+          // Try alternative field names
+          items = cart.items_table || cart.cart_items || [];
+        }
+        
+        // Ensure items is an array
+        if (!items || !Array.isArray(items)) {
+          console.log('Items is not an array, initializing empty array');
+          items = [];
+        }
+        
+        // Attach items to cart object
+        cart.items = items;
+        
+        console.log('Final shopping cart:', {
+          name: cart.name,
+          user: cart.user,
+          itemsCount: cart.items.length,
+          items: cart.items,
+        });
+        
+        return cart;
+      }
+      
+      console.log('No cart data in response');
+      return null;
+    } catch (error) {
+      console.error('Error fetching shopping cart:', error);
+      // If cart doesn't exist, return null instead of throwing
+      if ((error as any)?.response?.status === 404 || (error as any)?.response?.status === 417) {
+        console.log('Shopping cart not found (404/417), returning null');
+        return null;
+      }
+      throw this.handleError(error);
+    }
+  }
+
+  /**
+   * Create a new shopping cart for a user
+   * Creates a Shopping Cart document with:
+   *   - user: userEmail (Link field)
+   *   - items: [] (Child table - empty initially)
+   */
+  async createShoppingCart(userEmail: string): Promise<any> {
+    try {
+      const sessionClient = this.getSessionClient();
+      
+      const cartData = {
+        user: userEmail, // Link field to User doctype
+        items: [], // Child table - empty array initially
+      };
+      
+      console.log('Creating shopping cart for user:', userEmail);
+      const response = await sessionClient.post(`${API_VERSION}/Shopping Cart`, cartData);
+      console.log('Shopping cart created successfully:', response.data.data?.name);
+      
+      // Ensure items array is initialized
+      if (!response.data.data.items) {
+        response.data.data.items = [];
+      }
+      
+      return response.data.data;
+    } catch (error) {
+      console.error('Error creating shopping cart:', error);
+      throw this.handleError(error);
+    }
+  }
+
+  /**
+   * Add item to shopping cart
+   * If cart doesn't exist, creates it first
+   * 
+   * Structure:
+   *   Parent DocType: Shopping Cart
+   *     - user: userEmail (Link field)
+   *     - items: Child table array
+   *   
+   *   Child Table Row:
+   *     - item_code: itemCode (Link to Item doctype)
+   *     - quantity: quantity (Integer)
+   */
+  async addToCart(userEmail: string, itemCode: string, quantity: number = 1): Promise<any> {
+    try {
+      // Get existing cart or create new one
+      let cart = await this.getShoppingCart(userEmail);
+      
+      if (!cart) {
+        console.log('Shopping cart not found, creating new cart for user:', userEmail);
+        cart = await this.createShoppingCart(userEmail);
+      }
+      
+      // Ensure items array exists
+      if (!cart.items || !Array.isArray(cart.items)) {
+        cart.items = [];
+      }
+      
+      // Check if item already exists in cart
+      const existingItemIndex = cart.items.findIndex(
+        (item: any) => item.item_code === itemCode || item.item === itemCode
+      );
+      
+      const sessionClient = this.getSessionClient();
+      
+      if (existingItemIndex >= 0) {
+        // Update quantity if item already exists
+        cart.items[existingItemIndex].quantity = (cart.items[existingItemIndex].quantity || 0) + quantity;
+        console.log('Updating existing item in cart:', itemCode, 'new quantity:', cart.items[existingItemIndex].quantity);
+      } else {
+        // Add new item to cart
+        cart.items.push({
+          item_code: itemCode,
+          quantity: quantity,
+        });
+        console.log('Adding new item to cart:', itemCode, 'quantity:', quantity);
+      }
+      
+      // Update cart in ERPNext
+      const updatePayload = {
+        items: cart.items,
+      };
+      
+      const response = await sessionClient.put(`${API_VERSION}/Shopping Cart/${cart.name}`, updatePayload);
+      console.log('Cart updated successfully');
+      
+      return response.data.data;
+    } catch (error) {
+      console.error('Error adding to cart:', error);
+      throw this.handleError(error);
+    }
+  }
+
+  /**
+   * Remove item from shopping cart
+   * Removes an item from the cart's items child table
+   */
+  async removeFromCart(userEmail: string, itemCode: string): Promise<any> {
+    try {
+      const cart = await this.getShoppingCart(userEmail);
+      
+      if (!cart) {
+        throw new Error('Shopping cart not found');
+      }
+      
+      // Ensure items array exists
+      if (!cart.items || !Array.isArray(cart.items)) {
+        cart.items = [];
+      }
+      
+      // Remove item from cart
+      cart.items = cart.items.filter(
+        (item: any) => item.item_code !== itemCode && item.item !== itemCode
+      );
+      
+      const sessionClient = this.getSessionClient();
+      
+      // Update cart in ERPNext
+      const updatePayload = {
+        items: cart.items,
+      };
+      
+      const response = await sessionClient.put(`${API_VERSION}/Shopping Cart/${cart.name}`, updatePayload);
+      console.log('Item removed from cart successfully');
+      
+      return response.data.data;
+    } catch (error) {
+      console.error('Error removing from cart:', error);
+      throw this.handleError(error);
+    }
+  }
+
+  /**
+   * Update item quantity in shopping cart
+   */
+  async updateCartItemQuantity(userEmail: string, itemCode: string, quantity: number): Promise<any> {
+    try {
+      const cart = await this.getShoppingCart(userEmail);
+      
+      if (!cart) {
+        throw new Error('Shopping cart not found');
+      }
+      
+      // Ensure items array exists
+      if (!cart.items || !Array.isArray(cart.items)) {
+        cart.items = [];
+      }
+      
+      // Find and update item
+      const itemIndex = cart.items.findIndex(
+        (item: any) => item.item_code === itemCode || item.item === itemCode
+      );
+      
+      if (itemIndex < 0) {
+        throw new Error('Item not found in cart');
+      }
+      
+      if (quantity <= 0) {
+        // Remove item if quantity is 0 or less
+        return await this.removeFromCart(userEmail, itemCode);
+      }
+      
+      cart.items[itemIndex].quantity = quantity;
+      
+      const sessionClient = this.getSessionClient();
+      
+      // Update cart in ERPNext
+      const updatePayload = {
+        items: cart.items,
+      };
+      
+      const response = await sessionClient.put(`${API_VERSION}/Shopping Cart/${cart.name}`, updatePayload);
+      console.log('Cart item quantity updated successfully');
+      
+      return response.data.data;
+    } catch (error) {
+      console.error('Error updating cart item quantity:', error);
+      throw this.handleError(error);
+    }
+  }
+
+  /**
+   * Clear all items from shopping cart
+   */
+  async clearCart(userEmail: string): Promise<any> {
+    try {
+      const cart = await this.getShoppingCart(userEmail);
+      
+      if (!cart) {
+        return null; // Cart doesn't exist, nothing to clear
+      }
+      
+      const sessionClient = this.getSessionClient();
+      
+      // Clear items array
+      const updatePayload = {
+        items: [],
+      };
+      
+      const response = await sessionClient.put(`${API_VERSION}/Shopping Cart/${cart.name}`, updatePayload);
+      console.log('Cart cleared successfully');
+      
+      return response.data.data;
+    } catch (error) {
+      console.error('Error clearing cart:', error);
       throw this.handleError(error);
     }
   }

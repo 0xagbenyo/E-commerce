@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   Dimensions,
   SafeAreaView,
   Image,
+  RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRoute, useNavigation } from '@react-navigation/native';
@@ -61,15 +62,12 @@ export const CategoryProductsScreen: React.FC = () => {
     
     const actualSet = new Set(wishlistItems.map(item => item.productId));
     setOptimisticWishlist(prev => {
-      const newSet = new Set(prev);
-      // Remove items that are no longer in the actual wishlist
-      prev.forEach(id => {
-        if (!actualSet.has(id)) {
-          newSet.delete(id);
-        }
-      });
+      // Clear optimistic state and sync with actual wishlist
+      // This ensures we start fresh after operations complete
+      const newSet = new Set(actualSet);
+      
       // Only update if there's a change to prevent unnecessary re-renders
-      if (newSet.size !== prev.size || Array.from(newSet).some(id => !prev.has(id))) {
+      if (newSet.size !== prev.size || Array.from(newSet).some(id => !prev.has(id)) || Array.from(prev).some(id => !newSet.has(id))) {
         return newSet;
       }
       return prev; // Return same reference if no change
@@ -82,8 +80,26 @@ export const CategoryProductsScreen: React.FC = () => {
   const [sortBy, setSortBy] = useState('relevant');
   
   // Use selectedCategory state instead of route params for fetching products
-  const { data: products, loading: productsLoading } = useProductsByCategory(selectedCategory, 50);
+  const { data: products, loading: productsLoading, refresh: refreshProducts } = useProductsByCategory(selectedCategory, 50);
   const { data: pricingRules = [], loading: pricingRulesLoading } = usePricingRules();
+  
+  // Pull-to-refresh state
+  const [refreshing, setRefreshing] = useState(false);
+  
+  // Handle pull-to-refresh
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([
+        refreshProducts(),
+        refreshWishlist(),
+      ]);
+    } catch (error) {
+      console.error('Error refreshing data:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refreshProducts, refreshWishlist]);
   
   // Check if page is initially loading (fresh load - no data loaded yet)
   const isInitialLoading = (!products && productsLoading) && 
@@ -352,17 +368,28 @@ export const CategoryProductsScreen: React.FC = () => {
           });
           
           try {
-            await toggleWishlist(productId, isWishlisted);
-            // refreshWishlist is called automatically by useWishlistActions
-          } finally {
-            // Remove from pending after a short delay to allow wishlist to sync
-            setTimeout(() => {
-              setPendingOperations(prev => {
+            const success = await toggleWishlist(productId, isWishlisted);
+            if (!success) {
+              // Revert optimistic update on failure
+              setOptimisticWishlist(prev => {
                 const newSet = new Set(prev);
-                newSet.delete(productId);
+                if (isWishlisted) {
+                  newSet.add(productId); // Re-add if removal failed
+                } else {
+                  newSet.delete(productId); // Remove if add failed
+                }
                 return newSet;
               });
-            }, 500);
+            }
+            // refreshWishlist is called automatically by useWishlistActions
+          } finally {
+            // Remove from pending immediately after operation completes
+            // This allows immediate toggling back and forth
+            setPendingOperations(prev => {
+              const newSet = new Set(prev);
+              newSet.delete(productId);
+              return newSet;
+            });
           }
         }}
         isWishlisted={wishlistedProductIds.has(item.id)}
@@ -403,6 +430,14 @@ export const CategoryProductsScreen: React.FC = () => {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.productsList}
         columnWrapperStyle={styles.productRow}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={Colors.SHEIN_PINK}
+            colors={[Colors.SHEIN_PINK]}
+          />
+        }
         renderItem={renderProductItem}
         keyExtractor={(item) => item.id}
         ListHeaderComponent={ListHeader}

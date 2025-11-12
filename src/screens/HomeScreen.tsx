@@ -9,18 +9,21 @@ import {
 	Image,
 	ScrollView,
 	ActivityIndicator,
+	RefreshControl,
+	Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { Colors } from '../constants/colors';
 import { Spacing } from '../constants/spacing';
-import { useNewArrivals, useProductsByCategory, useForYouProducts, usePricingRuleFields, usePricingRules, useWishlistActions, useWishlist } from '../hooks/erpnext';
+import { useNewArrivals, useProductsByCategory, useForYouProducts, usePricingRuleFields, usePricingRules, useWishlistActions, useWishlist, useCartActions } from '../hooks/erpnext';
 import { useUserSession } from '../context/UserContext';
 import { ProductCard } from '../components/ProductCard';
 import { LoadingScreen } from '../components/LoadingScreen';
 import { CategoryTabs } from '../components/CategoryTabs';
 import { Header } from '../components/Header';
+import { Toast } from '../components/Toast';
 import { getProductDiscount } from '../utils/pricingRules';
 import { Product } from '../types';
 import { getERPNextClient } from '../services/erpnext';
@@ -51,7 +54,7 @@ const mainProducts = [
 	{ id: '2', name: 'Brown Dress and Shirt', price: 'GH₵45.00', image: '👗' },
 ];
 
-const categories = ['All', 'Women', 'Kids', 'Men', 'Curve', 'Home'];
+const categories = ['All', 'Women', 'Kids', 'Men', 'Curve'];
 
 // Map UI category names to ERPNext item_group names
 // You may need to adjust these based on your actual ERPNext item group names
@@ -61,7 +64,6 @@ const mapCategoryToItemGroup = (category: string): string | null => {
     'Men': 'Men',
     'Kids': 'Kids',
     'Curve': 'Curve',
-    'Home': 'Home',
   };
   return category === 'All' ? null : (categoryMap[category] || null);
 };
@@ -82,10 +84,15 @@ export const HomeScreen: React.FC = () => {
 	const { user } = useUserSession();
 	const { wishlistItems, refresh: refreshWishlist } = useWishlist(user?.email || null);
 	const { toggleWishlist } = useWishlistActions(refreshWishlist);
+	const { addToCart: addItemToCart } = useCartActions();
 	
 	// Optimistic state for immediate UI updates
 	const [optimisticWishlist, setOptimisticWishlist] = useState<Set<string>>(new Set());
 	const [pendingOperations, setPendingOperations] = useState<Set<string>>(new Set());
+	
+	// Toast state
+	const [toastVisible, setToastVisible] = useState(false);
+	const [toastMessage, setToastMessage] = useState('');
 	
 	// Create a Set of wishlisted product IDs for quick lookup
 	const wishlistedProductIds = useMemo(() => {
@@ -104,15 +111,12 @@ export const HomeScreen: React.FC = () => {
 		
 		const actualSet = new Set(wishlistItems.map(item => item.productId));
 		setOptimisticWishlist(prev => {
-			const newSet = new Set(prev);
-			// Remove items that are no longer in the actual wishlist
-			prev.forEach(id => {
-				if (!actualSet.has(id)) {
-					newSet.delete(id);
-				}
-			});
+			// Clear optimistic state and sync with actual wishlist
+			// This ensures we start fresh after operations complete
+			const newSet = new Set(actualSet);
+			
 			// Only update if there's a change to prevent unnecessary re-renders
-			if (newSet.size !== prev.size || Array.from(newSet).some(id => !prev.has(id))) {
+			if (newSet.size !== prev.size || Array.from(newSet).some(id => !prev.has(id)) || Array.from(prev).some(id => !newSet.has(id))) {
 				return newSet;
 			}
 			return prev; // Return same reference if no change
@@ -146,10 +150,10 @@ export const HomeScreen: React.FC = () => {
 	}, [pricingRules]);
 	
 	// Fetch new arrivals from API (only when "All" is selected)
-	const { data: newArrivals, loading: newArrivalsLoading, error: newArrivalsError } = useNewArrivals(20);
+	const { data: newArrivals, loading: newArrivalsLoading, error: newArrivalsError, refresh: refreshNewArrivals } = useNewArrivals(20);
 	
 	// Fetch products by category when a category is selected (not "All")
-	const { data: categoryProducts, loading: categoryLoading, error: categoryError } = useProductsByCategory(
+	const { data: categoryProducts, loading: categoryLoading, error: categoryError, refresh: refreshCategoryProducts } = useProductsByCategory(
 		itemGroupName || '',
 		itemGroupName ? 50 : 0 // Only fetch if category is selected
 	);
@@ -161,8 +165,30 @@ export const HomeScreen: React.FC = () => {
 		loadingMore: forYouLoadingMore,
 		error: forYouError, 
 		hasMore: forYouHasMore,
-		loadMore: forYouLoadMore 
+		loadMore: forYouLoadMore,
+		refresh: refreshForYouProducts
 	} = useForYouProducts(20);
+	
+	// Pull-to-refresh state
+	const [refreshing, setRefreshing] = useState(false);
+	
+	// Handle pull-to-refresh
+	const onRefresh = useCallback(async () => {
+		setRefreshing(true);
+		try {
+			// Refresh all data sources
+			await Promise.all([
+				refreshNewArrivals(),
+				refreshCategoryProducts(),
+				refreshForYouProducts(),
+				refreshWishlist(),
+			]);
+		} catch (error) {
+			console.error('Error refreshing data:', error);
+		} finally {
+			setRefreshing(false);
+		}
+	}, [refreshNewArrivals, refreshCategoryProducts, refreshForYouProducts, refreshWishlist]);
 	
 	// Products to display - only show when a specific category is selected
 	const displayedProducts = selectedCategory === 'All' 
@@ -409,7 +435,7 @@ export const HomeScreen: React.FC = () => {
 		}
 		
 		return (
-			<TouchableOpacity 
+					<TouchableOpacity
 				style={styles.shippingBanner}
 				onPress={handleBannerPress}
 				activeOpacity={0.7}
@@ -417,7 +443,7 @@ export const HomeScreen: React.FC = () => {
 			>
 				<Ionicons name="pricetag" size={16} color={Colors.BLACK} />
 				<Text style={styles.shippingText}>Get {discountPercent}% Off</Text>
-			</TouchableOpacity>
+					</TouchableOpacity>
 		);
 	};
 
@@ -433,31 +459,31 @@ export const HomeScreen: React.FC = () => {
 		}
 
 		return (
-			<View style={styles.section}>
-				<View style={styles.sectionHeader}>
-					<View style={styles.sectionTitleContainer}>
-						<Ionicons name="flash" size={20} color={Colors.FLASH_SALE_RED} />
-						<Text style={styles.sectionTitle}>Super Deals</Text>
-					</View>
+		<View style={styles.section}>
+			<View style={styles.sectionHeader}>
+				<View style={styles.sectionTitleContainer}>
+					<Ionicons name="flash" size={20} color={Colors.FLASH_SALE_RED} />
+					<Text style={styles.sectionTitle}>Super Deals</Text>
+				</View>
 					{allDealProducts.length > 5 && (
 						<TouchableOpacity onPress={() => {
 							(navigation as any).navigate('AllDeals', { deals: allDealProducts });
 						}}>
-							<Text style={styles.viewMoreText}>View more {'>'}</Text>
-						</TouchableOpacity>
+				<Text style={styles.viewMoreText}>View more {'>'}</Text>
+			</TouchableOpacity>
 					)}
-				</View>
-				<FlatList
+			</View>
+			<FlatList
 					data={firstFiveDeals}
-					horizontal
-					showsHorizontalScrollIndicator={false}
-					contentContainerStyle={styles.productsList}
+				horizontal
+				showsHorizontalScrollIndicator={false}
+				contentContainerStyle={styles.productsList}
 					renderItem={({ item }: { item: any }) => (
 						<TouchableOpacity 
 							style={styles.productCard}
 							onPress={() => (navigation as any).navigate('ProductDetails', { productId: item.id })}
 						>
-							<View style={styles.productImage}>
+						<View style={styles.productImage}>
 								{item.images && item.images.length > 0 && item.images[0] ? (
 									<Image 
 										source={{ uri: item.images[0] }} 
@@ -470,24 +496,24 @@ export const HomeScreen: React.FC = () => {
 									</View>
 								)}
 								{item.discount > 0 && (
-									<View style={styles.discountTag}>
+								<View style={styles.discountTag}>
 										<Text style={styles.discountText}>-{Math.round(item.discount)}%</Text>
-									</View>
-								)}
-							</View>
+								</View>
+							)}
+						</View>
 							<Text style={styles.productName} numberOfLines={2}>{item.name}</Text>
 							<View style={styles.priceRow}>
 								<Text style={styles.productPrice}>GH₵{(item.price * (1 - item.discount / 100)).toFixed(2)}</Text>
 								{item.discount > 0 && (
 									<Text style={styles.originalPrice}>GH₵{item.price.toFixed(2)}</Text>
 								)}
-							</View>
+					</View>
 						</TouchableOpacity>
-					)}
-					keyExtractor={(item) => item.id}
-				/>
-			</View>
-		);
+				)}
+				keyExtractor={(item) => item.id}
+			/>
+		</View>
+	);
 	};
 
 	// Render dynamic deal section for a pricing rule
@@ -504,9 +530,9 @@ export const HomeScreen: React.FC = () => {
 		}
 
 		return (
-			<View style={styles.section}>
-				<View style={styles.sectionHeader}>
-					<View style={styles.sectionTitleContainer}>
+		<View style={styles.section}>
+			<View style={styles.sectionHeader}>
+				<View style={styles.sectionTitleContainer}>
 						<Text style={styles.sectionTitle}>{ruleTitle}</Text>
 						{ruleProducts.length > 5 && (
 							<TouchableOpacity onPress={() => {
@@ -515,20 +541,20 @@ export const HomeScreen: React.FC = () => {
 								<Text style={styles.viewMoreText}>View more {'>'}</Text>
 							</TouchableOpacity>
 						)}
-					</View>
-					<Text style={styles.sectionSubtitle}>{discountPercent}% off</Text>
 				</View>
-				<FlatList
+					<Text style={styles.sectionSubtitle}>{discountPercent}% off</Text>
+			</View>
+			<FlatList
 					data={firstFive}
-					horizontal
-					showsHorizontalScrollIndicator={false}
-					contentContainerStyle={styles.productsList}
+				horizontal
+				showsHorizontalScrollIndicator={false}
+				contentContainerStyle={styles.productsList}
 					renderItem={({ item }: { item: any }) => (
 						<TouchableOpacity 
 							style={styles.productCard}
 							onPress={() => (navigation as any).navigate('ProductDetails', { productId: item.id })}
 						>
-							<View style={styles.productImage}>
+						<View style={styles.productImage}>
 								{item.images && item.images.length > 0 && item.images[0] ? (
 									<Image 
 										source={{ uri: item.images[0] }} 
@@ -538,27 +564,27 @@ export const HomeScreen: React.FC = () => {
 								) : (
 									<View style={styles.productImagePlaceholder}>
 										<Ionicons name="image-outline" size={24} color={Colors.TEXT_SECONDARY} />
-									</View>
+						</View>
 								)}
 								{item.discount > 0 && (
 									<View style={styles.discountTag}>
 										<Text style={styles.discountText}>-{Math.round(item.discount)}%</Text>
-									</View>
-								)}
-							</View>
+					</View>
+				)}
+		</View>
 							<Text style={styles.productName} numberOfLines={2}>{item.name}</Text>
 							<View style={styles.priceRow}>
 								<Text style={styles.productPrice}>GH₵{(item.price * (1 - item.discount / 100)).toFixed(2)}</Text>
 								{item.discount > 0 && (
 									<Text style={styles.originalPrice}>GH₵{item.price.toFixed(2)}</Text>
 								)}
-							</View>
+				</View>
 						</TouchableOpacity>
-					)}
-					keyExtractor={(item) => item.id}
-				/>
-			</View>
-		);
+				)}
+				keyExtractor={(item) => item.id}
+			/>
+		</View>
+	);
 	};
 
 	const renderFilterTabs = () => (
@@ -631,12 +657,30 @@ export const HomeScreen: React.FC = () => {
 						const discount = getProductDiscount(item, pricingRules);
 						
 						return (
-							<ProductCard
-								product={item}
-								onPress={(productId) => {
-									(navigation as any).navigate('ProductDetails', { productId });
-								}}
-								onWishlistPress={async (productId) => {
+						<ProductCard
+							product={item}
+							onPress={(productId) => {
+								(navigation as any).navigate('ProductDetails', { productId });
+							}}
+							onCartPress={async (productId) => {
+								if (!user?.email) {
+									Alert.alert('Login Required', 'Please log in to add items to your cart.');
+									return;
+								}
+								
+								try {
+									const itemCode = item.itemCode || productId;
+									const success = await addItemToCart(itemCode, 1);
+									if (success) {
+										setToastMessage('Item added to cart!');
+										setToastVisible(true);
+									}
+								} catch (error) {
+									console.error('Error adding to cart:', error);
+									Alert.alert('Error', 'Failed to add item to cart. Please try again.');
+								}
+							}}
+							onWishlistPress={async (productId) => {
 									// Prevent multiple simultaneous operations on the same item
 									if (pendingOperations.has(productId)) {
 										return;
@@ -659,23 +703,34 @@ export const HomeScreen: React.FC = () => {
 									});
 									
 									try {
-										await toggleWishlist(productId, isWishlisted);
-										// refreshWishlist is called automatically by useWishlistActions
-									} finally {
-										// Remove from pending after a short delay to allow wishlist to sync
-										setTimeout(() => {
-											setPendingOperations(prev => {
+										const success = await toggleWishlist(productId, isWishlisted);
+										if (!success) {
+											// Revert optimistic update on failure
+											setOptimisticWishlist(prev => {
 												const newSet = new Set(prev);
-												newSet.delete(productId);
+												if (isWishlisted) {
+													newSet.add(productId); // Re-add if removal failed
+												} else {
+													newSet.delete(productId); // Remove if add failed
+												}
 												return newSet;
 											});
-										}, 500);
+										}
+										// refreshWishlist is called automatically by useWishlistActions
+									} finally {
+										// Remove from pending immediately after operation completes
+										// This allows immediate toggling back and forth
+										setPendingOperations(prev => {
+											const newSet = new Set(prev);
+											newSet.delete(productId);
+											return newSet;
+										});
 									}
 								}}
 								isWishlisted={wishlistedProductIds.has(item.id)}
-								style={styles.newArrivalCard}
+							style={styles.newArrivalCard}
 								pricingDiscount={discount}
-							/>
+						/>
 						);
 					}}
 					keyExtractor={(item) => item.id}
@@ -735,6 +790,25 @@ export const HomeScreen: React.FC = () => {
 								onPress={(productId) => {
 									(navigation as any).navigate('ProductDetails', { productId });
 								}}
+								onCartPress={async (productId) => {
+									if (!user?.email) {
+										Alert.alert('Login Required', 'Please log in to add items to your cart.');
+										return;
+									}
+									
+									try {
+										// Use item.itemCode if available, otherwise fallback to productId
+										const itemCode = item.itemCode || productId;
+										const success = await addItemToCart(itemCode, 1);
+										if (success) {
+											// Show a subtle success feedback (you can enhance this later)
+											console.log('Item added to cart:', itemCode);
+										}
+									} catch (error) {
+										console.error('Error adding to cart:', error);
+										Alert.alert('Error', 'Failed to add item to cart. Please try again.');
+									}
+								}}
 								onWishlistPress={async (productId) => {
 									// Prevent multiple simultaneous operations on the same item
 									if (pendingOperations.has(productId)) {
@@ -758,17 +832,28 @@ export const HomeScreen: React.FC = () => {
 									});
 									
 									try {
-										await toggleWishlist(productId, isWishlisted);
-										// refreshWishlist is called automatically by useWishlistActions
-									} finally {
-										// Remove from pending after a short delay to allow wishlist to sync
-										setTimeout(() => {
-											setPendingOperations(prev => {
+										const success = await toggleWishlist(productId, isWishlisted);
+										if (!success) {
+											// Revert optimistic update on failure
+											setOptimisticWishlist(prev => {
 												const newSet = new Set(prev);
-												newSet.delete(productId);
+												if (isWishlisted) {
+													newSet.add(productId); // Re-add if removal failed
+												} else {
+													newSet.delete(productId); // Remove if add failed
+												}
 												return newSet;
 											});
-										}, 500);
+										}
+										// refreshWishlist is called automatically by useWishlistActions
+									} finally {
+										// Remove from pending immediately after operation completes
+										// This allows immediate toggling back and forth
+										setPendingOperations(prev => {
+											const newSet = new Set(prev);
+											newSet.delete(productId);
+											return newSet;
+										});
 									}
 								}}
 								isWishlisted={wishlistedProductIds.has(item.id)}
@@ -828,23 +913,40 @@ export const HomeScreen: React.FC = () => {
 							) as 'tall' | 'medium' | 'short';
 							
 							return (
-								<ProductCard
-									product={item}
-									onPress={(productId) => {
-										(navigation as any).navigate('ProductDetails', { productId });
-									}}
-									onWishlistPress={async (productId) => {
-										const isWishlisted = wishlistedProductIds.has(productId);
-										const success = await toggleWishlist(productId, isWishlisted);
+							<ProductCard
+								product={item}
+								onPress={(productId) => {
+									(navigation as any).navigate('ProductDetails', { productId });
+								}}
+								onCartPress={async (productId) => {
+									if (!user?.email) {
+										Alert.alert('Login Required', 'Please log in to add items to your cart.');
+										return;
+									}
+									
+									try {
+										const itemCode = item.itemCode || productId;
+										const success = await addItemToCart(itemCode, 1);
 										if (success) {
-											refreshWishlist(); // Refresh wishlist to update UI
+											console.log('Item added to cart:', itemCode);
 										}
-									}}
-									isWishlisted={wishlistedProductIds.has(item.id)}
-									style={styles.categoryProductCard}
-									variant={variant}
-									pricingDiscount={getProductDiscount(item, pricingRules)}
-								/>
+									} catch (error) {
+										console.error('Error adding to cart:', error);
+										Alert.alert('Error', 'Failed to add item to cart. Please try again.');
+									}
+								}}
+								onWishlistPress={async (productId) => {
+									const isWishlisted = wishlistedProductIds.has(productId);
+									const success = await toggleWishlist(productId, isWishlisted);
+									if (success) {
+										refreshWishlist(); // Refresh wishlist to update UI
+									}
+								}}
+								isWishlisted={wishlistedProductIds.has(item.id)}
+								style={styles.categoryProductCard}
+								variant={variant}
+								pricingDiscount={getProductDiscount(item, pricingRules)}
+							/>
 							);
 						}}
 						keyExtractor={(item) => item.id}
@@ -891,6 +993,23 @@ export const HomeScreen: React.FC = () => {
 			onPress={(productId) => {
 				(navigation as any).navigate('ProductDetails', { productId });
 			}}
+			onCartPress={async (productId) => {
+				if (!user?.email) {
+					Alert.alert('Login Required', 'Please log in to add items to your cart.');
+					return;
+				}
+				
+				try {
+					const itemCode = item.itemCode || productId;
+					const success = await addItemToCart(itemCode, 1);
+					if (success) {
+						console.log('Item added to cart:', itemCode);
+					}
+				} catch (error) {
+					console.error('Error adding to cart:', error);
+					Alert.alert('Error', 'Failed to add item to cart. Please try again.');
+				}
+			}}
 			onWishlistPress={async (productId) => {
 				// Prevent multiple simultaneous operations on the same item
 				if (pendingOperations.has(productId)) {
@@ -914,17 +1033,28 @@ export const HomeScreen: React.FC = () => {
 				});
 				
 				try {
-					await toggleWishlist(productId, isWishlisted);
-					// refreshWishlist is called automatically by useWishlistActions
-				} finally {
-					// Remove from pending after a short delay to allow wishlist to sync
-					setTimeout(() => {
-						setPendingOperations(prev => {
+					const success = await toggleWishlist(productId, isWishlisted);
+					if (!success) {
+						// Revert optimistic update on failure
+						setOptimisticWishlist(prev => {
 							const newSet = new Set(prev);
-							newSet.delete(productId);
+							if (isWishlisted) {
+								newSet.add(productId); // Re-add if removal failed
+							} else {
+								newSet.delete(productId); // Remove if add failed
+							}
 							return newSet;
 						});
-					}, 500);
+					}
+					// refreshWishlist is called automatically by useWishlistActions
+				} finally {
+					// Remove from pending immediately after operation completes
+					// This allows immediate toggling back and forth
+					setPendingOperations(prev => {
+						const newSet = new Set(prev);
+						newSet.delete(productId);
+						return newSet;
+					});
 				}
 			}}
 			isWishlisted={wishlistedProductIds.has(item.id)}
@@ -993,26 +1123,26 @@ export const HomeScreen: React.FC = () => {
 							initialNumToRender={6}
 							maxToRenderPerBatch={4}
 							windowSize={10}
-						ListEmptyComponent={
+							ListEmptyComponent={
 							forYouError ? (
-								<View style={styles.errorContainer}>
-									<Ionicons name="alert-circle-outline" size={24} color={Colors.ERROR} />
-									<Text style={styles.errorText}>Failed to load products</Text>
-									<Text style={styles.errorSubtext}>{forYouError.message}</Text>
-								</View>
-							) : (
-								<View style={styles.emptyContainer}>
-									<Text style={styles.emptyText}>No products available</Text>
-								</View>
-							)
-						}
-						ListFooterComponent={
+									<View style={styles.errorContainer}>
+										<Ionicons name="alert-circle-outline" size={24} color={Colors.ERROR} />
+										<Text style={styles.errorText}>Failed to load products</Text>
+										<Text style={styles.errorSubtext}>{forYouError.message}</Text>
+									</View>
+								) : (
+									<View style={styles.emptyContainer}>
+										<Text style={styles.emptyText}>No products available</Text>
+									</View>
+								)
+							}
+							ListFooterComponent={
 							!forYouHasMore && forYouProducts.length > 0 ? (
-								<View style={styles.loadMoreContainer}>
-									<Text style={styles.loadMoreText}>No more products</Text>
-								</View>
-							) : null
-						}
+									<View style={styles.loadMoreContainer}>
+										<Text style={styles.loadMoreText}>No more products</Text>
+									</View>
+								) : null
+							}
 						/>
 					</View>
 				);
@@ -1173,6 +1303,12 @@ export const HomeScreen: React.FC = () => {
 
 	return (
 		<SafeAreaView style={styles.container}>
+			<Toast
+				message={toastMessage}
+				type="success"
+				visible={toastVisible}
+				onHide={() => setToastVisible(false)}
+			/>
 			<FlatList
 				ref={mainListRef}
 				key={mainListKey}
@@ -1192,6 +1328,14 @@ export const HomeScreen: React.FC = () => {
 				maxToRenderPerBatch={3}
 				updateCellsBatchingPeriod={50}
 				windowSize={10}
+				refreshControl={
+					<RefreshControl
+						refreshing={refreshing}
+						onRefresh={onRefresh}
+						tintColor={Colors.SHEIN_PINK}
+						colors={[Colors.SHEIN_PINK]}
+					/>
+				}
 				maintainVisibleContentPosition={
 					// Prevent scroll jumps when content changes
 					needsScrollRef.current ? undefined : {

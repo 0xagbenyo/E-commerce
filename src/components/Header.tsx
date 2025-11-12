@@ -9,6 +9,7 @@ interface HeaderProps {
   onSearchPress?: () => void;
   onMailPress?: () => void;
   onWishlistPress?: () => void;
+  onCartPress?: () => void;
   onMenuPress?: () => void;
   onCameraPress?: () => void;
   onCalendarPress?: () => void;
@@ -20,6 +21,7 @@ export const Header: React.FC<HeaderProps> = ({
   onSearchPress,
   onMailPress,
   onWishlistPress,
+  onCartPress,
   onMenuPress,
   onCameraPress,
   onCalendarPress,
@@ -47,6 +49,14 @@ export const Header: React.FC<HeaderProps> = ({
       onWishlistPress();
     } else {
       (navigation as any).navigate('Wishlist');
+    }
+  };
+
+  const handleCartPress = () => {
+    if (onCartPress) {
+      onCartPress();
+    } else {
+      (navigation as any).navigate('Cart');
     }
   };
 
@@ -82,7 +92,7 @@ export const Header: React.FC<HeaderProps> = ({
             onPress={handleMailPress}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
-            <Ionicons name="mail-outline" size={22} color={Colors.WHITE} />
+            <Ionicons name="mail-outline" size={18} color={Colors.WHITE} />
           </TouchableOpacity>
           
           <TouchableOpacity 
@@ -90,7 +100,7 @@ export const Header: React.FC<HeaderProps> = ({
             onPress={handleCalendarPress}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
-            <Ionicons name="calendar-outline" size={22} color={Colors.WHITE} />
+            <Ionicons name="calendar-outline" size={18} color={Colors.WHITE} />
           </TouchableOpacity>
         </View>
         
@@ -107,34 +117,43 @@ export const Header: React.FC<HeaderProps> = ({
               ) : (
                 <Text style={styles.searchPlaceholder}>Search</Text>
               )}
-              <TouchableOpacity 
-                style={styles.cameraButton} 
-                onPress={handleCameraPress}
-                hitSlop={{ top: 5, bottom: 5, left: 5, right: 5 }}
-              >
-                <Ionicons name="camera-outline" size={18} color={Colors.TEXT_SECONDARY} />
-              </TouchableOpacity>
+              <View style={styles.searchIconsContainer}>
+                <TouchableOpacity 
+                  style={styles.cameraButton} 
+                  onPress={handleCameraPress}
+                  hitSlop={{ top: 5, bottom: 5, left: 5, right: 5 }}
+                >
+                  <Ionicons name="camera-outline" size={18} color={Colors.TEXT_SECONDARY} />
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={styles.searchIconButton} 
+                  onPress={handleSearchSubmit}
+                  hitSlop={{ top: 5, bottom: 5, left: 5, right: 5 }}
+                >
+                  <Ionicons name="search" size={18} color={Colors.FLASH_SALE_RED} />
+                </TouchableOpacity>
+              </View>
             </View>
-          </TouchableOpacity>
-          
-          {/* Red circular search button */}
-          <TouchableOpacity 
-            style={styles.searchButton} 
-            onPress={handleSearchSubmit}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="search" size={20} color={Colors.WHITE} />
           </TouchableOpacity>
         </View>
         
-        {/* Right side icon */}
-        <TouchableOpacity 
-          style={styles.iconButton} 
-          onPress={handleWishlistPress}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          <Ionicons name="heart-outline" size={22} color={Colors.WHITE} />
-        </TouchableOpacity>
+        {/* Right side icons */}
+        <View style={styles.rightIcons}>
+          <TouchableOpacity 
+            style={styles.iconButton} 
+            onPress={handleCartPress}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Ionicons name="cart-outline" size={18} color={Colors.WHITE} />
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.iconButton} 
+            onPress={handleWishlistPress}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Ionicons name="heart-outline" size={18} color={Colors.WHITE} />
+          </TouchableOpacity>
+        </View>
       </View>
     </View>
   );
@@ -155,20 +174,24 @@ const styles = StyleSheet.create({
   leftIcons: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.MARGIN_MD,
+    gap: 4,
   },
   iconButton: {
-    width: 32,
-    height: 32,
+    width: 20,
+    height: 20,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  rightIcons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
   searchWrapper: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    marginHorizontal: Spacing.MARGIN_SM,
-    gap: Spacing.MARGIN_SM,
+    marginHorizontal: 4,
   },
   searchContainer: {
     flex: 1,
@@ -194,16 +217,16 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: Colors.TEXT_PRIMARY,
   },
-  cameraButton: {
-    padding: 4,
+  searchIconsContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.MARGIN_XS,
     marginLeft: Spacing.MARGIN_XS,
   },
-  searchButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#E02B25', // Slightly darker red for the button to create contrast
-    justifyContent: 'center',
-    alignItems: 'center',
+  cameraButton: {
+    padding: 4,
+  },
+  searchIconButton: {
+    padding: 4,
   },
 });

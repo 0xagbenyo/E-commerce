@@ -1,123 +1,124 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   TouchableOpacity,
   FlatList,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
 import { Colors } from '../constants/colors';
+import { useUserSession } from '../context/UserContext';
+import { useSalesInvoices } from '../hooks/erpnext';
+import { SalesInvoice } from '../types';
 
-// Mock order data
-const orders = [
-  {
-    id: '1',
-    orderNumber: 'GLM-2024-001',
-    date: '2024-01-15',
-    status: 'delivered',
-    total: 'GH₵45.60',
-    items: [
-      { id: '1', name: 'Glamora Plus Size Dress', image: '👗', price: 'GH₵25.00' },
-      { id: '2', name: 'Glamora Blouse', image: '👚', price: 'GH₵20.60' },
-    ],
-    trackingNumber: 'GH123456789',
-  },
-  {
-    id: '2',
-    orderNumber: 'GLM-2024-002',
-    date: '2024-01-10',
-    status: 'shipped',
-    total: 'GH₵32.00',
-    items: [
-      { id: '3', name: 'Glamora Jeans', image: '👖', price: 'GH₵32.00' },
-    ],
-    trackingNumber: 'GH987654321',
-  },
-  {
-    id: '3',
-    orderNumber: 'GLM-2024-003',
-    date: '2024-01-05',
-    status: 'processing',
-    total: 'GH₵18.50',
-    items: [
-      { id: '4', name: 'Glamora T-Shirt', image: '👕', price: 'GH₵18.50' },
-    ],
-  },
-  {
-    id: '4',
-    orderNumber: 'GLM-2023-045',
-    date: '2023-12-20',
-    status: 'delivered',
-    total: 'GH₵67.80',
-    items: [
-      { id: '5', name: 'Glamora Winter Coat', image: '🧥', price: 'GH₵45.00' },
-      { id: '6', name: 'Glamora Scarf', image: '🧣', price: 'GH₵22.80' },
-    ],
-  },
-];
-
-const statusConfig = {
-  pending: { color: Colors.WARNING, icon: 'time-outline', label: 'Pending' },
-  confirmed: { color: Colors.INFO, icon: 'checkmark-circle-outline', label: 'Confirmed' },
-  processing: { color: Colors.INFO, icon: 'cube-outline', label: 'Processing' },
-  shipped: { color: Colors.SUCCESS, icon: 'car-outline', label: 'Shipped' },
-  delivered: { color: Colors.SUCCESS, icon: 'checkmark-circle', label: 'Delivered' },
-  cancelled: { color: Colors.ERROR, icon: 'close-circle', label: 'Cancelled' },
-  returned: { color: Colors.ERROR, icon: 'arrow-undo', label: 'Returned' },
+const statusConfig: Record<string, { color: string; icon: string; label: string }> = {
+  'Draft': { color: Colors.TEXT_SECONDARY, icon: 'document-outline', label: 'Draft' },
+  'Submitted': { color: Colors.INFO, icon: 'checkmark-circle-outline', label: 'Submitted' },
+  'Paid': { color: Colors.SUCCESS, icon: 'checkmark-circle', label: 'Paid' },
+  'Unpaid': { color: Colors.WARNING, icon: 'time-outline', label: 'Unpaid' },
+  'Overdue': { color: Colors.ERROR, icon: 'alert-circle', label: 'Overdue' },
+  'Cancelled': { color: Colors.ERROR, icon: 'close-circle', label: 'Cancelled' },
 };
 
 export const OrderHistoryScreen: React.FC = () => {
   const [selectedFilter, setSelectedFilter] = useState('All');
+  const navigation = useNavigation();
+  const { user } = useUserSession();
+  
+  // Fetch sales invoices for the logged-in user (session-based, no customer filter needed)
+  const { data: invoices, loading, error } = useSalesInvoices(user?.email || '');
+  
+  // Debug logging
+  useEffect(() => {
+    console.log('📄 OrderHistoryScreen - Invoices state:', {
+      invoicesCount: invoices?.length || 0,
+      loading,
+      error: error?.message,
+      userEmail: user?.email,
+    });
+    if (invoices && invoices.length > 0) {
+      console.log('📄 First invoice:', invoices[0]);
+    }
+  }, [invoices, loading, error, user?.email]);
 
   const renderHeader = () => (
     <View style={styles.header}>
       <TouchableOpacity 
         style={styles.backButton}
-        onPress={() => console.log('Back pressed')}
+        onPress={() => (navigation as any).goBack()}
       >
         <Ionicons name="arrow-back" size={24} color={Colors.BLACK} />
       </TouchableOpacity>
-      <Text style={styles.headerTitle}>My Orders</Text>
-      <TouchableOpacity style={styles.searchButton}>
-        <Ionicons name="search" size={24} color={Colors.BLACK} />
-      </TouchableOpacity>
+      <Text style={styles.headerTitle}>My Invoices</Text>
+      <View style={styles.placeholder} />
     </View>
   );
 
-  const renderFilterTabs = () => (
-    <View style={styles.filterTabs}>
-      {['All', 'Pending', 'Processing', 'Shipped', 'Delivered'].map((filter) => (
-        <TouchableOpacity
-          key={filter}
-          style={[
-            styles.filterTab,
-            selectedFilter === filter && styles.filterTabActive
-          ]}
-          onPress={() => setSelectedFilter(filter)}
-        >
-          <Text style={[
-            styles.filterTabText,
-            selectedFilter === filter && styles.filterTabTextActive
-          ]}>
-            {filter}
-          </Text>
-        </TouchableOpacity>
-      ))}
-    </View>
-  );
-
-  const renderOrderItem = ({ item }: { item: any }) => {
-    const status = statusConfig[item.status as keyof typeof statusConfig];
+  const renderFilterTabs = () => {
+    const filters = ['All', 'Unpaid', 'Paid', 'Overdue', 'Cancelled'];
     
     return (
-      <TouchableOpacity style={styles.orderCard}>
-        <View style={styles.orderHeader}>
-          <View style={styles.orderInfo}>
-            <Text style={styles.orderNumber}>{item.orderNumber}</Text>
-            <Text style={styles.orderDate}>{item.date}</Text>
+      <View style={styles.filterTabs}>
+        {filters.map((filter) => (
+          <TouchableOpacity
+            key={filter}
+            style={[
+              styles.filterTab,
+              selectedFilter === filter && styles.filterTabActive
+            ]}
+            onPress={() => setSelectedFilter(filter)}
+          >
+            <Text style={[
+              styles.filterTabText,
+              selectedFilter === filter && styles.filterTabTextActive
+            ]}>
+              {filter}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+    );
+  };
+
+  const formatDate = (dateString: string) => {
+    if (!dateString) return '';
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+    } catch {
+      return dateString;
+    }
+  };
+
+  const formatCurrency = (amount: number) => {
+    return `GH₵${amount.toFixed(2)}`;
+  };
+
+  const renderInvoiceItem = ({ item }: { item: SalesInvoice }) => {
+    if (!item || !item.id) {
+      console.warn('Invalid invoice item:', item);
+      return null;
+    }
+    
+    const status = statusConfig[item.status] || statusConfig['Draft'];
+    // Items count will be 0 for list queries (items only available in full document)
+    // Show "View details" to see items
+    const itemCount = item.items?.length || 0;
+    
+    return (
+      <TouchableOpacity 
+        style={styles.invoiceCard}
+        onPress={() => (navigation as any).navigate('InvoiceDetails', { invoiceId: item.id })}
+        activeOpacity={0.7}
+      >
+        <View style={styles.invoiceHeader}>
+          <View style={styles.invoiceInfo}>
+            <Text style={styles.invoiceNumber}>{item.invoiceNumber || item.id}</Text>
+            <Text style={styles.invoiceDate}>{formatDate(item.date)}</Text>
           </View>
           <View style={styles.statusContainer}>
             <Ionicons name={status.icon as any} size={16} color={status.color} />
@@ -127,64 +128,88 @@ export const OrderHistoryScreen: React.FC = () => {
           </View>
         </View>
 
-        <View style={styles.itemsContainer}>
-          {item.items.map((product: any, index: number) => (
-            <View key={product.id} style={styles.productItem}>
-              <Text style={styles.productEmoji}>{product.image}</Text>
-              <View style={styles.productInfo}>
-                <Text style={styles.productName} numberOfLines={1}>
-                  {product.name}
-                </Text>
-                <Text style={styles.productPrice}>{product.price}</Text>
-              </View>
-            </View>
-          ))}
+        <View style={styles.invoiceDetails}>
+          <Text style={styles.itemCount}>
+            {itemCount > 0 ? `${itemCount} item${itemCount !== 1 ? 's' : ''}` : 'View items'}
+          </Text>
+          <Text style={styles.totalAmount}>{formatCurrency(item.grandTotal)}</Text>
         </View>
 
-        <View style={styles.orderFooter}>
-          <View style={styles.totalContainer}>
-            <Text style={styles.totalLabel}>Total:</Text>
-            <Text style={styles.totalAmount}>{item.total}</Text>
-          </View>
-          
-          <View style={styles.actionButtons}>
-            {item.status === 'delivered' && (
-              <TouchableOpacity style={styles.actionButton}>
-                <Text style={styles.actionButtonText}>Review</Text>
-              </TouchableOpacity>
-            )}
-            {item.status === 'shipped' && item.trackingNumber && (
-              <TouchableOpacity style={styles.actionButton}>
-                <Text style={styles.actionButtonText}>Track</Text>
-              </TouchableOpacity>
-            )}
-            <TouchableOpacity style={[styles.actionButton, styles.primaryButton]}>
-              <Text style={[styles.actionButtonText, styles.primaryButtonText]}>
-                View Details
-              </Text>
-            </TouchableOpacity>
-          </View>
+        <View style={styles.invoiceFooter}>
+          <TouchableOpacity 
+            style={[styles.actionButton, styles.primaryButton]}
+            onPress={() => (navigation as any).navigate('InvoiceDetails', { invoiceId: item.id })}
+          >
+            <Text style={[styles.actionButtonText, styles.primaryButtonText]}>
+              View Details
+            </Text>
+          </TouchableOpacity>
         </View>
       </TouchableOpacity>
     );
   };
 
-  const filteredOrders = selectedFilter === 'All' 
-    ? orders 
-    : orders.filter(order => {
-        const status = statusConfig[order.status as keyof typeof statusConfig];
-        return status.label.toLowerCase() === selectedFilter.toLowerCase();
-      });
+  const filteredInvoices = invoices && selectedFilter !== 'All'
+    ? invoices.filter(invoice => {
+        const status = invoice.status || 'Draft';
+        if (selectedFilter === 'Unpaid') return status === 'Unpaid';
+        if (selectedFilter === 'Paid') return status === 'Paid';
+        if (selectedFilter === 'Overdue') return status === 'Overdue';
+        if (selectedFilter === 'Cancelled') return status === 'Cancelled';
+        return true;
+      })
+    : invoices || [];
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        {renderHeader()}
+        {renderFilterTabs()}
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={Colors.SHEIN_PINK} />
+          <Text style={styles.loadingText}>Loading invoices...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (error) {
+    return (
+      <SafeAreaView style={styles.container}>
+        {renderHeader()}
+        {renderFilterTabs()}
+        <View style={styles.errorContainer}>
+          <Ionicons name="alert-circle" size={48} color={Colors.ERROR} />
+          <Text style={styles.errorText}>Error loading invoices</Text>
+          <Text style={styles.errorSubtext}>{error.message}</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!invoices || invoices.length === 0) {
+    return (
+      <SafeAreaView style={styles.container}>
+        {renderHeader()}
+        {renderFilterTabs()}
+        <View style={styles.emptyContainer}>
+          <Ionicons name="document-outline" size={64} color={Colors.TEXT_SECONDARY} />
+          <Text style={styles.emptyText}>No invoices found</Text>
+          <Text style={styles.emptySubtext}>Your invoices will appear here</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
       {renderHeader()}
       {renderFilterTabs()}
       <FlatList
-        data={filteredOrders}
-        renderItem={renderOrderItem}
+        data={filteredInvoices}
+        renderItem={renderInvoiceItem}
         keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.ordersList}
+        contentContainerStyle={styles.invoicesList}
         showsVerticalScrollIndicator={false}
       />
     </SafeAreaView>
@@ -213,8 +238,8 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: Colors.BLACK,
   },
-  searchButton: {
-    padding: 4,
+  placeholder: {
+    width: 32,
   },
   filterTabs: {
     flexDirection: 'row',
@@ -240,10 +265,10 @@ const styles = StyleSheet.create({
   filterTabTextActive: {
     color: Colors.WHITE,
   },
-  ordersList: {
+  invoicesList: {
     padding: 16,
   },
-  orderCard: {
+  invoiceCard: {
     backgroundColor: Colors.WHITE,
     borderRadius: 12,
     padding: 16,
@@ -254,22 +279,22 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
-  orderHeader: {
+  invoiceHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
     marginBottom: 12,
   },
-  orderInfo: {
+  invoiceInfo: {
     flex: 1,
   },
-  orderNumber: {
+  invoiceNumber: {
     fontSize: 16,
     fontWeight: 'bold',
     color: Colors.BLACK,
     marginBottom: 4,
   },
-  orderDate: {
+  invoiceDate: {
     fontSize: 14,
     color: Colors.TEXT_SECONDARY,
   },
@@ -282,59 +307,31 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
   },
-  itemsContainer: {
-    marginBottom: 16,
-  },
-  productItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  productEmoji: {
-    fontSize: 24,
-    marginRight: 12,
-  },
-  productInfo: {
-    flex: 1,
-  },
-  productName: {
-    fontSize: 14,
-    color: Colors.BLACK,
-    marginBottom: 2,
-  },
-  productPrice: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: Colors.SHEIN_PINK,
-  },
-  orderFooter: {
-    borderTopWidth: 1,
-    borderTopColor: Colors.BORDER,
-    paddingTop: 12,
-  },
-  totalContainer: {
+  invoiceDetails: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 12,
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: Colors.BORDER,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.BORDER,
   },
-  totalLabel: {
-    fontSize: 16,
-    color: Colors.BLACK,
-    fontWeight: '500',
+  itemCount: {
+    fontSize: 14,
+    color: Colors.TEXT_SECONDARY,
   },
   totalAmount: {
     fontSize: 18,
     fontWeight: 'bold',
     color: Colors.BLACK,
   },
-  actionButtons: {
-    flexDirection: 'row',
-    gap: 8,
+  invoiceFooter: {
+    marginTop: 8,
   },
   actionButton: {
-    flex: 1,
-    paddingVertical: 8,
+    paddingVertical: 10,
     paddingHorizontal: 16,
     borderRadius: 6,
     borderWidth: 1,
@@ -352,5 +349,51 @@ const styles = StyleSheet.create({
   },
   primaryButtonText: {
     color: Colors.WHITE,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: Colors.TEXT_SECONDARY,
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 32,
+  },
+  errorText: {
+    marginTop: 16,
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: Colors.BLACK,
+  },
+  errorSubtext: {
+    marginTop: 8,
+    fontSize: 14,
+    color: Colors.TEXT_SECONDARY,
+    textAlign: 'center',
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 32,
+  },
+  emptyText: {
+    marginTop: 16,
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: Colors.BLACK,
+  },
+  emptySubtext: {
+    marginTop: 8,
+    fontSize: 14,
+    color: Colors.TEXT_SECONDARY,
+    textAlign: 'center',
   },
 });

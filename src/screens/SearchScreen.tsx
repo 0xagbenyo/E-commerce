@@ -42,6 +42,16 @@ const vibekara = [
 
 export const SearchScreen: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('قفطان مغربي');
+  const [refreshing, setRefreshing] = useState(false);
+  
+  // Handle pull-to-refresh
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    // SearchScreen uses mock data, so just simulate refresh
+    setTimeout(() => {
+      setRefreshing(false);
+    }, 1000);
+  }, []);
 
   const renderHeader = () => (
     <View style={styles.header}>
@@ -133,7 +143,17 @@ export const SearchScreen: React.FC = () => {
   return (
     <SafeAreaView style={styles.container}>
       {renderHeader()}
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView 
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={Colors.SHEIN_PINK}
+            colors={[Colors.SHEIN_PINK]}
+          />
+        }
+      >
         {renderTwoPieceSet()}
         {renderProductSection(kidsItems, 'Kids Collection')}
         {renderProductSection(sheinSxyCurve, 'SIAMAE CURVE', '316K Followers')}

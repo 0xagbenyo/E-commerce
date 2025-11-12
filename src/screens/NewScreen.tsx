@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -6,6 +6,8 @@ import {
   FlatList,
   TouchableOpacity,
   Dimensions,
+  RefreshControl,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -16,7 +18,8 @@ import { CategoryTabs } from '../components/CategoryTabs';
 import { ProductCard } from '../components/ProductCard';
 import { LoadingScreen } from '../components/LoadingScreen';
 import { Header } from '../components/Header';
-import { useNewArrivals, usePricingRules, useWishlistActions, useWishlist } from '../hooks/erpnext';
+import { Toast } from '../components/Toast';
+import { useNewArrivals, usePricingRules, useWishlistActions, useWishlist, useCartActions } from '../hooks/erpnext';
 import { useUserSession } from '../context/UserContext';
 import { getProductDiscount } from '../utils/pricingRules';
 
@@ -29,7 +32,6 @@ const mapCategoryToItemGroup = (category: string): string | null => {
     'Men': 'Men',
     'Kids': 'Kids',
     'Curve': 'Curve',
-    'Home': 'Home',
   };
   return category === 'All' ? null : (categoryMap[category] || null);
 };
@@ -39,7 +41,12 @@ export const NewScreen: React.FC = () => {
   const { user } = useUserSession();
   const { wishlistItems, refresh: refreshWishlist } = useWishlist(user?.email || null);
   const { toggleWishlist } = useWishlistActions(refreshWishlist);
+  const { addToCart: addItemToCart } = useCartActions();
   const [selectedCategory, setSelectedCategory] = useState('All');
+
+  // Toast state
+  const [toastVisible, setToastVisible] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
   
   // Map category to item group name
   const itemGroupName = mapCategoryToItemGroup(selectedCategory);
@@ -68,15 +75,12 @@ export const NewScreen: React.FC = () => {
     
     const actualSet = new Set(wishlistItems.map(item => item.productId));
     setOptimisticWishlist(prev => {
-      const newSet = new Set(prev);
-      // Remove items that are no longer in the actual wishlist
-      prev.forEach(id => {
-        if (!actualSet.has(id)) {
-          newSet.delete(id);
-        }
-      });
+      // Clear optimistic state and sync with actual wishlist
+      // This ensures we start fresh after operations complete
+      const newSet = new Set(actualSet);
+      
       // Only update if there's a change to prevent unnecessary re-renders
-      if (newSet.size !== prev.size || Array.from(newSet).some(id => !prev.has(id))) {
+      if (newSet.size !== prev.size || Array.from(newSet).some(id => !prev.has(id)) || Array.from(prev).some(id => !newSet.has(id))) {
         return newSet;
       }
       return prev; // Return same reference if no change
@@ -84,7 +88,25 @@ export const NewScreen: React.FC = () => {
   }, [wishlistItems, pendingOperations.size]);
   
   // Always fetch all new arrivals, then filter by category client-side
-  const { data: allNewArrivals, loading: newArrivalsLoading } = useNewArrivals(100);
+  const { data: allNewArrivals, loading: newArrivalsLoading, refresh: refreshNewArrivals } = useNewArrivals(100);
+  
+  // Pull-to-refresh state
+  const [refreshing, setRefreshing] = useState(false);
+  
+  // Handle pull-to-refresh
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([
+        refreshNewArrivals(),
+        refreshWishlist(),
+      ]);
+    } catch (error) {
+      console.error('Error refreshing data:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refreshNewArrivals, refreshWishlist]);
   
   // Check if page is initially loading (fresh load - no data loaded yet)
   const isInitialLoading = (!allNewArrivals && newArrivalsLoading) && 
@@ -136,6 +158,24 @@ export const NewScreen: React.FC = () => {
         onPress={(productId) => {
           (navigation as any).navigate('ProductDetails', { productId });
         }}
+        onCartPress={async (productId) => {
+          if (!user?.email) {
+            Alert.alert('Login Required', 'Please log in to add items to your cart.');
+            return;
+          }
+          
+          try {
+            const itemCode = item.itemCode || productId;
+            const success = await addItemToCart(itemCode, 1);
+            if (success) {
+              setToastMessage('Item added to cart!');
+              setToastVisible(true);
+            }
+          } catch (error) {
+            console.error('Error adding to cart:', error);
+            Alert.alert('Error', 'Failed to add item to cart. Please try again.');
+          }
+        }}
         onWishlistPress={async (productId) => {
           // Prevent multiple simultaneous operations on the same item
           if (pendingOperations.has(productId)) {
@@ -159,17 +199,28 @@ export const NewScreen: React.FC = () => {
           });
           
           try {
-            await toggleWishlist(productId, isWishlisted);
-            // refreshWishlist is called automatically by useWishlistActions
-          } finally {
-            // Remove from pending after a short delay to allow wishlist to sync
-            setTimeout(() => {
-              setPendingOperations(prev => {
+            const success = await toggleWishlist(productId, isWishlisted);
+            if (!success) {
+              // Revert optimistic update on failure
+              setOptimisticWishlist(prev => {
                 const newSet = new Set(prev);
-                newSet.delete(productId);
+                if (isWishlisted) {
+                  newSet.add(productId); // Re-add if removal failed
+                } else {
+                  newSet.delete(productId); // Remove if add failed
+                }
                 return newSet;
               });
-            }, 500);
+            }
+            // refreshWishlist is called automatically by useWishlistActions
+          } finally {
+            // Remove from pending immediately after operation completes
+            // This allows immediate toggling back and forth
+            setPendingOperations(prev => {
+              const newSet = new Set(prev);
+              newSet.delete(productId);
+              return newSet;
+            });
           }
         }}
         isWishlisted={wishlistedProductIds.has(item.id)}
@@ -190,9 +241,9 @@ export const NewScreen: React.FC = () => {
             {selectedCategory === 'All' 
               ? 'Check back soon for new products!' 
               : `No new arrivals in ${selectedCategory} category`}
-          </Text>
-        </View>
-      );
+            </Text>
+    </View>
+  );
     }
 
     return (
@@ -202,6 +253,14 @@ export const NewScreen: React.FC = () => {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.productsList}
         columnWrapperStyle={styles.productRow}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={Colors.SHEIN_PINK}
+            colors={[Colors.SHEIN_PINK]}
+          />
+        }
         renderItem={renderProductItem}
         keyExtractor={(item) => item.id}
         removeClippedSubviews={true}
@@ -219,6 +278,12 @@ export const NewScreen: React.FC = () => {
 
   return (
     <SafeAreaView style={styles.container}>
+      <Toast
+        message={toastMessage}
+        type="success"
+        visible={toastVisible}
+        onHide={() => setToastVisible(false)}
+      />
       <Header />
       <CategoryTabs 
         selectedCategory={selectedCategory}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   FlatList,
   Dimensions,
   Image,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -30,8 +31,12 @@ export const CategoriesScreen: React.FC = () => {
   const { user } = useUserSession();
   const { wishlistItems, refresh: refreshWishlist } = useWishlist(user?.email || null);
   const { toggleWishlist } = useWishlistActions(refreshWishlist);
-  const { data: parentCategories, loading: categoriesLoading } = useCategories();
+  const { data: parentCategories, loading: categoriesLoading, refresh: refreshCategories } = useCategories();
   const { data: pricingRules = [], loading: pricingRulesLoading } = usePricingRules();
+  
+  // Pull-to-refresh state
+  const [refreshing, setRefreshing] = useState(false);
+  
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [childCategories, setChildCategories] = useState<any[]>([]);
   const [loadingChildren, setLoadingChildren] = useState(false);
@@ -58,15 +63,12 @@ export const CategoriesScreen: React.FC = () => {
     
     const actualSet = new Set(wishlistItems.map(item => item.productId));
     setOptimisticWishlist(prev => {
-      const newSet = new Set(prev);
-      // Remove items that are no longer in the actual wishlist
-      prev.forEach(id => {
-        if (!actualSet.has(id)) {
-          newSet.delete(id);
-        }
-      });
+      // Clear optimistic state and sync with actual wishlist
+      // This ensures we start fresh after operations complete
+      const newSet = new Set(actualSet);
+      
       // Only update if there's a change to prevent unnecessary re-renders
-      if (newSet.size !== prev.size || Array.from(newSet).some(id => !prev.has(id))) {
+      if (newSet.size !== prev.size || Array.from(newSet).some(id => !prev.has(id)) || Array.from(prev).some(id => !newSet.has(id))) {
         return newSet;
       }
       return prev; // Return same reference if no change
@@ -172,10 +174,29 @@ export const CategoriesScreen: React.FC = () => {
     }
   };
 
-  const handleCategorySelect = (categoryName: string) => {
+  const handleCategorySelect = useCallback((categoryName: string) => {
     setSelectedCategory(categoryName);
     fetchChildCategories(categoryName);
-  }
+  }, []);
+  
+  // Handle pull-to-refresh
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([
+        refreshCategories(),
+        refreshWishlist(),
+      ]);
+      // Refresh child categories if one is selected
+      if (selectedCategory) {
+        fetchChildCategories(selectedCategory);
+      }
+    } catch (error) {
+      console.error('Error refreshing data:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refreshCategories, refreshWishlist, selectedCategory]);
 
 
   const renderSidebar = () => {
@@ -243,6 +264,14 @@ export const CategoriesScreen: React.FC = () => {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.productGridList}
         columnWrapperStyle={styles.productGridRow}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={Colors.SHEIN_PINK}
+            colors={[Colors.SHEIN_PINK]}
+          />
+        }
         renderItem={({ item, index }) => {
           const discount = getProductDiscount(item, pricingRules);
           const isLeftColumn = index % 2 === 0;
@@ -287,17 +316,28 @@ export const CategoriesScreen: React.FC = () => {
                 });
                 
                 try {
-                  await toggleWishlist(productId, isWishlisted);
-                  // refreshWishlist is called automatically by useWishlistActions
-                } finally {
-                  // Remove from pending after a short delay to allow wishlist to sync
-                  setTimeout(() => {
-                    setPendingOperations(prev => {
+                  const success = await toggleWishlist(productId, isWishlisted);
+                  if (!success) {
+                    // Revert optimistic update on failure
+                    setOptimisticWishlist(prev => {
                       const newSet = new Set(prev);
-                      newSet.delete(productId);
+                      if (isWishlisted) {
+                        newSet.add(productId); // Re-add if removal failed
+                      } else {
+                        newSet.delete(productId); // Remove if add failed
+                      }
                       return newSet;
                     });
-                  }, 500);
+                  }
+                  // refreshWishlist is called automatically by useWishlistActions
+                } finally {
+                  // Remove from pending immediately after operation completes
+                  // This allows immediate toggling back and forth
+                  setPendingOperations(prev => {
+                    const newSet = new Set(prev);
+                    newSet.delete(productId);
+                    return newSet;
+                  });
                 }
               }}
               isWishlisted={wishlistedProductIds.has(item.id)}

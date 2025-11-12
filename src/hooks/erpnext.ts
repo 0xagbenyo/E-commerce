@@ -13,8 +13,10 @@ import {
   mapERPItemGroupToCategory,
   mapERPCustomerToUser,
   mapERPWishlistToWishlistItems,
+  mapERPItemReviewToProductReview,
+  mapERPSalesInvoiceToSalesInvoice,
 } from '../services/mappers';
-import { Product, Order, Category, User, WishlistItem } from '../types';
+import { Product, Order, Category, User, WishlistItem, ProductReview, SalesInvoice } from '../types';
 
 // Types
 interface UseAsyncState<T> {
@@ -388,9 +390,104 @@ export const useOrders = (customerId: string, company?: string) => {
       try {
         setState((prev) => ({ ...prev, loading: true, error: null }));
         const client = getERPNextClient();
+        // Only fetch if customerId is valid (not empty)
+        if (!customerId || customerId.trim() === '') {
+          setState({ data: [], loading: false, error: null });
+          return;
+        }
         const erpOrders = await client.getSalesOrders(customerId, company);
         const orders = erpOrders.map((order) => mapERPSalesOrderToOrder(order));
         setState({ data: orders, loading: false, error: null });
+      } catch (error) {
+        setState({
+          data: [],
+          loading: false,
+          error: error instanceof Error ? error : new Error('Unknown error'),
+        });
+      }
+    };
+
+      fetchOrders();
+  }, [customerId, company]);
+
+  return state;
+};
+
+/**
+ * Hook for fetching user sales invoices
+ */
+export const useSalesInvoices = (userEmail: string) => {
+  const [state, setState] = useState<UseAsyncState<SalesInvoice[]>>({
+    data: null,
+    loading: true,
+    error: null,
+  });
+
+  useEffect(() => {
+    const fetchInvoices = async () => {
+      try {
+        setState((prev) => ({ ...prev, loading: true, error: null }));
+        const client = getERPNextClient();
+        // Fetch invoices filtered by custom_user field matching userEmail
+        const erpInvoices = await client.getSalesInvoices(userEmail || '');
+        console.log(`📄 Raw ERPNext invoices:`, erpInvoices.length, erpInvoices);
+        const invoices = erpInvoices.map((invoice: any) => {
+          const mapped = mapERPSalesInvoiceToSalesInvoice(invoice);
+          console.log(`📄 Mapped invoice:`, {
+            id: mapped.id,
+            invoiceNumber: mapped.invoiceNumber,
+            date: mapped.date,
+            grandTotal: mapped.grandTotal,
+            status: mapped.status,
+            itemsCount: mapped.items?.length || 0,
+          });
+          return mapped;
+        });
+        console.log(`📄 Total mapped invoices:`, invoices.length);
+        setState({ data: invoices, loading: false, error: null });
+      } catch (error) {
+        console.error('Error in useSalesInvoices:', error);
+        setState({
+          data: [],
+          loading: false,
+          error: error instanceof Error ? error : new Error('Unknown error'),
+        });
+      }
+    };
+
+    fetchInvoices();
+  }, [userEmail]);
+
+  return state;
+};
+
+/**
+ * Hook for fetching a single sales invoice with items
+ */
+export const useSalesInvoice = (invoiceName: string) => {
+  const [state, setState] = useState<UseAsyncState<SalesInvoice | null>>({
+    data: null,
+    loading: true,
+    error: null,
+  });
+
+  useEffect(() => {
+    const fetchInvoice = async () => {
+      if (!invoiceName) {
+        setState({ data: null, loading: false, error: null });
+        return;
+      }
+
+      try {
+        setState((prev) => ({ ...prev, loading: true, error: null }));
+        const client = getERPNextClient();
+        const erpInvoice = await client.getSalesInvoice(invoiceName);
+        if (erpInvoice) {
+          const invoice = mapERPSalesInvoiceToSalesInvoice(erpInvoice);
+          setState({ data: invoice, loading: false, error: null });
+        } else {
+          setState({ data: null, loading: false, error: null });
+        }
       } catch (error) {
         setState({
           data: null,
@@ -400,10 +497,8 @@ export const useOrders = (customerId: string, company?: string) => {
       }
     };
 
-    if (customerId) {
-      fetchOrders();
-    }
-  }, [customerId, company]);
+    fetchInvoice();
+  }, [invoiceName]);
 
   return state;
 };
@@ -680,6 +775,64 @@ export const useForYouProducts = (pageSize: number = 20) => {
 };
 
 /**
+ * Hook for fetching reviews for a specific product (Website Item)
+ */
+export const useProductReviews = (websiteItemName: string | null) => {
+  const [state, setState] = useState<UseAsyncState<ProductReview[]>>({
+    data: null,
+    loading: false,
+    error: null,
+  });
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  useEffect(() => {
+    if (!websiteItemName) {
+      setState({ data: [], loading: false, error: null });
+      return;
+    }
+
+    let isMounted = true;
+
+    const fetchReviews = async () => {
+      try {
+        if (isMounted) {
+          setState((prev) => ({ ...prev, loading: true, error: null }));
+        }
+        const client = getERPNextClient();
+        const erpReviews = await client.getItemReviews(websiteItemName);
+        const reviews = erpReviews.map((review: any) => 
+          mapERPItemReviewToProductReview(review, websiteItemName)
+        );
+        
+        if (isMounted) {
+          setState({ data: reviews, loading: false, error: null });
+        }
+      } catch (error) {
+        if (isMounted) {
+          setState({
+            data: null,
+            loading: false,
+            error: error instanceof Error ? error : new Error('Unknown error'),
+          });
+        }
+      }
+    };
+
+    fetchReviews();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [websiteItemName, refreshKey]);
+
+  const refresh = useCallback(() => {
+    setRefreshKey((prev) => prev + 1);
+  }, []);
+
+  return { ...state, refresh };
+};
+
+/**
  * Hook for fetching user wishlist
  */
 export const useWishlist = (userEmail: string | null) => {
@@ -773,9 +926,13 @@ export const useWishlistActions = (onSuccess?: () => void) => {
       const client = getERPNextClient();
       await client.addToWishlist(user.email, itemCode, 1);
       
-      // Call refresh callback immediately after success
+      // Call refresh callback after a short delay to ensure server has processed
+      // This makes the update more reliable and flexible
       if (onSuccess) {
-        onSuccess();
+        // Use setTimeout to allow the API call to complete fully
+        setTimeout(() => {
+          onSuccess();
+        }, 100);
       }
       
       return true;
@@ -802,9 +959,13 @@ export const useWishlistActions = (onSuccess?: () => void) => {
       const client = getERPNextClient();
       await client.removeFromWishlist(user.email, itemCode);
       
-      // Call refresh callback immediately after success
+      // Call refresh callback after a short delay to ensure server has processed
+      // This makes the update more reliable and flexible
       if (onSuccess) {
-        onSuccess();
+        // Use setTimeout to allow the API call to complete fully
+        setTimeout(() => {
+          onSuccess();
+        }, 100);
       }
       
       return true;
@@ -855,4 +1016,229 @@ export const useIsWishlisted = (productId: string | null) => {
   }, [productId, wishlistItems]);
 
   return isWishlisted;
+};
+
+/**
+ * Hook to fetch and manage shopping cart
+ */
+export const useShoppingCart = (userEmail: string | null) => {
+  const [cartItems, setCartItems] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  useEffect(() => {
+    if (!userEmail) {
+      setCartItems([]);
+      setLoading(false);
+      return;
+    }
+
+    let isMounted = true;
+
+    const fetchCart = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const client = getERPNextClient();
+        const cart = await client.getShoppingCart(userEmail);
+        
+        if (isMounted) {
+          if (cart && cart.items) {
+            // Map cart items to include product details
+            const itemsWithProducts = await Promise.all(
+              cart.items.map(async (item: any) => {
+                try {
+                  // Fetch product details using item_code
+                  const product = await client.getItem(item.item_code || item.item);
+                  return {
+                    id: item.name || `${item.item_code}-${Date.now()}`,
+                    itemCode: item.item_code || item.item,
+                    quantity: item.quantity || 1,
+                    product: product ? mapERPWebsiteItemToProduct(product) : null,
+                  };
+                } catch (err) {
+                  console.error(`Error fetching product for ${item.item_code}:`, err);
+                  return {
+                    id: item.name || `${item.item_code}-${Date.now()}`,
+                    itemCode: item.item_code || item.item,
+                    quantity: item.quantity || 1,
+                    product: null,
+                  };
+                }
+              })
+            );
+            setCartItems(itemsWithProducts);
+          } else {
+            setCartItems([]);
+          }
+        }
+      } catch (err) {
+        if (isMounted) {
+          const errorMessage = err instanceof Error ? err.message : 'Failed to fetch cart';
+          setError(new Error(errorMessage));
+          console.error('Error fetching cart:', err);
+        }
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    fetchCart();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [userEmail, refreshKey]);
+
+  const refresh = useCallback(() => {
+    setRefreshKey((prev) => prev + 1);
+  }, []);
+
+  return {
+    cartItems,
+    loading,
+    error,
+    refresh,
+  };
+};
+
+/**
+ * Hook for cart actions (add, remove, update quantity)
+ */
+export const useCartActions = (onSuccess?: () => void) => {
+  const { user } = useUserSession();
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+
+  const addToCart = useCallback(async (itemCode: string, quantity: number = 1) => {
+    if (!user?.email) {
+      setError(new Error('Please log in to add items to cart'));
+      return false;
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const client = getERPNextClient();
+      await client.addToCart(user.email, itemCode, quantity);
+      
+      if (onSuccess) {
+        setTimeout(() => {
+          onSuccess();
+        }, 100);
+      }
+      
+      return true;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to add to cart';
+      setError(new Error(errorMessage));
+      console.error('Error adding to cart:', err);
+      return false;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [user?.email, onSuccess]);
+
+  const removeFromCart = useCallback(async (itemCode: string) => {
+    if (!user?.email) {
+      setError(new Error('Please log in to remove items from cart'));
+      return false;
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const client = getERPNextClient();
+      await client.removeFromCart(user.email, itemCode);
+      
+      if (onSuccess) {
+        setTimeout(() => {
+          onSuccess();
+        }, 100);
+      }
+      
+      return true;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to remove from cart';
+      setError(new Error(errorMessage));
+      console.error('Error removing from cart:', err);
+      return false;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [user?.email, onSuccess]);
+
+  const updateQuantity = useCallback(async (itemCode: string, quantity: number) => {
+    if (!user?.email) {
+      setError(new Error('Please log in to update cart'));
+      return false;
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const client = getERPNextClient();
+      await client.updateCartItemQuantity(user.email, itemCode, quantity);
+      
+      if (onSuccess) {
+        setTimeout(() => {
+          onSuccess();
+        }, 100);
+      }
+      
+      return true;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to update cart';
+      setError(new Error(errorMessage));
+      console.error('Error updating cart:', err);
+      return false;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [user?.email, onSuccess]);
+
+  const clearCart = useCallback(async () => {
+    if (!user?.email) {
+      setError(new Error('Please log in to clear cart'));
+      return false;
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const client = getERPNextClient();
+      await client.clearCart(user.email);
+      
+      if (onSuccess) {
+        setTimeout(() => {
+          onSuccess();
+        }, 100);
+      }
+      
+      return true;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to clear cart';
+      setError(new Error(errorMessage));
+      console.error('Error clearing cart:', err);
+      return false;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [user?.email, onSuccess]);
+
+  return {
+    addToCart,
+    removeFromCart,
+    updateQuantity,
+    clearCart,
+    isLoading,
+    error,
+  };
 };

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -8,13 +8,14 @@ import {
   FlatList,
   Dimensions,
   ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../constants/colors';
-import { useWishlist } from '../hooks/erpnext';
+import { useWishlist, useWishlistActions } from '../hooks/erpnext';
 import { ProductCard } from '../components/ProductCard';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { WishlistItem } from '../types';
 import { useUserSession } from '../context/UserContext';
 
@@ -31,6 +32,71 @@ export const WishlistScreen: React.FC = () => {
   
   // Fetch wishlist from ERPNext
   const { wishlistItems, loading, error, refresh } = useWishlist(userEmail);
+  const { removeFromWishlist } = useWishlistActions(refresh);
+  
+  // Pull-to-refresh state
+  const [refreshing, setRefreshing] = useState(false);
+  
+  // Handle pull-to-refresh
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await refresh();
+    } catch (error) {
+      console.error('Error refreshing wishlist:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refresh]);
+  
+  // Refresh wishlist when screen comes into focus
+  useFocusEffect(
+    React.useCallback(() => {
+      if (userEmail) {
+        console.log('WishlistScreen focused, refreshing wishlist for:', userEmail);
+        refresh();
+      }
+    }, [userEmail, refresh])
+  );
+  
+  // Handle delete selected items
+  const handleDeleteSelected = async () => {
+    if (selectedItems.length === 0) return;
+    
+    try {
+      // Remove each selected item from wishlist
+      for (const itemId of selectedItems) {
+        const wishlistItem = wishlistItems.find(item => item.id === itemId);
+        if (wishlistItem) {
+          await removeFromWishlist(wishlistItem.productId);
+        }
+      }
+      // Clear selection after deletion
+      setSelectedItems([]);
+    } catch (error) {
+      console.error('Error deleting items from wishlist:', error);
+      alert('Failed to delete items. Please try again.');
+    }
+  };
+  
+  // Handle remove single item
+  const handleRemoveItem = async (productId: string) => {
+    try {
+      await removeFromWishlist(productId);
+    } catch (error) {
+      console.error('Error removing item from wishlist:', error);
+      alert('Failed to remove item. Please try again.');
+    }
+  };
+  
+  // Debug logging
+  useEffect(() => {
+    console.log('WishlistScreen - User:', userEmail);
+    console.log('WishlistScreen - Loading:', loading);
+    console.log('WishlistScreen - Error:', error);
+    console.log('WishlistScreen - Items count:', wishlistItems.length);
+    console.log('WishlistScreen - Items:', wishlistItems);
+  }, [userEmail, loading, error, wishlistItems]);
 
   const renderHeader = () => (
     <View style={styles.header}>
@@ -64,7 +130,10 @@ export const WishlistScreen: React.FC = () => {
             <TouchableOpacity style={styles.selectionButton}>
               <Text style={styles.selectionButtonText}>Move to Cart</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.selectionButton, styles.deleteButton]}>
+            <TouchableOpacity 
+              style={[styles.selectionButton, styles.deleteButton]}
+              onPress={handleDeleteSelected}
+            >
               <Text style={[styles.selectionButtonText, styles.deleteButtonText]}>Delete</Text>
             </TouchableOpacity>
           </View>
@@ -107,9 +176,10 @@ export const WishlistScreen: React.FC = () => {
             (navigation as any).navigate('ProductDetails', { productId: item.productId });
           }}
           onWishlistPress={() => {
-            // Handle remove from wishlist
-            console.log('Remove from wishlist:', item.productId);
+            // Remove item from wishlist when heart is clicked
+            handleRemoveItem(item.productId);
           }}
+          isWishlisted={true}
         />
       </View>
     );
@@ -155,6 +225,14 @@ export const WishlistScreen: React.FC = () => {
           contentContainerStyle={styles.wishlistContainer}
           showsVerticalScrollIndicator={false}
           columnWrapperStyle={viewMode === 'grid' ? styles.row : undefined}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={Colors.SHEIN_PINK}
+              colors={[Colors.SHEIN_PINK]}
+            />
+          }
         />
       )}
     </SafeAreaView>
