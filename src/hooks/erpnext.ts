@@ -5,14 +5,16 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { getERPNextClient } from '../services/erpnext';
+import { useUserSession } from '../context/UserContext';
 import {
   mapERPItemToProduct,
   mapERPWebsiteItemToProduct,
   mapERPSalesOrderToOrder,
   mapERPItemGroupToCategory,
   mapERPCustomerToUser,
+  mapERPWishlistToWishlistItems,
 } from '../services/mappers';
-import { Product, Order, Category, User } from '../types';
+import { Product, Order, Category, User, WishlistItem } from '../types';
 
 // Types
 interface UseAsyncState<T> {
@@ -20,23 +22,6 @@ interface UseAsyncState<T> {
   loading: boolean;
   error: Error | null;
 }
-
-// Simple cache for API responses (5 minute TTL)
-const cache = new Map<string, { data: any; timestamp: number }>();
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
-
-const getCached = (key: string): any | null => {
-  const cached = cache.get(key);
-  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-    return cached.data;
-  }
-  cache.delete(key);
-  return null;
-};
-
-const setCached = (key: string, data: any): void => {
-  cache.set(key, { data, timestamp: Date.now() });
-};
 
 /**
  * Hook for fetching new arrivals (latest Website Items)
@@ -47,63 +32,46 @@ export const useNewArrivals = (limit: number = 20) => {
     loading: true,
     error: null,
   });
-  const [retryCount, setRetryCount] = useState(0);
-
-  const fetchNewArrivals = useCallback(async (forceRefresh = false) => {
-    const cacheKey = `newArrivals_${limit}`;
-    
-    // Clear cache if force refresh
-    if (forceRefresh) {
-      cache.delete(cacheKey);
-    }
-    
-    // Check cache first (unless forcing refresh)
-    if (!forceRefresh) {
-      const cachedData = getCached(cacheKey);
-      if (cachedData) {
-        setState({ data: cachedData, loading: false, error: null });
-        // Still fetch in background to update cache, but don't show loading
-        try {
-          const client = getERPNextClient();
-          const websiteItems = await client.getNewArrivals(limit);
-          const products = websiteItems.map((item) => mapERPWebsiteItemToProduct(item));
-          setCached(cacheKey, products);
-          setState({ data: products, loading: false, error: null });
-        } catch (error) {
-          // Silently fail if we have cached data
-          console.warn('Failed to refresh new arrivals, using cached data:', error);
-        }
-        return;
-      }
-    }
-
-    // No cache or force refresh - fetch with loading state
-    try {
-      setState((prev) => ({ ...prev, loading: true, error: null }));
-      const client = getERPNextClient();
-      const websiteItems = await client.getNewArrivals(limit);
-      const products = websiteItems.map((item) => mapERPWebsiteItemToProduct(item));
-      setCached(cacheKey, products);
-      setState({ data: products, loading: false, error: null });
-    } catch (error: any) {
-      setState({
-        data: null,
-        loading: false,
-        error: error instanceof Error ? error : new Error('Failed to load items. Please check your connection.'),
-      });
-    }
-  }, [limit]);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
+    let isMounted = true;
+
+    const fetchNewArrivals = async () => {
+      try {
+        if (isMounted) {
+          setState((prev) => ({ ...prev, loading: true, error: null }));
+        }
+        const client = getERPNextClient();
+        const websiteItems = await client.getNewArrivals(limit);
+        // Use Website Item mapper for better eCommerce support
+        const products = websiteItems.map((item) => mapERPWebsiteItemToProduct(item));
+        if (isMounted) {
+          setState({ data: products, loading: false, error: null });
+        }
+      } catch (error) {
+        if (isMounted) {
+          setState({
+            data: null,
+            loading: false,
+            error: error instanceof Error ? error : new Error('Unknown error'),
+          });
+        }
+      }
+    };
+
     fetchNewArrivals();
-  }, [fetchNewArrivals, retryCount]);
 
-  const retry = useCallback(() => {
-    setRetryCount((prev) => prev + 1);
-    fetchNewArrivals(true);
-  }, [fetchNewArrivals]);
+    return () => {
+      isMounted = false;
+    };
+  }, [limit, refreshKey]);
 
-  return { ...state, retry };
+  const refresh = useCallback(() => {
+    setRefreshKey((prev) => prev + 1);
+  }, []);
+
+  return { ...state, refresh };
 };
 
 /**
@@ -115,69 +83,53 @@ export const useProductsByCategory = (categoryId: string, limit: number = 50) =>
     loading: false,
     error: null,
   });
-  const [retryCount, setRetryCount] = useState(0);
+  const [refreshKey, setRefreshKey] = useState(0);
 
-  const fetchProducts = useCallback(async (forceRefresh = false) => {
+  useEffect(() => {
     // Don't fetch if categoryId is empty
     if (!categoryId || categoryId.trim() === '') {
       setState({ data: null, loading: false, error: null });
       return;
     }
 
-    const cacheKey = `category_${categoryId}_${limit}`;
-    
-    // Clear cache if force refresh
-    if (forceRefresh) {
-      cache.delete(cacheKey);
-    }
-    
-    // Check cache first (unless forcing refresh)
-    if (!forceRefresh) {
-      const cachedData = getCached(cacheKey);
-      if (cachedData) {
-        setState({ data: cachedData, loading: false, error: null });
-        // Still fetch in background to update cache, but don't show loading
-        try {
-          const client = getERPNextClient();
-          const websiteItems = await client.getItemsByGroup(categoryId, limit);
-          const products = websiteItems.map((item) => mapERPWebsiteItemToProduct(item));
-          setCached(cacheKey, products);
-          setState({ data: products, loading: false, error: null });
-        } catch (error) {
-          // Silently fail if we have cached data
-          console.warn(`Failed to refresh category ${categoryId}, using cached data:`, error);
+    let isMounted = true;
+
+    const fetchProducts = async () => {
+      try {
+        if (isMounted) {
+          setState((prev) => ({ ...prev, loading: true, error: null }));
         }
-        return;
+        const client = getERPNextClient();
+        // getItemsByGroup now uses Website Item internally
+        const websiteItems = await client.getItemsByGroup(categoryId, limit);
+        // Use Website Item mapper for better eCommerce support
+        const products = websiteItems.map((item) => mapERPWebsiteItemToProduct(item));
+        if (isMounted) {
+          setState({ data: products, loading: false, error: null });
+        }
+      } catch (error) {
+        if (isMounted) {
+          setState({
+            data: null,
+            loading: false,
+            error: error instanceof Error ? error : new Error('Unknown error'),
+          });
+        }
       }
-    }
+    };
 
-    // No cache or force refresh - fetch with loading state
-    try {
-      setState((prev) => ({ ...prev, loading: true, error: null }));
-      const client = getERPNextClient();
-      const websiteItems = await client.getItemsByGroup(categoryId, limit);
-      const products = websiteItems.map((item) => mapERPWebsiteItemToProduct(item));
-      setCached(cacheKey, products);
-      setState({ data: products, loading: false, error: null });
-    } catch (error: any) {
-      setState({
-        data: null,
-        loading: false,
-        error: error instanceof Error ? error : new Error('Failed to load items. Please check your connection.'),
-      });
-    }
-  }, [categoryId, limit]);
-
-  useEffect(() => {
     fetchProducts();
-  }, [fetchProducts, retryCount]);
 
-  const retry = useCallback(() => {
-    setRetryCount((prev) => prev + 1);
-    fetchProducts(true);
-  }, [fetchProducts]);
+    return () => {
+      isMounted = false;
+    };
+  }, [categoryId, limit, refreshKey]);
 
-  return { ...state, retry };
+  const refresh = useCallback(() => {
+    setRefreshKey((prev) => prev + 1);
+  }, []);
+
+  return { ...state, refresh };
 };
 
 /**
@@ -327,6 +279,17 @@ export const useCategories = () => {
         setState((prev) => ({ ...prev, loading: true, error: null }));
         const client = getERPNextClient();
         const erpGroups = await client.getItemGroups();
+        
+        // Log raw API response to debug parent_item_group values
+        console.log('📚 Raw API Response (first 3):');
+        erpGroups.slice(0, 3).forEach((group: any) => {
+          console.log(`  ${group.name}:`, {
+            parent_item_group: group.parent_item_group,
+            is_group: group.is_group,
+            item_group_name: group.item_group_name
+          });
+        });
+        
         const categories = erpGroups.map((group) =>
           mapERPItemGroupToCategory(group)
         );
@@ -341,6 +304,70 @@ export const useCategories = () => {
     };
 
     fetchCategories();
+  }, []);
+
+  return state;
+};
+
+/**
+ * Hook for fetching pricing rule sample to see all available fields
+ */
+export const usePricingRuleFields = () => {
+  const [state, setState] = useState<UseAsyncState<any>>({
+    data: null,
+    loading: true,
+    error: null,
+  });
+
+  useEffect(() => {
+    const fetchFields = async () => {
+      try {
+        setState((prev) => ({ ...prev, loading: true, error: null }));
+        const client = getERPNextClient();
+        const fields = await client.getPricingRuleAllFields();
+        setState({ data: fields, loading: false, error: null });
+      } catch (error) {
+        setState({
+          data: null,
+          loading: false,
+          error: error instanceof Error ? error : new Error('Unknown error'),
+        });
+      }
+    };
+
+    fetchFields();
+  }, []);
+
+  return state;
+};
+
+/**
+ * Hook for fetching pricing rules
+ */
+export const usePricingRules = () => {
+  const [state, setState] = useState<UseAsyncState<any[]>>({
+    data: null,
+    loading: true,
+    error: null,
+  });
+
+  useEffect(() => {
+    const fetchPricingRules = async () => {
+      try {
+        setState((prev) => ({ ...prev, loading: true, error: null }));
+        const client = getERPNextClient();
+        const rules = await client.getPricingRules();
+        setState({ data: rules, loading: false, error: null });
+      } catch (error) {
+        setState({
+          data: null,
+          loading: false,
+          error: error instanceof Error ? error : new Error('Unknown error'),
+        });
+      }
+    };
+
+    fetchPricingRules();
   }, []);
 
   return state;
@@ -551,4 +578,281 @@ export const useERPNextConnection = () => {
   }, []);
 
   return state;
+};
+
+/**
+ * Hook for fetching "For You" products with infinite scroll
+ * Loads random items from the system with pagination
+ */
+export const useForYouProducts = (pageSize: number = 20) => {
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+  const [hasMore, setHasMore] = useState(true);
+  const [offset, setOffset] = useState(0);
+  const [initialLoad, setInitialLoad] = useState(true);
+
+  // Shuffle array function for randomizing items
+  const shuffleArray = <T,>(array: T[]): T[] => {
+    const shuffled = [...array];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    return shuffled;
+  };
+
+  // Load initial products
+  useEffect(() => {
+    const loadInitialProducts = async () => {
+      if (!initialLoad) return;
+      
+      setLoading(true);
+      setError(null);
+      
+      try {
+        const client = getERPNextClient();
+        // Fetch first batch of products
+        const websiteItems = await client.getWebsiteItems(undefined, pageSize, 0);
+        const mappedProducts = websiteItems.map((item) => mapERPWebsiteItemToProduct(item));
+        
+        // Randomize the order for "For You" section
+        const shuffledProducts = shuffleArray(mappedProducts);
+        
+        setProducts(shuffledProducts);
+        setOffset(pageSize);
+        setHasMore(websiteItems.length === pageSize);
+        setInitialLoad(false);
+      } catch (err) {
+        setError(err instanceof Error ? err : new Error('Unknown error'));
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadInitialProducts();
+  }, [initialLoad, pageSize]);
+
+  // Load more products (for infinite scroll)
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !hasMore || initialLoad) return;
+
+    setLoadingMore(true);
+    setError(null);
+
+    try {
+      const client = getERPNextClient();
+      const websiteItems = await client.getWebsiteItems(undefined, pageSize, offset);
+      const mappedProducts = websiteItems.map((item) => mapERPWebsiteItemToProduct(item));
+      
+      // Randomize the new batch and append to existing products
+      const shuffledProducts = shuffleArray(mappedProducts);
+      
+      setProducts((prev) => [...prev, ...shuffledProducts]);
+      setOffset((prev) => prev + pageSize);
+      setHasMore(websiteItems.length === pageSize);
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error('Unknown error'));
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, hasMore, offset, pageSize, initialLoad]);
+
+  // Refresh function to reload from start
+  const refresh = useCallback(() => {
+    setProducts([]);
+    setOffset(0);
+    setHasMore(true);
+    setInitialLoad(true);
+    setError(null);
+  }, []);
+
+  return {
+    products,
+    loading,
+    loadingMore,
+    error,
+    hasMore,
+    loadMore,
+    refresh,
+  };
+};
+
+/**
+ * Hook for fetching user wishlist
+ */
+export const useWishlist = (userEmail: string | null) => {
+  const [state, setState] = useState<UseAsyncState<WishlistItem[]>>({
+    data: null,
+    loading: true,
+    error: null,
+  });
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const fetchWishlist = async () => {
+      if (!userEmail) {
+        if (isMounted) {
+          setState({ data: [], loading: false, error: null });
+        }
+        return;
+      }
+
+      try {
+        if (isMounted) {
+          setState((prev) => ({ ...prev, loading: true, error: null }));
+        }
+        const client = getERPNextClient();
+        const erpWishlist = await client.getWishlist(userEmail);
+        
+        if (!erpWishlist || !erpWishlist.items || erpWishlist.items.length === 0) {
+          if (isMounted) {
+            setState({ data: [], loading: false, error: null });
+          }
+          return;
+        }
+
+        // Map ERPNext wishlist to app WishlistItem array
+        const wishlistItems = await mapERPWishlistToWishlistItems(erpWishlist, client);
+        
+        if (isMounted) {
+          setState({ data: wishlistItems, loading: false, error: null });
+        }
+      } catch (error) {
+        console.error('Error fetching wishlist:', error);
+        if (isMounted) {
+          setState({
+            data: null,
+            loading: false,
+            error: error instanceof Error ? error : new Error('Failed to fetch wishlist'),
+          });
+        }
+      }
+    };
+
+    fetchWishlist();
+    return () => {
+      isMounted = false;
+    };
+  }, [userEmail, refreshKey]);
+
+  const refresh = useCallback(() => {
+    setRefreshKey((prev) => prev + 1);
+  }, []);
+
+  return {
+    wishlistItems: state.data || [],
+    loading: state.loading,
+    error: state.error,
+    refresh,
+  };
+};
+
+/**
+ * Hook for managing wishlist operations (add/remove)
+ * Accepts an optional refresh callback to update wishlist state immediately
+ */
+export const useWishlistActions = (onSuccess?: () => void) => {
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+  const { user } = useUserSession();
+
+  const addToWishlist = useCallback(async (itemCode: string) => {
+    if (!user?.email) {
+      setError(new Error('Please log in to add items to wishlist'));
+      return false;
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const client = getERPNextClient();
+      await client.addToWishlist(user.email, itemCode, 1);
+      
+      // Call refresh callback immediately after success
+      if (onSuccess) {
+        onSuccess();
+      }
+      
+      return true;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to add to wishlist';
+      setError(new Error(errorMessage));
+      console.error('Error adding to wishlist:', err);
+      return false;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [user?.email, onSuccess]);
+
+  const removeFromWishlist = useCallback(async (itemCode: string) => {
+    if (!user?.email) {
+      setError(new Error('Please log in to remove items from wishlist'));
+      return false;
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const client = getERPNextClient();
+      await client.removeFromWishlist(user.email, itemCode);
+      
+      // Call refresh callback immediately after success
+      if (onSuccess) {
+        onSuccess();
+      }
+      
+      return true;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to remove from wishlist';
+      setError(new Error(errorMessage));
+      console.error('Error removing from wishlist:', err);
+      return false;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [user?.email, onSuccess]);
+
+  const toggleWishlist = useCallback(async (itemCode: string, isCurrentlyWishlisted: boolean) => {
+    if (isCurrentlyWishlisted) {
+      return await removeFromWishlist(itemCode);
+    } else {
+      return await addToWishlist(itemCode);
+    }
+  }, [addToWishlist, removeFromWishlist]);
+
+  return {
+    addToWishlist,
+    removeFromWishlist,
+    toggleWishlist,
+    isLoading,
+    error,
+  };
+};
+
+/**
+ * Hook to check if a product is in the wishlist
+ */
+export const useIsWishlisted = (productId: string | null) => {
+  const { user } = useUserSession();
+  const { wishlistItems } = useWishlist(user?.email || null);
+  const [isWishlisted, setIsWishlisted] = useState(false);
+
+  useEffect(() => {
+    if (!productId || !wishlistItems) {
+      setIsWishlisted(false);
+      return;
+    }
+
+    // Check if product is in wishlist by comparing productId with wishlist item's productId
+    const found = wishlistItems.some(item => item.productId === productId);
+    setIsWishlisted(found);
+  }, [productId, wishlistItems]);
+
+  return isWishlisted;
 };

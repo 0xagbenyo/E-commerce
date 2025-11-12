@@ -56,7 +56,7 @@ export const SplashScreen: React.FC = () => {
             },
           ]}
         >
-          <Text style={styles.logo}>GLAMORA</Text>
+          <Text style={styles.logo}>SIAMAE</Text>
           <Text style={styles.tagline}>Fashion Forward</Text>
         </Animated.View>
       </LinearGradient>

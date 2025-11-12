@@ -68,7 +68,7 @@ export const OrderSuccessScreen: React.FC = () => {
   const navigation = useNavigation();
 
   const formatPrice = (price: number) => {
-    return `$${price.toFixed(2)}`;
+    return `GH₵${price.toFixed(2)}`;
   };
 
   const handleContinueShopping = () => {

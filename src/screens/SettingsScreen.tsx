@@ -186,7 +186,7 @@ export const SettingsScreen: React.FC = () => {
             {renderSettingItem(
               'information-circle-outline',
               'App Version',
-              'Glamora v1.0.0',
+              'SIAMAE v1.0.0',
               undefined,
               false
             )}
@@ -199,7 +199,7 @@ export const SettingsScreen: React.FC = () => {
             {renderSettingItem(
               'share-outline',
               'Share App',
-              'Tell friends about Glamora',
+              'Tell friends about SIAMAE',
               () => {}
             )}
           </>

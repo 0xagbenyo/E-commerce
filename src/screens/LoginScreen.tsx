@@ -10,16 +10,20 @@ import {
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useNavigation, CommonActions } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../constants/colors';
+import { getERPNextClient } from '../services/erpnext';
+import { useUserSession } from '../context/UserContext';
 
 export const LoginScreen: React.FC = () => {
-  const [email, setEmail] = useState('');
+  const [emailOrPhone, setEmailOrPhone] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isValid, setIsValid] = useState(false);
   const navigation = useNavigation();
-  const route = useRoute();
+  const { setUser } = useUserSession();
 
   const validateEmail = (email: string) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -32,12 +36,24 @@ export const LoginScreen: React.FC = () => {
     return phoneRegex.test(phone.replace(/\s/g, ''));
   };
 
-  const handleEmailChange = (text: string) => {
-    setEmail(text);
+  const handleEmailOrPhoneChange = (text: string) => {
+    setEmailOrPhone(text);
     const trimmedText = text.trim();
     if (trimmedText) {
       const isEmail = trimmedText.includes('@');
       const valid = isEmail ? validateEmail(trimmedText) : validatePhone(trimmedText);
+      setIsValid(valid && password.length > 0);
+    } else {
+      setIsValid(false);
+    }
+  };
+
+  const handlePasswordChange = (text: string) => {
+    setPassword(text);
+    const trimmedEmailOrPhone = emailOrPhone.trim();
+    if (trimmedEmailOrPhone && text.length > 0) {
+      const isEmail = trimmedEmailOrPhone.includes('@');
+      const valid = isEmail ? validateEmail(trimmedEmailOrPhone) : validatePhone(trimmedEmailOrPhone);
       setIsValid(valid);
     } else {
       setIsValid(false);
@@ -45,35 +61,85 @@ export const LoginScreen: React.FC = () => {
   };
 
   const handleContinue = async () => {
-    const trimmedEmail = email.trim();
+    const trimmedEmailOrPhone = emailOrPhone.trim();
     
-    if (!trimmedEmail) {
+    if (!trimmedEmailOrPhone) {
       alert('Please enter your email or mobile number');
       return;
     }
 
+    if (!password) {
+      alert('Please enter your password');
+      return;
+    }
+
     // Check if it's an email or phone number
-    const isEmail = trimmedEmail.includes('@');
+    const isEmail = trimmedEmailOrPhone.includes('@');
     
-    if (isEmail && !validateEmail(trimmedEmail)) {
+    if (isEmail && !validateEmail(trimmedEmailOrPhone)) {
       alert('Please enter a valid email address');
       return;
     }
 
-    if (!isEmail && !validatePhone(trimmedEmail)) {
+    if (!isEmail && !validatePhone(trimmedEmailOrPhone)) {
       alert('Please enter a valid Ghana phone number (e.g., 0201234567 or +233201234567)');
       return;
     }
 
     setIsLoading(true);
     
-    // Simulate API call
-    setTimeout(() => {
+    try {
+      const client = getERPNextClient();
+      let loginIdentifier = trimmedEmailOrPhone;
+      
+      // If user entered phone number, look up their email first
+      if (!isEmail) {
+        console.log('Looking up user by phone:', trimmedEmailOrPhone);
+        const userByPhone = await client.getUserByPhone(trimmedEmailOrPhone);
+        if (userByPhone && userByPhone.email) {
+          loginIdentifier = userByPhone.email;
+          console.log('Found user email for phone:', loginIdentifier);
+        } else {
+          setIsLoading(false);
+          alert('No account found with this phone number. Please check and try again.');
+          return;
+        }
+      }
+      
+      // Call ERPNext login API with email/username
+      console.log('Attempting login with:', { loginIdentifier, passwordLength: password.length });
+      const loginResult = await client.login(loginIdentifier, password);
+      console.log('Login successful:', loginResult);
+      
+      // Store user session
+      // Use loginIdentifier as fallback if user field is not available
+      const userEmail = loginResult.user || loginIdentifier;
+      setUser({
+        email: userEmail,
+        fullName: loginResult.full_name || undefined,
+        user: userEmail,
+      });
+      
+      console.log('User session stored:', { email: userEmail, fullName: loginResult.full_name });
+      
+      // Reset navigation stack to prevent going back to login
+      navigation.dispatch(
+        CommonActions.reset({
+          index: 0,
+          routes: [{ name: 'Main' as never }],
+        })
+      );
+    } catch (error: any) {
       setIsLoading(false);
-      console.log('Login successful with:', { email: trimmedEmail });
-      // Navigate to main app
-      navigation.navigate('Main' as never);
-    }, 1000);
+      // Extract error message - the error should already have a meaningful message from extractLoginErrorMessage
+      const errorMessage = error?.message || 'Login failed. Please check your credentials and try again.';
+      alert(errorMessage);
+      console.error('Login error:', error);
+      // Log original error details for debugging
+      if (error?.originalError) {
+        console.error('Original error:', error.originalError);
+      }
+    }
   };
 
   const handleSocialLogin = (provider: string) => {
@@ -97,7 +163,7 @@ export const LoginScreen: React.FC = () => {
               <Ionicons name="arrow-back" size={24} color={Colors.BLACK} />
             </TouchableOpacity>
             <View style={styles.logoContainer}>
-              <Text style={styles.logo}>GLAMORA</Text>
+              <Text style={styles.logo}>SIAMAE</Text>
               <Text style={styles.logoSuffix}>GH</Text>
             </View>
             <View style={styles.securityInfo}>
@@ -119,20 +185,50 @@ export const LoginScreen: React.FC = () => {
               <TextInput
                 style={[
                   styles.input,
-                  email.trim() && !isValid && styles.inputError
+                  emailOrPhone.trim() && !isValid && styles.inputError
                 ]}
-                placeholder=""
-                value={email}
-                onChangeText={handleEmailChange}
+                placeholder="Enter email or phone number"
+                value={emailOrPhone}
+                onChangeText={handleEmailOrPhoneChange}
                 keyboardType="email-address"
                 autoCapitalize="none"
                 autoCorrect={false}
               />
-              {email.trim() && !isValid && (
+              {emailOrPhone.trim() && !isValid && (
                 <Text style={styles.errorText}>
-                  {email.includes('@') ? 'Please enter a valid email address' : 'Please enter a valid Ghana phone number'}
+                  {emailOrPhone.includes('@') ? 'Please enter a valid email address' : 'Please enter a valid Ghana phone number'}
                 </Text>
               )}
+            </View>
+
+            <View style={styles.inputContainer}>
+              <Text style={styles.label}>Password</Text>
+              <View style={styles.passwordInputWrapper}>
+                <TextInput
+                  style={[
+                    styles.passwordInput,
+                    password.length > 0 && !isValid && styles.inputError
+                  ]}
+                  placeholder="Enter your password"
+                  value={password}
+                  onChangeText={handlePasswordChange}
+                  secureTextEntry={!showPassword}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+                {password.length > 0 && (
+                  <TouchableOpacity 
+                    style={styles.eyeButton}
+                    onPress={() => setShowPassword(!showPassword)}
+                  >
+                    <Ionicons 
+                      name={showPassword ? "eye-off" : "eye"} 
+                      size={20} 
+                      color={Colors.BLACK} 
+                    />
+                  </TouchableOpacity>
+                )}
+              </View>
             </View>
 
             <TouchableOpacity 
@@ -144,8 +240,15 @@ export const LoginScreen: React.FC = () => {
               disabled={isLoading || !isValid}
             >
               <Text style={styles.continueButtonText}>
-                {isLoading ? 'CONTINUING...' : 'CONTINUE'}
+                {isLoading ? 'SIGNING IN...' : 'SIGN IN'}
               </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.forgotPasswordButton}
+              onPress={() => navigation.navigate('ForgotPassword' as never)}
+            >
+              <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
             </TouchableOpacity>
 
             <View style={styles.signupSection}>
@@ -284,6 +387,25 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: Colors.BLACK,
   },
+  passwordInputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.WHITE,
+    borderWidth: 1,
+    borderColor: Colors.BORDER,
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+  },
+  passwordInput: {
+    flex: 1,
+    fontSize: 16,
+    color: Colors.BLACK,
+  },
+  eyeButton: {
+    marginLeft: 8,
+    padding: 4,
+  },
   inputError: {
     borderColor: Colors.ERROR,
   },
@@ -307,6 +429,16 @@ const styles = StyleSheet.create({
     color: Colors.WHITE,
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  forgotPasswordButton: {
+    alignItems: 'center',
+    marginTop: 12,
+    marginBottom: 8,
+  },
+  forgotPasswordText: {
+    fontSize: 14,
+    color: Colors.ELECTRIC_BLUE,
+    fontWeight: '500',
   },
   divider: {
     flexDirection: 'row',

@@ -15,6 +15,7 @@ import {
   Category,
   Cart,
   CartItem,
+  WishlistItem,
 } from '../types';
 
 /**
@@ -74,10 +75,10 @@ export const mapUserToERPCustomer = (user: User) => {
  * Map ERPNext Website Item to Product type (Primary mapping for marketplace)
  */
 export const mapERPWebsiteItemToProduct = (websiteItem: any): Product => {
-  // Note: price_list_rate needs to be fetched from Item Price separately
-  // For now, use 0 as default - you'll need to fetch pricing separately
+  // Price should be fetched from Item Price doctype (now included in getWebsiteItem)
+  // Use price_list_rate if available, otherwise fallback to 0
   const basePrice = websiteItem.price_list_rate || websiteItem.standard_rate || 0;
-  const originalPrice = websiteItem.list_price || basePrice;
+  const originalPrice = websiteItem.list_price || websiteItem.standard_rate || basePrice;
   const discount = originalPrice > basePrice ? originalPrice - basePrice : 0;
   const discountPercentage = originalPrice > 0 
     ? Math.round((discount / originalPrice) * 100)
@@ -359,7 +360,10 @@ export const mapERPWebsiteItemToProduct = (websiteItem: any): Product => {
     colors: extractColorsFromWebsiteItem(websiteItem),
     sizes: extractSizesFromWebsiteItem(websiteItem),
     specifications: specifications.length > 0 ? specifications : undefined,
-    inStock: websiteItem.published === 1 && !websiteItem.on_backorder,
+    // Use available_stock if fetched, otherwise fallback to published status
+    inStock: websiteItem.available_stock !== undefined 
+      ? websiteItem.available_stock > 0 
+      : (websiteItem.published === 1 && !websiteItem.on_backorder),
     rating: websiteItem.custom_rating || 0,
     reviewCount: websiteItem.custom_review_count || 0,
     tags: (websiteItem.tags || '').split(',').filter((t: string) => t.trim()),
@@ -680,6 +684,57 @@ export const mapERPAddressToUserAddress = (erpAddress: any): UserAddress | undef
 };
 
 /**
+ * Map ERPNext Wishlist to WishlistItem array
+ * Fetches product details for each item in the wishlist
+ */
+export const mapERPWishlistToWishlistItems = async (
+  erpWishlist: any,
+  client: any
+): Promise<WishlistItem[]> => {
+  if (!erpWishlist || !erpWishlist.items || erpWishlist.items.length === 0) {
+    return [];
+  }
+
+  // Fetch product details for each item in parallel
+  const wishlistItems = await Promise.allSettled(
+    erpWishlist.items.map(async (item: any) => {
+      try {
+        // Fetch Website Item by item_code
+        // Note: ERPNext child table uses 'item_code' field name, but may also return as 'item'
+        const itemCode = item.item_code || item.item;
+        const websiteItem = await client.getWebsiteItem(itemCode);
+        const product = mapERPWebsiteItemToProduct(websiteItem);
+        
+        return {
+          id: item.name || `${erpWishlist.name}-${itemCode}`, // Use child table row name if available
+          userId: erpWishlist.user,
+          productId: itemCode,
+          product: product,
+          createdAt: item.creation || erpWishlist.creation || new Date().toISOString(),
+        } as WishlistItem;
+      } catch (error) {
+        // Note: ERPNext child table uses 'item_code' field name, but may also return as 'item'
+        const itemCode = item.item_code || item.item;
+        console.warn(`Failed to fetch product for wishlist item ${itemCode}:`, error);
+        // Return a minimal item if product fetch fails
+        return {
+          id: item.name || `${erpWishlist.name}-${itemCode}`,
+          userId: erpWishlist.user,
+          productId: itemCode,
+          product: null as any, // Will need to handle this in UI
+          createdAt: item.creation || erpWishlist.creation || new Date().toISOString(),
+        } as WishlistItem;
+      }
+    })
+  );
+
+  // Filter out failed items and return successful ones
+  return wishlistItems
+    .filter((result) => result.status === 'fulfilled')
+    .map((result) => (result as PromiseFulfilledResult<WishlistItem>).value);
+};
+
+/**
  * Map UserAddress to ERPNext Address data
  */
 export const mapUserAddressToERPAddress = (address: UserAddress) => {
@@ -704,11 +759,14 @@ export const mapUserAddressToERPAddress = (address: UserAddress) => {
 export const mapERPItemGroupToCategory = (erpGroup: any): Category => {
   return {
     id: erpGroup.name,
-    name: erpGroup.item_group_name,
+    name: erpGroup.item_group_name || erpGroup.name,
     slug: erpGroup.name.toLowerCase().replace(/\s+/g, '-'),
     image: erpGroup.image || '',
     description: erpGroup.description,
     parentId: erpGroup.parent_item_group,
+    // Add additional fields for hierarchy filtering
+    isGroup: erpGroup.is_group,
+    parentItemGroup: erpGroup.parent_item_group,
   };
 };
 

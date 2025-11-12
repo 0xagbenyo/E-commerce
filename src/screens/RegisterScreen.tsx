@@ -16,31 +16,20 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../constants/colors';
 import { Typography } from '../constants/typography';
 import { Spacing } from '../constants/spacing';
+import { getERPNextClient } from '../services/erpnext';
 
 export const RegisterScreen: React.FC = () => {
   const [email, setEmail] = useState('');
-  const [phoneNumber, setPhoneNumber] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [middleName, setMiddleName] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [isRegistrationSuccess, setIsRegistrationSuccess] = useState(false);
   const [errors, setErrors] = useState<{[key: string]: string}>({});
   const navigation = useNavigation();
 
   const validateEmail = (email: string) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     return emailRegex.test(email);
-  };
-
-  const validatePhone = (phone: string) => {
-    const phoneRegex = /^(\+233|233|0)?[235679][0-9]{8}$/;
-    return phoneRegex.test(phone.replace(/\s/g, ''));
-  };
-
-  const validatePassword = (password: string) => {
-    return password.length >= 8;
   };
 
   const validateForm = () => {
@@ -52,109 +41,57 @@ export const RegisterScreen: React.FC = () => {
       newErrors.email = 'Please enter a valid email address';
     }
 
-    if (!phoneNumber.trim()) {
-      newErrors.phoneNumber = 'Phone number is required';
-    } else if (!validatePhone(phoneNumber.trim())) {
-      newErrors.phoneNumber = 'Please enter a valid Ghana phone number';
+    if (!firstName.trim()) {
+      newErrors.firstName = 'First name is required';
     }
 
-    if (!password) {
-      newErrors.password = 'Password is required';
-    } else if (!validatePassword(password)) {
-      newErrors.password = 'Password must be at least 8 characters';
-    }
-
-    if (!confirmPassword) {
-      newErrors.confirmPassword = 'Please confirm your password';
-    } else if (password !== confirmPassword) {
-      newErrors.confirmPassword = 'Passwords do not match';
+    if (!lastName.trim()) {
+      newErrors.lastName = 'Last name is required';
     }
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleRegister = async () => {
+  const handleSendVerificationLink = async () => {
     if (!validateForm()) {
       return;
     }
 
     setIsLoading(true);
     
-    // Simulate API call
-    setTimeout(() => {
+    try {
+      const client = getERPNextClient();
+      
+      // Create user in ERPNext
+      const userData = {
+        email: email.trim(),
+        first_name: firstName.trim(),
+        last_name: lastName.trim(),
+        middle_name: middleName.trim() || undefined,
+        send_welcome_email: true, // Send welcome email with verification link
+      };
+      
+      const createdUser = await client.createUser(userData);
+      console.log('User created successfully:', createdUser);
+      
+      // After successful user creation, navigate to login screen
+      // ERPNext will send welcome email with verification link automatically
       setIsLoading(false);
-      setIsRegistrationSuccess(true);
-    }, 1000);
+      navigation.navigate('Login' as never);
+    } catch (error: any) {
+      setIsLoading(false);
+      // Handle error - show error message to user
+      const errorMessage = error?.message || 'Failed to send verification link. Please try again.';
+      Alert.alert('Registration Error', errorMessage);
+      console.error('Registration error:', error);
+    }
   };
 
   const handleBack = () => {
     navigation.goBack();
   };
 
-  const handleCloseSuccess = () => {
-    setIsRegistrationSuccess(false);
-    // Navigate to main app after successful registration
-    navigation.navigate('Main' as never);
-  };
-
-  const renderSuccessOverlay = () => (
-    <View style={styles.overlay}>
-      <View style={styles.successCard}>
-        <TouchableOpacity style={styles.closeButton} onPress={handleCloseSuccess}>
-          <Ionicons name="close" size={24} color={Colors.BLACK} />
-        </TouchableOpacity>
-        
-        <View style={styles.successContent}>
-          <View style={styles.successIcon}>
-            <Ionicons name="checkmark" size={32} color={Colors.WHITE} />
-          </View>
-          <Text style={styles.successTitle}>Registration successful!</Text>
-          <Text style={styles.successSubtitle}>
-            Check your inbox for 100 points (100 points = GH₵1) reward!
-            <Ionicons name="information-circle-outline" size={16} color={Colors.SHEIN_ORANGE} />
-          </Text>
-          
-          <View style={styles.rewardCards}>
-            <View style={styles.rewardCard}>
-              <Text style={styles.rewardLabel}>Extra</Text>
-              <Text style={styles.rewardAmount}>GH₵3.00</Text>
-            </View>
-            <View style={styles.rewardCard}>
-              <Text style={styles.rewardLabel}>First Order</Text>
-              <TouchableOpacity style={styles.useButton}>
-                <Text style={styles.useButtonText}>USE</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </View>
-    </View>
-  );
-
-  const renderFreeShippingSection = () => (
-    <View style={styles.freeShippingSection}>
-      <Text style={styles.freeShippingTitle}>Free Shipping & New user sale</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.productsScroll}>
-        {[
-          { name: 'White Crop Top', price: 'GH₵2.55', discount: '-15%', image: '👕' },
-          { name: 'Maroon T-Shirt Set', price: 'GH₵29.00', image: '👚' },
-          { name: 'Peach Sportswear', price: 'GH₵22.00', image: '🏃‍♀️' },
-          { name: 'Wireless Earbuds', price: 'GH₵6.00', image: '🎧' },
-        ].map((product, index) => (
-          <View key={index} style={styles.productCard}>
-            <Text style={styles.productEmoji}>{product.image}</Text>
-            <Text style={styles.productPrice}>{product.price}</Text>
-            {product.discount && (
-              <View style={styles.discountTag}>
-                <Text style={styles.discountText}>{product.discount}</Text>
-              </View>
-            )}
-          </View>
-        ))}
-      </ScrollView>
-    </View>
-  );
 
   return (
     <SafeAreaView style={styles.container}>
@@ -168,7 +105,7 @@ export const RegisterScreen: React.FC = () => {
             <TouchableOpacity style={styles.backButton} onPress={handleBack}>
               <Ionicons name="arrow-back" size={24} color={Colors.BLACK} />
             </TouchableOpacity>
-            <Text style={styles.title}>Create your Glamora account</Text>
+            <Text style={styles.title}>Create your SIAMAE account</Text>
             <Text style={styles.subtitle}>It's quick and easy.</Text>
           </View>
 
@@ -189,84 +126,51 @@ export const RegisterScreen: React.FC = () => {
             </View>
 
             <View style={styles.inputContainer}>
-              <Text style={styles.label}>Phone Number</Text>
+              <Text style={styles.label}>First Name</Text>
               <TextInput
-                style={[styles.input, errors.phoneNumber && styles.inputError]}
-                placeholder="Enter Ghana phone number"
-                value={phoneNumber}
-                onChangeText={setPhoneNumber}
-                keyboardType="phone-pad"
-                autoCapitalize="none"
+                style={[styles.input, errors.firstName && styles.inputError]}
+                placeholder="Enter your first name"
+                value={firstName}
+                onChangeText={setFirstName}
+                autoCapitalize="words"
                 autoCorrect={false}
               />
-              {errors.phoneNumber && <Text style={styles.errorText}>{errors.phoneNumber}</Text>}
+              {errors.firstName && <Text style={styles.errorText}>{errors.firstName}</Text>}
             </View>
 
             <View style={styles.inputContainer}>
-              <Text style={styles.label}>Password</Text>
-              <View style={styles.passwordInputWrapper}>
-                <TextInput
-                  style={[styles.passwordInput, errors.password && styles.inputError]}
-                  placeholder="Enter password"
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry={!showPassword}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                />
-                {password.length > 0 && (
-                  <TouchableOpacity 
-                    style={styles.eyeButton}
-                    onPress={() => setShowPassword(!showPassword)}
-                  >
-                    <Ionicons 
-                      name={showPassword ? "eye-off" : "eye"} 
-                      size={20} 
-                      color={Colors.BLACK} 
-                    />
-                  </TouchableOpacity>
-                )}
-              </View>
-              {errors.password && <Text style={styles.errorText}>{errors.password}</Text>}
-              <Text style={styles.passwordRequirement}>8 characters minimum</Text>
+              <Text style={styles.label}>Middle Name (Optional)</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Enter your middle name"
+                value={middleName}
+                onChangeText={setMiddleName}
+                autoCapitalize="words"
+                autoCorrect={false}
+              />
             </View>
 
             <View style={styles.inputContainer}>
-              <Text style={styles.label}>Confirm Password</Text>
-              <View style={styles.passwordInputWrapper}>
-                <TextInput
-                  style={[styles.passwordInput, errors.confirmPassword && styles.inputError]}
-                  placeholder="Confirm your password"
-                  value={confirmPassword}
-                  onChangeText={setConfirmPassword}
-                  secureTextEntry={!showConfirmPassword}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                />
-                {confirmPassword.length > 0 && (
-                  <TouchableOpacity 
-                    style={styles.eyeButton}
-                    onPress={() => setShowConfirmPassword(!showConfirmPassword)}
-                  >
-                    <Ionicons 
-                      name={showConfirmPassword ? "eye-off" : "eye"} 
-                      size={20} 
-                      color={Colors.BLACK} 
-                    />
-                  </TouchableOpacity>
-                )}
-              </View>
-              {errors.confirmPassword && <Text style={styles.errorText}>{errors.confirmPassword}</Text>}
+              <Text style={styles.label}>Last Name</Text>
+              <TextInput
+                style={[styles.input, errors.lastName && styles.inputError]}
+                placeholder="Enter your last name"
+                value={lastName}
+                onChangeText={setLastName}
+                autoCapitalize="words"
+                autoCorrect={false}
+              />
+              {errors.lastName && <Text style={styles.errorText}>{errors.lastName}</Text>}
             </View>
 
-            {/* Register Button */}
+            {/* Send Verification Link Button */}
             <TouchableOpacity 
               style={[styles.registerButton, isLoading && styles.registerButtonDisabled]}
-              onPress={handleRegister}
+              onPress={handleSendVerificationLink}
               disabled={isLoading}
             >
               <Text style={styles.registerButtonText}>
-                {isLoading ? 'REGISTERING...' : 'REGISTER'}
+                {isLoading ? 'SENDING...' : 'SEND VERIFICATION LINK'}
               </Text>
             </TouchableOpacity>
 
@@ -277,20 +181,14 @@ export const RegisterScreen: React.FC = () => {
               </TouchableOpacity>
             </View>
 
-            {/* Promo Banner */}
-            <View style={styles.promoBanner}>
-              <Ionicons name="pricetag" size={20} color={Colors.SHEIN_ORANGE} />
-              <Text style={styles.promoText}>Get GH₵3 off your first order</Text>
+            {/* Info Banner */}
+            <View style={styles.infoBanner}>
+              <Ionicons name="information-circle-outline" size={20} color={Colors.ELECTRIC_BLUE} />
+              <Text style={styles.infoText}>
+                We'll send you a verification link. Click it to set your password and complete registration.
+              </Text>
             </View>
           </View>
-
-          {/* Free Shipping Section */}
-          {renderFreeShippingSection()}
-
-          {/* Go Shopping Button */}
-          <TouchableOpacity style={styles.goShoppingButton}>
-            <Text style={styles.goShoppingText}>GO SHOPPING</Text>
-          </TouchableOpacity>
 
           {/* Legal Text */}
           <Text style={styles.legalText}>
@@ -300,9 +198,6 @@ export const RegisterScreen: React.FC = () => {
             <Text style={styles.linkText}>Terms & Conditions</Text>.
           </Text>
         </ScrollView>
-
-        {/* Success Overlay */}
-        {isRegistrationSuccess && renderSuccessOverlay()}
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -443,73 +338,21 @@ const styles = StyleSheet.create({
     color: Colors.SHEIN_PINK,
     fontWeight: '500',
   },
-  promoBanner: {
+  infoBanner: {
     flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFF3E0',
+    alignItems: 'flex-start',
+    backgroundColor: '#E3F2FD',
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderRadius: 8,
+    marginTop: 20,
   },
-  promoText: {
+  infoText: {
+    flex: 1,
     marginLeft: 8,
     fontSize: 14,
-    color: Colors.SHEIN_ORANGE,
-    fontWeight: '500',
-  },
-  freeShippingSection: {
-    paddingHorizontal: 20,
-    marginBottom: 30,
-  },
-  freeShippingTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: Colors.BLACK,
-    marginBottom: 16,
-  },
-  productsScroll: {
-    flexDirection: 'row',
-  },
-  productCard: {
-    width: 80,
-    marginRight: 12,
-    alignItems: 'center',
-  },
-  productEmoji: {
-    fontSize: 40,
-    marginBottom: 8,
-  },
-  productPrice: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: Colors.BLACK,
-  },
-  discountTag: {
-    backgroundColor: Colors.FLASH_SALE_RED,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-    marginTop: 4,
-  },
-  discountText: {
-    fontSize: 12,
-    color: Colors.WHITE,
-    fontWeight: 'bold',
-  },
-  goShoppingButton: {
-    backgroundColor: Colors.WHITE,
-    borderWidth: 1,
-    borderColor: Colors.BLACK,
-    borderRadius: 8,
-    paddingVertical: 16,
-    alignItems: 'center',
-    marginHorizontal: 20,
-    marginBottom: 20,
-  },
-  goShoppingText: {
-    color: Colors.BLACK,
-    fontSize: 16,
-    fontWeight: 'bold',
+    color: Colors.ELECTRIC_BLUE,
+    lineHeight: 20,
   },
   legalText: {
     fontSize: 12,
@@ -517,91 +360,9 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingHorizontal: 20,
     lineHeight: 18,
+    marginTop: 20,
   },
   linkText: {
     color: Colors.ELECTRIC_BLUE,
-  },
-  overlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 1000,
-  },
-  successCard: {
-    backgroundColor: Colors.WHITE,
-    borderRadius: 12,
-    padding: 24,
-    margin: 20,
-    width: '90%',
-    maxWidth: 350,
-  },
-  closeButton: {
-    position: 'absolute',
-    top: 16,
-    right: 16,
-    zIndex: 1,
-  },
-  successContent: {
-    alignItems: 'center',
-  },
-  successIcon: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: Colors.SUCCESS,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  successTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: Colors.BLACK,
-    marginBottom: 8,
-  },
-  successSubtitle: {
-    fontSize: 14,
-    color: Colors.TEXT_SECONDARY,
-    textAlign: 'center',
-    marginBottom: 20,
-    lineHeight: 20,
-  },
-  rewardCards: {
-    flexDirection: 'row',
-    gap: 16,
-  },
-  rewardCard: {
-    flex: 1,
-    alignItems: 'center',
-    padding: 16,
-    backgroundColor: Colors.LIGHT_GRAY,
-    borderRadius: 8,
-  },
-  rewardLabel: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: Colors.BLACK,
-    marginBottom: 4,
-  },
-  rewardAmount: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: Colors.FLASH_SALE_RED,
-  },
-  useButton: {
-    backgroundColor: Colors.FLASH_SALE_RED,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 6,
-  },
-  useButtonText: {
-    color: Colors.WHITE,
-    fontSize: 12,
-    fontWeight: 'bold',
   },
 });

@@ -15,15 +15,19 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Button } from '../components/Button';
 import { Colors } from '../constants/colors';
 import { Typography } from '../constants/typography';
 import { Spacing } from '../constants/spacing';
 import { Product, ProductColor, ProductSize } from '../types';
-import { useProduct } from '../hooks/erpnext';
+import { useProduct, usePricingRules } from '../hooks/erpnext';
+import { getERPNextClient } from '../services/erpnext';
+import { mapERPWebsiteItemToProduct } from '../services/mappers';
+import { getProductDiscount } from '../utils/pricingRules';
 
 const { width, height } = Dimensions.get('window');
+
+type TabType = 'Goods' | 'Reviews' | 'Recommend';
 
 export const ProductDetailsScreen: React.FC = () => {
   const navigation = useNavigation();
@@ -32,6 +36,7 @@ export const ProductDetailsScreen: React.FC = () => {
   
   // Fetch product data from API
   const { data: product, loading, error, retry } = useProduct(productId || '');
+  const { data: pricingRules = [] } = usePricingRules();
   
   const [selectedColor, setSelectedColor] = useState<ProductColor | null>(null);
   const [selectedSize, setSelectedSize] = useState<ProductSize | null>(null);
@@ -45,37 +50,131 @@ export const ProductDetailsScreen: React.FC = () => {
   const [reviewRating, setReviewRating] = useState(0);
   const [reviewTitle, setReviewTitle] = useState('');
   const [reviewComment, setReviewComment] = useState('');
+  const [activeTab, setActiveTab] = useState<TabType>('Goods');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [recommendedProducts, setRecommendedProducts] = useState<Product[]>([]);
+  const [recommendedLoading, setRecommendedLoading] = useState(false);
+  const [rawWebsiteItem, setRawWebsiteItem] = useState<any>(null);
+  const [showFullDescription, setShowFullDescription] = useState(false);
+  const scrollViewRef = useRef<ScrollView>(null);
+  const goodsSectionRef = useRef<View>(null);
+  const reviewsSectionRef = useRef<View>(null);
+  const recommendSectionRef = useRef<View>(null);
+  const [scrollY, setScrollY] = useState(0);
+  const [sectionPositions, setSectionPositions] = useState<{
+    goods: number;
+    reviews: number;
+    recommend: number;
+  }>({ goods: 0, reviews: 0, recommend: 0 });
+  const [stockQuantity, setStockQuantity] = useState<number | null>(null);
+  const [stockLoading, setStockLoading] = useState(false);
+  const [showFullProductName, setShowFullProductName] = useState(false);
 
-  // Memoize images array to prevent unnecessary re-renders
-  const images = React.useMemo(() => {
-    if (!product) return [];
-    return (product.slideshowImages && product.slideshowImages.length > 0)
-      ? product.slideshowImages
-      : (product.images && product.images.length > 0
-        ? product.images
-        : ['https://via.placeholder.com/400x600/F2F2F7/8E8E93?text=No+Image']);
-  }, [product?.id, product?.slideshowImages?.length, product?.images?.length]);
+  // Fetch recommended items and stock quantity
+  // IMPORTANT: This runs separately from useProduct to get recommended_items
+  // Stock is fetched once in getWebsiteItem and reused
+  React.useEffect(() => {
+    if (!productId) {
+      setStockQuantity(null);
+      setRecommendedProducts([]);
+      return;
+    }
+    
+    let isMounted = true;
+    
+    const fetchRecommendedItemsAndStock = async () => {
+      try {
+        setRecommendedLoading(true);
+        setStockLoading(true);
+        const client = getERPNextClient();
+        
+        // Fetch website item once (this also fetches stock in getWebsiteItem)
+        const websiteItem = await client.getWebsiteItem(productId);
+        
+        if (!isMounted) return;
+        
+        setRawWebsiteItem(websiteItem);
+        
+        // Set stock quantity from the fetched websiteItem
+        // getWebsiteItem always sets available_stock (even if 0)
+        if (websiteItem.hasOwnProperty('available_stock')) {
+          const stock = websiteItem.available_stock;
+          console.log(`[ProductDetails] Stock from getWebsiteItem: ${stock}`);
+          setStockQuantity(stock);
+          setStockLoading(false);
+        } else {
+          // Fallback: should not happen since getWebsiteItem always sets available_stock
+          console.warn(`[ProductDetails] available_stock not found, defaulting to 0`);
+          setStockQuantity(0);
+          setStockLoading(false);
+        }
+        
+        // Extract recommended_items from the child table
+        if (websiteItem.recommended_items && Array.isArray(websiteItem.recommended_items) && websiteItem.recommended_items.length > 0) {
+          // Extract website_item names from the child table rows
+          const recommendedItemNames = websiteItem.recommended_items
+            .map((row: any) => row.website_item || row.item_code || row.item || row.name)
+            .filter((name: string) => name && typeof name === 'string');
+          
+          if (recommendedItemNames.length > 0) {
+            // Fetch each recommended product (these will also fetch their own stock)
+            const recommendedProductsData = await Promise.all(
+              recommendedItemNames.map(async (itemName: string) => {
+                try {
+                  const recommendedItem = await client.getWebsiteItem(itemName);
+                  return mapERPWebsiteItemToProduct(recommendedItem);
+                } catch (error) {
+                  console.warn(`Failed to fetch recommended item "${itemName}":`, error);
+                  return null;
+                }
+              })
+            );
+            
+            if (!isMounted) return;
+            
+            const validProducts = recommendedProductsData.filter((p): p is Product => p !== null);
+            setRecommendedProducts(validProducts);
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching recommended items:', error);
+        if (isMounted) {
+          setStockQuantity(0);
+          setStockLoading(false);
+        }
+      } finally {
+        if (isMounted) {
+          setRecommendedLoading(false);
+        }
+      }
+    };
+    
+    fetchRecommendedItemsAndStock();
+    
+    // Cleanup function
+    return () => {
+      isMounted = false;
+    };
+  }, [productId]); // Only runs when productId changes - prevents duplicate API calls
 
   // Set default color when product loads
   React.useEffect(() => {
     if (product && product.colors && product.colors.length > 0) {
       setSelectedColor(product.colors[0]);
     }
-  }, [product?.id]); // Use product.id instead of product object to prevent infinite loops
+  }, [product]);
 
   // Auto-scroll slideshow carousel
   React.useEffect(() => {
-    if (!product || images.length <= 1) {
-      // Clear any existing timer if no product or only one image
-      if (autoScrollTimerRef.current) {
-        clearInterval(autoScrollTimerRef.current);
-        autoScrollTimerRef.current = null;
-      }
-      return;
-    }
+    if (!product) return;
 
-    // Only auto-scroll if user is not manually scrolling
-    if (isUserScrolling) {
+    // Get images array (slideshow or regular)
+    const images = (product.slideshowImages && product.slideshowImages.length > 0)
+      ? product.slideshowImages
+      : (product.images && product.images.length > 0 ? product.images : []);
+
+    // Only auto-scroll if there are multiple images and user is not manually scrolling
+    if (images.length <= 1 || isUserScrolling) {
       // Clear any existing timer
       if (autoScrollTimerRef.current) {
         clearInterval(autoScrollTimerRef.current);
@@ -113,7 +212,7 @@ export const ProductDetailsScreen: React.FC = () => {
         autoScrollTimerRef.current = null;
       }
     };
-  }, [product?.id, images.length, isUserScrolling]); // Use stable dependencies - images array is memoized
+  }, [product, isUserScrolling]); // Removed currentImageIndex from dependencies to avoid restarting timer
 
   // Reset user scrolling flag after user stops scrolling
   React.useEffect(() => {
@@ -135,6 +234,22 @@ export const ProductDetailsScreen: React.FC = () => {
       return Math.round(((product.originalPrice - product.price) / product.originalPrice) * 100);
     }
     return 0;
+  };
+
+  // Get pricing rule discount
+  const getPricingRuleDiscount = () => {
+    if (!product) return 0;
+    return getProductDiscount(product, pricingRules);
+  };
+
+  // Calculate final price with pricing rule discount
+  const getFinalPrice = () => {
+    if (!product) return 0;
+    const pricingDiscount = getPricingRuleDiscount();
+    if (pricingDiscount > 0) {
+      return product.price * (1 - pricingDiscount / 100);
+    }
+    return product.price;
   };
 
   const handleAddToCart = () => {
@@ -166,19 +281,133 @@ export const ProductDetailsScreen: React.FC = () => {
     navigation.navigate('Checkout' as never);
   };
 
-  const handleWishlist = React.useCallback(() => {
-    setIsWishlisted((prev) => {
-      const newValue = !prev;
-      Alert.alert(
-        newValue ? 'Added to Wishlist' : 'Removed from Wishlist',
-        newValue ? 'Item added to your wishlist!' : 'Item removed from your wishlist.'
-      );
-      return newValue;
-    });
-  }, []);
+  const handleWishlist = () => {
+    setIsWishlisted(!isWishlisted);
+    Alert.alert(
+      isWishlisted ? 'Removed from Wishlist' : 'Added to Wishlist',
+      isWishlisted ? 'Item removed from your wishlist.' : 'Item added to your wishlist!'
+    );
+  };
 
-  const renderImageCarousel = React.useCallback(() => {
-    if (!product || images.length === 0) return null;
+  const renderTopNavigation = () => {
+    return (
+      <View style={styles.topNavBar}>
+        <TouchableOpacity
+          style={styles.navBackButton}
+          onPress={() => navigation.goBack()}
+        >
+          <Ionicons name="arrow-back" size={24} color={Colors.TEXT_PRIMARY} />
+        </TouchableOpacity>
+        
+        <View style={styles.searchBarContainer}>
+          <TextInput
+            style={styles.searchBar}
+            placeholder="Search products..."
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholderTextColor={Colors.TEXT_SECONDARY}
+          />
+          <Ionicons name="search" size={20} color={Colors.TEXT_SECONDARY} style={styles.searchIcon} />
+        </View>
+        
+        <View style={styles.navIcons}>
+          <TouchableOpacity
+            style={styles.navIconButton}
+            onPress={() => navigation.navigate('Cart' as never)}
+          >
+            <Ionicons name="cart-outline" size={24} color={Colors.TEXT_PRIMARY} />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.navIconButton}>
+            <Ionicons name="share-outline" size={24} color={Colors.TEXT_PRIMARY} />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.navIconButton}>
+            <Ionicons name="ellipsis-vertical" size={24} color={Colors.TEXT_PRIMARY} />
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  };
+
+  const scrollToSection = (section: TabType) => {
+    let ref: React.RefObject<View> | null = null;
+    switch (section) {
+      case 'Goods':
+        ref = goodsSectionRef as React.RefObject<View>;
+        break;
+      case 'Reviews':
+        ref = reviewsSectionRef as React.RefObject<View>;
+        break;
+      case 'Recommend':
+        ref = recommendSectionRef as React.RefObject<View>;
+        break;
+    }
+    
+    if (ref?.current && scrollViewRef.current) {
+      ref.current.measureLayout(
+        scrollViewRef.current as any,
+        (x, y) => {
+          scrollViewRef.current?.scrollTo({ y: y - 60, animated: true });
+        },
+        () => {}
+      );
+    }
+  };
+
+  const handleScroll = (event: any) => {
+    const offsetY = event.nativeEvent.contentOffset.y;
+    setScrollY(offsetY);
+    
+    // Determine which section is visible based on scroll position
+    const threshold = 150; // Offset for tab bar and header
+    
+    if (offsetY + threshold >= sectionPositions.recommend) {
+      setActiveTab('Recommend');
+    } else if (offsetY + threshold >= sectionPositions.reviews) {
+      setActiveTab('Reviews');
+    } else {
+      setActiveTab('Goods');
+    }
+  };
+
+  const handleSectionLayout = (section: TabType, y: number) => {
+    const key = section === 'Goods' ? 'goods' : section === 'Reviews' ? 'reviews' : 'recommend';
+    setSectionPositions(prev => ({
+      ...prev,
+      [key]: y,
+    }));
+  };
+
+  const renderTabs = () => {
+    const tabs: TabType[] = ['Goods', 'Reviews', 'Recommend'];
+    return (
+      <View style={styles.tabsContainer}>
+        {tabs.map((tab) => (
+          <TouchableOpacity
+            key={tab}
+            style={[styles.tab, activeTab === tab && styles.tabActive]}
+            onPress={() => {
+              setActiveTab(tab);
+              scrollToSection(tab);
+            }}
+          >
+            <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>
+              {tab}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+    );
+  };
+
+  const renderImageCarousel = () => {
+    if (!product) return null;
+    
+    // Use slideshow images if available, otherwise fallback to website_image (the default image)
+    const images = (product.slideshowImages && product.slideshowImages.length > 0)
+      ? product.slideshowImages
+      : (product.images && product.images.length > 0 
+        ? product.images
+        : ['https://via.placeholder.com/400x600/F2F2F7/8E8E93?text=No+Image']);
     
     return (
       <View style={styles.imageContainer}>
@@ -189,7 +418,6 @@ export const ProductDetailsScreen: React.FC = () => {
           pagingEnabled
           showsHorizontalScrollIndicator={false}
           onScrollBeginDrag={() => {
-            // User started scrolling - pause auto-scroll
             setIsUserScrolling(true);
             if (autoScrollTimerRef.current) {
               clearInterval(autoScrollTimerRef.current);
@@ -199,13 +427,11 @@ export const ProductDetailsScreen: React.FC = () => {
           onMomentumScrollEnd={(event) => {
             const index = Math.round(event.nativeEvent.contentOffset.x / width);
             setCurrentImageIndex(index);
-            // User finished scrolling - resume auto-scroll after delay
             setTimeout(() => {
               setIsUserScrolling(false);
             }, 2000);
           }}
           onScrollToIndexFailed={(info) => {
-            // Handle scroll to index failure gracefully
             const wait = new Promise(resolve => setTimeout(resolve, 500));
             wait.then(() => {
               if (carouselRef.current) {
@@ -229,47 +455,131 @@ export const ProductDetailsScreen: React.FC = () => {
           keyExtractor={(_, index) => index.toString()}
         />
       
-      <TouchableOpacity
-        style={styles.backButton}
-        onPress={() => navigation.goBack()}
-      >
-        <Ionicons name="arrow-back" size={24} color={Colors.WHITE} />
-      </TouchableOpacity>
+        {/* Discount Banner - On top of image */}
+        {getPricingRuleDiscount() > 0 && (
+          <View style={styles.discountBannerOnImage}>
+            <Ionicons name="pricetag" size={16} color={Colors.WHITE} />
+            <Text style={styles.discountBannerTextOnImage}>
+              {getPricingRuleDiscount()}% OFF
+            </Text>
+          </View>
+        )}
 
+        {/* Image counter (e.g., "7/9") */}
+        {images.length > 1 && (
+          <View style={styles.imageCounter}>
+            <Text style={styles.imageCounterText}>
+              {currentImageIndex + 1}/{images.length}
+            </Text>
+          </View>
+        )}
+        
+        {/* Stock Information - Inside carousel container, no spacing from carousel */}
+        <View style={styles.stockSectionInCarousel}>
+          {stockLoading ? (
+            <View style={styles.stockStatusRow}>
+              <ActivityIndicator size="small" color={Colors.TEXT_SECONDARY} />
+              <Text style={[styles.stockStatusText, { color: Colors.TEXT_SECONDARY, marginLeft: Spacing.MARGIN_XS }]}>Loading stock...</Text>
+            </View>
+          ) : (
+            <View style={styles.stockStatusRow}>
+              {(() => {
+                // Handle stockQuantity: if null, it means loading or unknown, show "Out of Stock"
+                // If it's a number (including 0), use that value
+                const stockQty = stockQuantity !== null && stockQuantity !== undefined ? stockQuantity : 0;
+                let stockStatus: 'inStock' | 'limitedStock' | 'outOfStock';
+                let statusText: string;
+                let statusColor: string;
+                let statusIcon: string;
+
+                if (stockQty === 0) {
+                  stockStatus = 'outOfStock';
+                  statusText = 'OUT OF STOCK';
+                  statusColor = '#FF1A1A'; // brighter red
+                  statusIcon = 'close-circle';
+                } else if (stockQty > 0 && stockQty <= 20) {
+                  stockStatus = 'limitedStock';
+                  statusText = 'LIMITED STOCK';
+                  statusColor = '#FFD500'; // bright yellow
+                  statusIcon = 'alert-circle';
+                } else {
+                  // stockQty > 20
+                  stockStatus = 'inStock';
+                  statusText = 'IN STOCK';
+                  statusColor = '#00CC44'; // bright green
+                  statusIcon = 'checkmark-circle';
+                }
+
+                return (
+                  <View style={[
+                    styles.stockStatusBadge,
+                    { backgroundColor: statusColor }
+                  ]}>
+                    <Ionicons
+                      name={statusIcon as any}
+                      size={20}
+                      color={Colors.WHITE}
+                    />
+                    <Text style={[
+                      styles.stockStatusText,
+                      { color: Colors.WHITE }
+                    ]}>
+                      {statusText}
+                    </Text>
+                  </View>
+                );
+              })()}
+            </View>
+          )}
+        </View>
+        
+        {/* Product Name - Under stock badge */}
+        {product && (() => {
+          const words = product.name.split(' ');
+          const wordCount = words.length;
+          const shouldTruncate = wordCount > 13;
+          const displayText = shouldTruncate && !showFullProductName
+            ? words.slice(0, 13).join(' ') + '...'
+            : product.name;
+
+          return (
+            <View style={styles.productNameInCarousel}>
+              <Text style={styles.productNameText}>{displayText}</Text>
+              {shouldTruncate && (
       <TouchableOpacity
-        style={styles.wishlistButton}
-        onPress={handleWishlist}
+                  style={styles.productNameReadMoreButton}
+                  onPress={() => setShowFullProductName(!showFullProductName)}
       >
+                  <Text style={styles.productNameReadMoreText}>
+                    {showFullProductName ? 'Read less' : 'Read more'}
+                  </Text>
         <Ionicons
-          name={isWishlisted ? 'heart' : 'heart-outline'}
-          size={24}
-          color={isWishlisted ? Colors.VIBRANT_PINK : Colors.WHITE}
+                    name={showFullProductName ? 'chevron-up' : 'chevron-down'}
+                    size={16}
+                    color={Colors.VIBRANT_PINK}
         />
       </TouchableOpacity>
-
-        <View style={styles.imagePagination}>
-          {images.map((_, index) => (
-            <View
-              key={index}
-              style={[
-                styles.paginationDot,
-                index === currentImageIndex && styles.paginationDotActive,
-              ]}
-            />
-          ))}
+              )}
         </View>
+          );
+        })()}
       </View>
     );
-  }, [product, images, currentImageIndex, isWishlisted, navigation, handleWishlist]);
+  };
 
   const renderColorOptions = () => {
     if (!product || !product.colors || product.colors.length === 0) return null;
     
     return (
-      <View style={styles.optionSection}>
-        <Text style={styles.optionTitle}>
-          Color: {selectedColor ? selectedColor.name : 'Select'}
+      <View style={styles.colorSection}>
+        <View style={styles.colorHeader}>
+          <Text style={styles.colorLabel}>
+            Color: {selectedColor ? selectedColor.name : 'Multicolor'}
         </Text>
+          {selectedColor && (
+            <Ionicons name="checkmark-circle" size={16} color={Colors.SUCCESS} />
+          )}
+        </View>
         <View style={styles.colorOptions}>
           {product.colors.map((color) => (
           <TouchableOpacity
@@ -284,7 +594,7 @@ export const ProductDetailsScreen: React.FC = () => {
             disabled={!color.inStock}
           >
             {selectedColor && selectedColor.id === color.id && (
-              <Ionicons name="checkmark" size={16} color={Colors.WHITE} />
+              <Ionicons name="checkmark" size={14} color={Colors.WHITE} />
             )}
             {!color.inStock && (
               <View style={styles.outOfStockOverlay} />
@@ -491,38 +801,163 @@ export const ProductDetailsScreen: React.FC = () => {
     );
   };
 
+  const renderFitFeedback = () => {
+    // Note: Fit feedback would need to come from a custom ERPNext field or doctype
+    // For now, we show a placeholder or hide it if no data is available
+    // In a real implementation, you would fetch this from ERPNext custom fields
+    
+    // Check if fit feedback data exists in raw website item
+    const fitData = rawWebsiteItem?.custom_fit_feedback 
+      ? JSON.parse(rawWebsiteItem.custom_fit_feedback)
+      : null;
+
+    if (!fitData) {
+      // Hide fit feedback section if no data available
+      return null;
+    }
+
+    return (
+      <View style={styles.fitFeedbackSection}>
+        <Text style={styles.fitFeedbackQuestion}>Did the item fit well?</Text>
+        <View style={styles.fitFeedbackBars}>
+          <View style={styles.fitBarItem}>
+            <Text style={styles.fitBarLabel}>Small</Text>
+            <View style={styles.fitBarContainer}>
+              <View style={[styles.fitBar, { width: `${fitData.small || 0}%` }]} />
+            </View>
+            <Text style={styles.fitBarPercentage}>{fitData.small || 0}%</Text>
+          </View>
+          <View style={styles.fitBarItem}>
+            <Text style={styles.fitBarLabel}>True to Size</Text>
+            <View style={styles.fitBarContainer}>
+              <View style={[styles.fitBar, styles.fitBarActive, { width: `${fitData.trueToSize || 0}%` }]} />
+            </View>
+            <Text style={styles.fitBarPercentage}>{fitData.trueToSize || 0}%</Text>
+          </View>
+          <View style={styles.fitBarItem}>
+            <Text style={styles.fitBarLabel}>Large</Text>
+            <View style={styles.fitBarContainer}>
+              <View style={[styles.fitBar, { width: `${fitData.large || 0}%` }]} />
+            </View>
+            <Text style={styles.fitBarPercentage}>{fitData.large || 0}%</Text>
+          </View>
+        </View>
+      </View>
+    );
+  };
+
+  const renderReviewTags = () => {
+    // Note: Review tags would need to come from a custom ERPNext field or doctype
+    // Check if review tags exist in raw website item
+    const tags = rawWebsiteItem?.custom_review_tags
+      ? (typeof rawWebsiteItem.custom_review_tags === 'string' 
+          ? JSON.parse(rawWebsiteItem.custom_review_tags)
+          : rawWebsiteItem.custom_review_tags)
+      : null;
+
+    if (!tags || !Array.isArray(tags) || tags.length === 0) {
+      // Hide tags if no data available
+      return null;
+    }
+
+    return (
+      <View style={styles.reviewTagsContainer}>
+        {tags.map((tag: any, index: number) => (
+          <TouchableOpacity key={index} style={styles.reviewTag}>
+            <Text style={styles.reviewTagText}>
+              {tag.label || tag.name} ({tag.count || 0})
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+    );
+  };
+
+  const renderIndividualReviews = () => {
+    // Note: Individual reviews would need to come from a custom ERPNext doctype
+    // For now, we show a message that reviews are based on the product's rating
+    // In a real implementation, you would fetch reviews from a custom "Product Review" doctype
+    
+    if (!product || product.reviewCount === 0) {
+      return (
+        <View style={styles.individualReviewsContainer}>
+          <Text style={styles.noReviewsText}>
+            No individual reviews available yet. Be the first to review this product!
+          </Text>
+        </View>
+      );
+    }
+
+    // If you have a custom review doctype in ERPNext, you would fetch it here:
+    // const reviews = await client.getReviews(productId);
+    // For now, we show a placeholder message
+    
+    return (
+      <View style={styles.individualReviewsContainer}>
+        <Text style={styles.reviewsNoteText}>
+          Individual reviews are based on the product's overall rating of {product.rating.toFixed(2)} stars from {product.reviewCount} reviews.
+        </Text>
+        <Text style={styles.reviewsNoteSubtext}>
+          To display individual customer reviews, implement a custom "Product Review" doctype in ERPNext and fetch reviews using the ERPNext API.
+        </Text>
+      </View>
+    );
+  };
+
   const renderReviews = () => {
     if (!product) return null;
     
     return (
       <View style={styles.reviewsSection}>
         <View style={styles.reviewsHeader}>
-          <Text style={styles.reviewsTitle}>Customer Reviews</Text>
-          {product.rating > 0 && (
-            <View style={styles.ratingContainer}>
-              <Ionicons name="star" size={16} color={Colors.WARNING} />
-              <Text style={styles.ratingText}>
-                {product.rating.toFixed(1)} ({product.reviewCount} reviews)
-              </Text>
+          <Text style={styles.reviewsTitle}>Reviews ({(product.reviewCount || 0) > 0 ? `${product.reviewCount}+` : '0'})</Text>
             </View>
-          )}
+        
+        {/* Overall Rating */}
+        <View style={styles.overallRatingContainer}>
+          <Text style={styles.overallRating}>{product.rating.toFixed(2) || '4.92'}</Text>
+          <View style={styles.overallRatingStars}>
+            {[1, 2, 3, 4, 5].map((star) => (
+              <Ionicons
+                key={star}
+                name="star"
+                size={20}
+                color={star <= Math.round(product.rating) ? Colors.WARNING : Colors.LIGHT_GRAY}
+              />
+            ))}
+          </View>
         </View>
         
-        {!showReviewForm && (
-          <TouchableOpacity
-            style={styles.writeReviewButton}
-            onPress={() => setShowReviewForm(true)}
-          >
-            <Ionicons name="create-outline" size={20} color={Colors.WHITE} />
-            <Text style={styles.writeReviewButtonText}>Write a Review</Text>
-          </TouchableOpacity>
+        {/* Fit Feedback */}
+        {renderFitFeedback()}
+
+        {/* Local Reviews - Use product rating if available */}
+        {product.rating > 0 && (
+          <View style={styles.localReviewsContainer}>
+            <View style={styles.localReviewsHeader}>
+              <Text style={styles.localReviewsTitle}>Product Rating</Text>
+              <View style={styles.localReviewsRating}>
+                <Text style={styles.localReviewsRatingText}>{product.rating.toFixed(2)}</Text>
+                <View style={styles.localReviewsStars}>
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <Ionicons
+                      key={star}
+                      name="star"
+                      size={16}
+                      color={star <= Math.round(product.rating) ? Colors.WARNING : Colors.LIGHT_GRAY}
+                    />
+                  ))}
+                </View>
+              </View>
+            </View>
+          </View>
         )}
 
-        {renderReviewForm()}
-        
-        {product.reviewCount === 0 && !showReviewForm && (
-          <Text style={styles.noReviewsText}>No reviews yet. Be the first to review!</Text>
-        )}
+        {/* Review Tags */}
+        {renderReviewTags()}
+
+        {/* Individual Reviews */}
+        {renderIndividualReviews()}
       </View>
     );
   };
@@ -552,8 +987,10 @@ export const ProductDetailsScreen: React.FC = () => {
               style={[styles.retryButton, styles.retryButtonPrimary]}
               onPress={retry}
             >
-              <Ionicons name="refresh" size={20} color={Colors.WHITE} style={{ marginRight: 8 }} />
-              <Text style={styles.retryButtonText}>Retry</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Ionicons name="refresh" size={20} color={Colors.WHITE} />
+                <Text style={styles.retryButtonText}>Retry</Text>
+              </View>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.retryButton}
@@ -567,81 +1004,300 @@ export const ProductDetailsScreen: React.FC = () => {
     );
   }
 
-  return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView showsVerticalScrollIndicator={false}>
-        {renderImageCarousel()}
-        
-        <View style={styles.content}>
-          <View style={styles.header}>
-            <Text style={styles.brand}>{product.brand}</Text>
-            {product.company && (
-              <Text style={styles.company}>{product.company}</Text>
+  const renderGoodsContent = () => {
+    if (!product) return null;
+
+    return (
+      <View style={styles.goodsContent}>
+        {/* Price Section */}
+        <View style={styles.priceSection}>
+          <View style={styles.priceRow}>
+            {getPricingRuleDiscount() > 0 ? (
+              <>
+                <Text style={styles.priceFrom}>From {formatPrice(getFinalPrice())}</Text>
+                <Text style={styles.originalPrice}>{formatPrice(product.price)}</Text>
+              </>
+            ) : (
+              <>
+                <Text style={styles.priceFrom}>From {formatPrice(product.price)}</Text>
+                {product.originalPrice && product.originalPrice > product.price && (
+                  <>
+                    <Text style={styles.originalPrice}>{formatPrice(product.originalPrice)}</Text>
+                    {calculateDiscount() > 0 && (
+                      <View style={styles.discountBadge}>
+                        <Text style={styles.discountText}>-{calculateDiscount()}%</Text>
+                      </View>
+                    )}
+                  </>
+                )}
+              </>
             )}
-            <Text style={styles.name}>{product.name}</Text>
-            
-            <View style={styles.priceContainer}>
-              <Text style={styles.price}>{formatPrice(product.price)}</Text>
-              {product.originalPrice && product.originalPrice > product.price && (
-                <Text style={styles.originalPrice}>{formatPrice(product.originalPrice)}</Text>
-              )}
-              {calculateDiscount() > 0 && (
-                <View style={styles.discountBadge}>
-                  <Text style={styles.discountText}>-{calculateDiscount()}%</Text>
-                </View>
-              )}
+          </View>
             </View>
 
-            {product.rating > 0 && (
-              <View style={styles.ratingContainer}>
-                <Ionicons name="star" size={16} color={Colors.WARNING} />
-                <Text style={styles.ratingText}>
-                  {product.rating.toFixed(1)} ({product.reviewCount} reviews)
+        {/* Short Description */}
+        {rawWebsiteItem?.short_description && (
+          <View style={styles.shortDescriptionSection}>
+            <Text style={styles.shortDescriptionText}>
+              {stripHtmlTags(rawWebsiteItem.short_description)}
                 </Text>
               </View>
             )}
 
-            {!product.inStock && (
-              <View style={styles.outOfStockBadge}>
-                <Text style={styles.outOfStockText}>Out of Stock</Text>
+        {/* Description Section */}
+        {product.description && (
+          <View style={styles.descriptionSection}>
+            <Text style={styles.descriptionTitle}>Description</Text>
+            <Text style={styles.descriptionText} numberOfLines={showFullDescription ? undefined : 3}>
+              {stripHtmlTags(product.description)}
+            </Text>
+            {product.description.length > 150 && (
+              <TouchableOpacity
+                onPress={() => setShowFullDescription(!showFullDescription)}
+                style={styles.readMoreButton}
+              >
+                <Text style={styles.readMoreText}>
+                  {showFullDescription ? 'Show Less' : 'Read More'}
+                </Text>
+                <Ionicons
+                  name={showFullDescription ? 'chevron-up' : 'chevron-down'}
+                  size={16}
+                  color={Colors.VIBRANT_PINK}
+                />
+              </TouchableOpacity>
+            )}
               </View>
             )}
-          </View>
 
-          {renderSpecifications()}
-          
-          {product.description && (
-            <Text style={styles.description}>{stripHtmlTags(product.description)}</Text>
+        {/* Company & Category Info */}
+        {(product.company || product.category || rawWebsiteItem?.ranking) ? (
+          <View style={styles.metaInfoSection}>
+            {product.company ? (
+              <View style={styles.metaInfoItem}>
+                <Ionicons name="business-outline" size={14} color={Colors.TEXT_SECONDARY} />
+                <Text style={styles.metaInfoText}>{product.company}</Text>
+              </View>
+            ) : null}
+            {product.category ? (
+              <View style={styles.metaInfoItem}>
+                <Ionicons name="grid-outline" size={14} color={Colors.TEXT_SECONDARY} />
+                <Text style={styles.metaInfoText}>{product.category}</Text>
+              </View>
+            ) : null}
+            {rawWebsiteItem?.ranking ? (
+              <View style={styles.metaInfoItem}>
+                <Ionicons name="trending-up-outline" size={14} color={Colors.TEXT_SECONDARY} />
+                <Text style={styles.metaInfoText}>Ranking: {rawWebsiteItem.ranking}</Text>
+              </View>
+            ) : null}
+          </View>
+        ) : null}
+
+        {/* Offers Section */}
+        {rawWebsiteItem?.offers && Array.isArray(rawWebsiteItem.offers) && rawWebsiteItem.offers.length > 0 && (
+          <View style={styles.offersSection}>
+            <Text style={styles.offersSectionTitle}>Special Offers</Text>
+            {rawWebsiteItem.offers.map((offer: any, index: number) => (
+              <View key={index} style={styles.offerItem}>
+                <Ionicons name="gift-outline" size={16} color={Colors.VIBRANT_PINK} />
+                <View style={styles.offerContent}>
+                  <Text style={styles.offerTitle}>
+                    {offer.title || offer.offer_title || offer.name || 'Special Offer'}
+                  </Text>
+                  {offer.description && (
+                    <Text style={styles.offerDescription}>
+                      {stripHtmlTags(offer.description || offer.offer_description || '')}
+                    </Text>
+                  )}
+                </View>
+              </View>
+            ))}
+          </View>
+        )}
+
+        {/* Specifications Section */}
+        {product.specifications && product.specifications.length > 0 && (
+          <View style={styles.specificationsSection}>
+            <Text style={styles.specificationsTitle}>Specifications</Text>
+            {product.specifications.map((spec, index) => (
+              <View key={index} style={styles.specificationItem}>
+                {spec.label ? <Text style={styles.specificationLabel}>{spec.label}</Text> : null}
+                {spec.description ? <Text style={styles.specificationDescription}>{spec.description}</Text> : null}
+              </View>
+            ))}
+          </View>
+        )}
+
+        {/* Rating */}
+        {product.rating > 0 && (
+          <View style={styles.ratingRow}>
+            <View style={styles.ratingStars}>
+              {[1, 2, 3, 4, 5].map((star) => (
+                <Ionicons
+                  key={star}
+                  name="star"
+                  size={16}
+                  color={star <= Math.round(product.rating) ? Colors.WARNING : Colors.LIGHT_GRAY}
+                />
+              ))}
+            </View>
+            <Text style={styles.ratingText}>
+              {product.rating.toFixed(2)} ({(product.reviewCount || 0) > 0 ? `${product.reviewCount}+` : '0'})
+            </Text>
+          </View>
+        )}
+
+      </View>
+    );
+  };
+
+  const renderRecommendContent = () => {
+    if (recommendedLoading) {
+      return (
+        <View style={styles.recommendContent}>
+          <Text style={styles.sectionTitle}>You May Also Like</Text>
+          <ActivityIndicator size="large" color={Colors.SHEIN_PINK} style={styles.loadingIndicator} />
+        </View>
+      );
+    }
+
+    if (recommendedProducts.length === 0) {
+      return (
+        <View style={styles.recommendContent}>
+          <Text style={styles.sectionTitle}>You May Also Like</Text>
+          <Text style={styles.comingSoonText}>No recommended products available</Text>
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.recommendContent}>
+        <Text style={styles.sectionTitle}>You May Also Like</Text>
+        <FlatList
+          data={recommendedProducts}
+          numColumns={2}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item }) => (
+            <TouchableOpacity
+              style={styles.recommendedProductCard}
+              onPress={() => {
+                (navigation as any).navigate('ProductDetails', { productId: item.id });
+              }}
+            >
+              {item.images && item.images.length > 0 && (
+                <Image
+                  source={{ uri: item.images[0] }}
+                  style={styles.recommendedProductImage}
+                  resizeMode="cover"
+                />
+              )}
+              <View style={styles.recommendedProductInfo}>
+                <Text style={styles.recommendedProductName} numberOfLines={2}>
+                  {item.name}
+                </Text>
+                <View style={styles.recommendedProductPriceRow}>
+                  <Text style={styles.recommendedProductPrice}>
+                    {formatPrice(item.price)}
+                  </Text>
+                  {item.originalPrice && item.originalPrice > item.price && (
+                    <Text style={styles.recommendedProductOriginalPrice}>
+                      {formatPrice(item.originalPrice)}
+                    </Text>
+                  )}
+                </View>
+                {item.rating > 0 && (
+                  <View style={styles.recommendedProductRating}>
+                    <Ionicons name="star" size={12} color={Colors.WARNING} />
+                    <Text style={styles.recommendedProductRatingText}>
+                      {item.rating.toFixed(1)} ({item.reviewCount || 0})
+                    </Text>
+                  </View>
+                )}
+              </View>
+            </TouchableOpacity>
           )}
-          
-          {renderColorOptions()}
-                {renderSizeOptions()}
-                {renderQuantitySelector()}
-
-          <View style={styles.actionButtons}>
-            <Button
-              title="Add to Cart"
-              onPress={handleAddToCart}
-              variant="outline"
-              size="large"
-              fullWidth
-              style={styles.addToCartButton}
-              disabled={!product.inStock}
-            />
-            <Button
-              title="Buy Now"
-              onPress={handleBuyNow}
-              variant="primary"
-              size="large"
-              fullWidth
-              style={styles.buyNowButton}
-              disabled={!product.inStock}
+          scrollEnabled={false}
             />
           </View>
+    );
+  };
 
+  return (
+    <SafeAreaView style={styles.container} edges={['top']}>
+      {renderTopNavigation()}
+      {renderTabs()}
+      <ScrollView
+        ref={scrollViewRef}
+        showsVerticalScrollIndicator={false}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
+      >
+        {renderImageCarousel()}
+        
+        <View style={styles.content}>
+          {/* Goods Section */}
+          <View 
+            ref={goodsSectionRef} 
+            style={styles.sectionContainer}
+            onLayout={(e) => {
+              const { y } = e.nativeEvent.layout;
+              handleSectionLayout('Goods', y);
+            }}
+          >
+            {renderGoodsContent()}
+          </View>
+
+          {/* Reviews Section */}
+          <View 
+            ref={reviewsSectionRef} 
+            style={styles.sectionContainer}
+            onLayout={(e) => {
+              const { y } = e.nativeEvent.layout;
+              handleSectionLayout('Reviews', y);
+            }}
+          >
           {renderReviews()}
+          </View>
+
+          {/* Recommend Section */}
+          <View 
+            ref={recommendSectionRef} 
+            style={styles.sectionContainer}
+            onLayout={(e) => {
+              const { y } = e.nativeEvent.layout;
+              handleSectionLayout('Recommend', y);
+            }}
+          >
+            {renderRecommendContent()}
+          </View>
         </View>
       </ScrollView>
+      
+      {/* Bottom Bar */}
+      <View style={styles.bottomBar}>
+        <TouchableOpacity
+          style={styles.bottomWishlistButton}
+          onPress={handleWishlist}
+        >
+          <Ionicons
+            name={isWishlisted ? 'heart' : 'heart-outline'}
+            size={24}
+            color={isWishlisted ? Colors.VIBRANT_PINK : Colors.TEXT_PRIMARY}
+          />
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.addToCartBottomButton}
+          onPress={handleAddToCart}
+          disabled={!product?.inStock}
+        >
+          <Text style={styles.addToCartBottomText}>Add to Cart</Text>
+          {calculateDiscount() > 0 && (
+            <Text style={styles.addToCartBottomDiscount}>
+              {calculateDiscount()}% off discount
+            </Text>
+          )}
+        </TouchableOpacity>
+      </View>
     </SafeAreaView>
   );
 };
@@ -651,117 +1307,225 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Colors.BACKGROUND,
   },
+  // Top Navigation
+  topNavBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.PADDING_MD,
+    paddingVertical: Spacing.PADDING_SM,
+    backgroundColor: Colors.WHITE,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.BORDER,
+  },
+  navBackButton: {
+    padding: Spacing.PADDING_XS,
+  },
+  searchBarContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.LIGHT_GRAY,
+    borderRadius: Spacing.BORDER_RADIUS_MD,
+    paddingHorizontal: Spacing.PADDING_MD,
+    marginHorizontal: Spacing.MARGIN_SM,
+    height: 40,
+  },
+  searchBar: {
+    flex: 1,
+    fontSize: Typography.FONT_SIZE_MD,
+    color: Colors.TEXT_PRIMARY,
+  },
+  searchIcon: {
+    marginLeft: Spacing.MARGIN_SM,
+  },
+  navIcons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.MARGIN_SM,
+  },
+  navIconButton: {
+    padding: Spacing.PADDING_XS,
+  },
+  // Tabs
+  tabsContainer: {
+    flexDirection: 'row',
+    backgroundColor: Colors.WHITE,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.BORDER,
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: Spacing.PADDING_SM,
+    alignItems: 'center',
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
+  },
+  tabActive: {
+    borderBottomColor: Colors.VIBRANT_PINK,
+  },
+  tabText: {
+    fontSize: Typography.FONT_SIZE_SM,
+    color: Colors.TEXT_SECONDARY,
+    fontWeight: Typography.FONT_WEIGHT_MEDIUM,
+  },
+  tabTextActive: {
+    color: Colors.VIBRANT_PINK,
+    fontWeight: Typography.FONT_WEIGHT_BOLD,
+  },
+  sectionContainer: {
+    marginBottom: Spacing.MARGIN_LG,
+  },
+  // Image Carousel
   imageContainer: {
-    height: height * 0.5,
     position: 'relative',
+    backgroundColor: Colors.LIGHT_GRAY,
   },
   productImage: {
     width,
     height: height * 0.5,
   },
-  backButton: {
+  discountBannerOnImage: {
     position: 'absolute',
-    top: Spacing.PADDING_LG,
-    left: Spacing.PADDING_LG,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  wishlistButton: {
-    position: 'absolute',
-    top: Spacing.PADDING_LG,
-    right: Spacing.PADDING_LG,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  imagePagination: {
-    position: 'absolute',
-    bottom: Spacing.PADDING_LG,
-    left: 0,
-    right: 0,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  paginationDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: 'rgba(255, 255, 255, 0.5)',
-    marginHorizontal: 4,
-  },
-  paginationDotActive: {
-    backgroundColor: Colors.WHITE,
-    width: 20,
-  },
-  content: {
-    padding: Spacing.PADDING_LG,
-  },
-  header: {
-    marginBottom: Spacing.MARGIN_LG,
-  },
-  brand: {
-    fontSize: Typography.FONT_SIZE_SM,
-    color: Colors.TEXT_SECONDARY,
-    fontWeight: Typography.FONT_WEIGHT_MEDIUM,
-    marginBottom: Spacing.MARGIN_XS,
-  },
-  name: {
-    fontSize: Typography.FONT_SIZE_XL,
-    fontWeight: Typography.FONT_WEIGHT_BOLD,
-    color: Colors.TEXT_PRIMARY,
-    marginBottom: Spacing.MARGIN_SM,
-    lineHeight: Typography.FONT_SIZE_XL * 1.3,
-  },
-  priceContainer: {
+    top: Spacing.PADDING_MD,
+    left: Spacing.PADDING_MD,
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: Spacing.MARGIN_SM,
-  },
-  price: {
-    fontSize: Typography.FONT_SIZE_XL,
-    fontWeight: Typography.FONT_WEIGHT_BOLD,
-    color: Colors.TEXT_PRIMARY,
-    marginRight: Spacing.MARGIN_SM,
-  },
-  originalPrice: {
-    fontSize: Typography.FONT_SIZE_LG,
-    color: Colors.TEXT_SECONDARY,
-    textDecorationLine: 'line-through',
-    marginRight: Spacing.MARGIN_SM,
-  },
-  discountBadge: {
     backgroundColor: Colors.VIBRANT_PINK,
+    paddingHorizontal: Spacing.PADDING_MD,
+    paddingVertical: Spacing.PADDING_SM,
+    borderRadius: Spacing.BORDER_RADIUS_MD,
+    gap: Spacing.MARGIN_XS,
+    zIndex: 10,
+  },
+  discountBannerTextOnImage: {
+    color: Colors.WHITE,
+    fontSize: Typography.FONT_SIZE_MD,
+    fontWeight: Typography.FONT_WEIGHT_BOLD,
+  },
+  imageCounter: {
+    position: 'absolute',
+    bottom: Spacing.PADDING_MD,
+    right: Spacing.PADDING_MD,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
     paddingHorizontal: Spacing.PADDING_SM,
     paddingVertical: Spacing.PADDING_XS,
+    borderRadius: Spacing.BORDER_RADIUS_MD,
+  },
+  imageCounterText: {
+    color: Colors.WHITE,
+    fontSize: Typography.FONT_SIZE_SM,
+    fontWeight: Typography.FONT_WEIGHT_MEDIUM,
+  },
+  content: {
+    padding: Spacing.PADDING_MD,
+  },
+  // Goods Tab Content
+  goodsContent: {
+    paddingBottom: Spacing.PADDING_MD,
+  },
+  priceSection: {
+    marginBottom: Spacing.MARGIN_SM,
+  },
+  priceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: Spacing.MARGIN_XS,
+  },
+  priceFrom: {
+    fontSize: Typography.FONT_SIZE_MD,
+    fontWeight: Typography.FONT_WEIGHT_BOLD,
+    color: Colors.TEXT_PRIMARY,
+  },
+  originalPrice: {
+    fontSize: Typography.FONT_SIZE_SM,
+    color: Colors.TEXT_SECONDARY,
+    textDecorationLine: 'line-through',
+  },
+  discountBadge: {
+    backgroundColor: Colors.ERROR,
+    paddingHorizontal: Spacing.PADDING_XS,
+    paddingVertical: 2,
     borderRadius: Spacing.BORDER_RADIUS_SM,
+    borderWidth: 1,
+    borderColor: Colors.ERROR,
   },
   discountText: {
     color: Colors.WHITE,
-    fontSize: Typography.FONT_SIZE_SM,
+    fontSize: Typography.FONT_SIZE_XS,
     fontWeight: Typography.FONT_WEIGHT_BOLD,
   },
-  ratingContainer: {
+  infoSection: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: Spacing.PADDING_SM,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.BORDER,
+    marginBottom: Spacing.MARGIN_XS,
+  },
+  infoSectionText: {
+    fontSize: Typography.FONT_SIZE_SM,
+    color: Colors.TEXT_PRIMARY,
+    flex: 1,
+  },
+  titleSection: {
+    marginBottom: Spacing.MARGIN_SM,
+  },
+  productTitle: {
+    fontSize: Typography.FONT_SIZE_SM,
+    fontWeight: Typography.FONT_WEIGHT_REGULAR,
+    color: Colors.TEXT_PRIMARY,
+    marginBottom: Spacing.MARGIN_XS,
+    lineHeight: Typography.FONT_SIZE_SM * 1.4,
+  },
+  bestsellerBadge: {
+    alignSelf: 'flex-start',
+    marginTop: Spacing.MARGIN_XS,
+  },
+  bestsellerText: {
+    fontSize: Typography.FONT_SIZE_XS,
+    color: Colors.TEXT_SECONDARY,
+  },
+  ratingRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginBottom: Spacing.MARGIN_SM,
+  },
+  ratingStars: {
+    flexDirection: 'row',
+    marginRight: Spacing.MARGIN_XS,
   },
   ratingText: {
-    fontSize: Typography.FONT_SIZE_SM,
-    color: Colors.TEXT_SECONDARY,
-    marginLeft: Spacing.MARGIN_XS,
+    fontSize: Typography.FONT_SIZE_XS,
+    color: Colors.TEXT_PRIMARY,
+    fontWeight: Typography.FONT_WEIGHT_MEDIUM,
   },
   description: {
     fontSize: Typography.FONT_SIZE_MD,
     color: Colors.TEXT_SECONDARY,
     lineHeight: Typography.FONT_SIZE_MD * 1.5,
     marginBottom: Spacing.MARGIN_XL,
+  },
+  // Color Section
+  colorSection: {
+    marginBottom: Spacing.MARGIN_SM,
+  },
+  colorHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: Spacing.MARGIN_SM,
+  },
+  colorLabel: {
+    fontSize: Typography.FONT_SIZE_SM,
+    fontWeight: Typography.FONT_WEIGHT_MEDIUM,
+    color: Colors.TEXT_PRIMARY,
+  },
+  colorOptions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.MARGIN_SM,
   },
   optionSection: {
     marginBottom: Spacing.MARGIN_LG,
@@ -772,14 +1536,10 @@ const styles = StyleSheet.create({
     color: Colors.TEXT_PRIMARY,
     marginBottom: Spacing.MARGIN_MD,
   },
-  colorOptions: {
-    flexDirection: 'row',
-    gap: Spacing.MARGIN_MD,
-  },
   colorOption: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 2,
@@ -865,25 +1625,141 @@ const styles = StyleSheet.create({
   buyNowButton: {
     marginBottom: Spacing.MARGIN_MD,
   },
+  // Reviews Section
   reviewsSection: {
-    marginTop: Spacing.MARGIN_LG,
+    paddingBottom: Spacing.PADDING_MD,
   },
   reviewsHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: Spacing.MARGIN_LG,
+    marginBottom: Spacing.MARGIN_SM,
   },
   reviewsTitle: {
-    fontSize: Typography.FONT_SIZE_LG,
+    fontSize: Typography.FONT_SIZE_MD,
     fontWeight: Typography.FONT_WEIGHT_BOLD,
     color: Colors.TEXT_PRIMARY,
   },
-  reviewItem: {
-    marginBottom: Spacing.MARGIN_LG,
-    paddingBottom: Spacing.PADDING_LG,
+  overallRatingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: Spacing.MARGIN_SM,
+  },
+  overallRating: {
+    fontSize: Typography.FONT_SIZE_LG,
+    fontWeight: Typography.FONT_WEIGHT_BOLD,
+    color: Colors.TEXT_PRIMARY,
+    marginRight: Spacing.MARGIN_XS,
+  },
+  overallRatingStars: {
+    flexDirection: 'row',
+  },
+  fitFeedbackSection: {
+    marginBottom: Spacing.MARGIN_SM,
+    paddingBottom: Spacing.PADDING_SM,
     borderBottomWidth: 1,
     borderBottomColor: Colors.BORDER,
+  },
+  fitFeedbackQuestion: {
+    fontSize: Typography.FONT_SIZE_SM,
+    fontWeight: Typography.FONT_WEIGHT_MEDIUM,
+    color: Colors.TEXT_PRIMARY,
+    marginBottom: Spacing.MARGIN_SM,
+  },
+  fitFeedbackBars: {
+    gap: Spacing.MARGIN_SM,
+  },
+  fitBarItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.MARGIN_SM,
+  },
+  fitBarLabel: {
+    fontSize: Typography.FONT_SIZE_SM,
+    color: Colors.TEXT_SECONDARY,
+    width: 80,
+  },
+  fitBarContainer: {
+    flex: 1,
+    height: 20,
+    backgroundColor: Colors.LIGHT_GRAY,
+    borderRadius: Spacing.BORDER_RADIUS_SM,
+    overflow: 'hidden',
+  },
+  fitBar: {
+    height: '100%',
+    backgroundColor: Colors.TEXT_SECONDARY,
+  },
+  fitBarActive: {
+    backgroundColor: Colors.TEXT_PRIMARY,
+  },
+  fitBarPercentage: {
+    fontSize: Typography.FONT_SIZE_SM,
+    color: Colors.TEXT_SECONDARY,
+    width: 40,
+    textAlign: 'right',
+  },
+  localReviewsContainer: {
+    marginBottom: Spacing.MARGIN_SM,
+    paddingBottom: Spacing.PADDING_SM,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.BORDER,
+  },
+  localReviewsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  localReviewsTitle: {
+    fontSize: Typography.FONT_SIZE_MD,
+    fontWeight: Typography.FONT_WEIGHT_MEDIUM,
+    color: Colors.TEXT_PRIMARY,
+  },
+  localReviewsRating: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.MARGIN_XS,
+  },
+  localReviewsRatingText: {
+    fontSize: Typography.FONT_SIZE_MD,
+    fontWeight: Typography.FONT_WEIGHT_BOLD,
+    color: Colors.TEXT_PRIMARY,
+  },
+  localReviewsStars: {
+    flexDirection: 'row',
+  },
+  viewMoreText: {
+    fontSize: Typography.FONT_SIZE_SM,
+    color: Colors.VIBRANT_PINK,
+    fontWeight: Typography.FONT_WEIGHT_MEDIUM,
+  },
+  reviewTagsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.MARGIN_XS,
+    marginBottom: Spacing.MARGIN_SM,
+  },
+  reviewTag: {
+    paddingHorizontal: Spacing.PADDING_MD,
+    paddingVertical: Spacing.PADDING_SM,
+    backgroundColor: Colors.LIGHT_GRAY,
+    borderRadius: Spacing.BORDER_RADIUS_MD,
+  },
+  reviewTagText: {
+    fontSize: Typography.FONT_SIZE_SM,
+    color: Colors.TEXT_PRIMARY,
+  },
+  individualReviewsContainer: {
+    gap: Spacing.MARGIN_SM,
+  },
+  reviewItem: {
+    marginBottom: Spacing.MARGIN_SM,
+    paddingBottom: Spacing.PADDING_SM,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.BORDER,
+  },
+  reviewItemHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: Spacing.MARGIN_SM,
   },
   reviewHeader: {
     flexDirection: 'row',
@@ -895,6 +1771,10 @@ const styles = StyleSheet.create({
     fontSize: Typography.FONT_SIZE_MD,
     fontWeight: Typography.FONT_WEIGHT_SEMIBOLD,
     color: Colors.TEXT_PRIMARY,
+  },
+  reviewStars: {
+    flexDirection: 'row',
+    gap: 2,
   },
   reviewRating: {
     flexDirection: 'row',
@@ -986,9 +1866,9 @@ const styles = StyleSheet.create({
     fontWeight: Typography.FONT_WEIGHT_SEMIBOLD,
   },
   specificationsSection: {
-    marginTop: Spacing.MARGIN_LG,
-    marginBottom: Spacing.MARGIN_MD,
-    paddingTop: Spacing.PADDING_LG,
+    marginTop: Spacing.MARGIN_MD,
+    marginBottom: Spacing.MARGIN_SM,
+    paddingTop: Spacing.PADDING_MD,
     borderTopWidth: 1,
     borderTopColor: Colors.LIGHT_GRAY,
   },
@@ -996,11 +1876,11 @@ const styles = StyleSheet.create({
     fontSize: Typography.FONT_SIZE_LG,
     fontWeight: Typography.FONT_WEIGHT_BOLD,
     color: Colors.TEXT_PRIMARY,
-    marginBottom: Spacing.MARGIN_MD,
+    marginBottom: Spacing.MARGIN_SM,
   },
   specificationItem: {
-    marginBottom: Spacing.MARGIN_MD,
-    paddingBottom: Spacing.PADDING_MD,
+    marginBottom: Spacing.MARGIN_SM,
+    paddingBottom: Spacing.PADDING_SM,
     borderBottomWidth: 1,
     borderBottomColor: Colors.LIGHT_GRAY,
   },
@@ -1008,7 +1888,7 @@ const styles = StyleSheet.create({
     fontSize: Typography.FONT_SIZE_MD,
     fontWeight: Typography.FONT_WEIGHT_SEMIBOLD,
     color: Colors.TEXT_PRIMARY,
-    marginBottom: Spacing.MARGIN_XS,
+    marginBottom: 2,
   },
   specificationDescription: {
     fontSize: Typography.FONT_SIZE_SM,
@@ -1139,5 +2019,292 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
     textAlign: 'center',
     padding: Spacing.PADDING_LG,
+  },
+  reviewDetails: {
+    fontSize: Typography.FONT_SIZE_XS,
+    color: Colors.TEXT_SECONDARY,
+    marginTop: Spacing.MARGIN_XS,
+    marginBottom: Spacing.MARGIN_SM,
+  },
+  // Recommend Tab
+  recommendContent: {
+    paddingBottom: Spacing.PADDING_MD,
+  },
+  sectionTitle: {
+    fontSize: Typography.FONT_SIZE_MD,
+    fontWeight: Typography.FONT_WEIGHT_BOLD,
+    color: Colors.TEXT_PRIMARY,
+    marginBottom: Spacing.MARGIN_SM,
+  },
+  comingSoonText: {
+    fontSize: Typography.FONT_SIZE_MD,
+    color: Colors.TEXT_SECONDARY,
+    textAlign: 'center',
+    padding: Spacing.PADDING_XL,
+  },
+  loadingIndicator: {
+    marginVertical: Spacing.MARGIN_XL,
+  },
+  recommendedProductCard: {
+    width: (width - Spacing.PADDING_LG * 3) / 2,
+    backgroundColor: Colors.SURFACE,
+    borderRadius: Spacing.BORDER_RADIUS_MD,
+    marginBottom: Spacing.MARGIN_MD,
+    marginRight: Spacing.MARGIN_MD,
+    ...Spacing.SHADOW_SM,
+  },
+  recommendedProductImage: {
+    width: '100%',
+    height: (width - Spacing.PADDING_LG * 3) / 2 * 1.2,
+    borderTopLeftRadius: Spacing.BORDER_RADIUS_MD,
+    borderTopRightRadius: Spacing.BORDER_RADIUS_MD,
+  },
+  recommendedProductInfo: {
+    padding: Spacing.PADDING_MD,
+  },
+  recommendedProductName: {
+    fontSize: Typography.FONT_SIZE_SM,
+    color: Colors.TEXT_PRIMARY,
+    marginBottom: Spacing.MARGIN_SM,
+    minHeight: 36,
+  },
+  recommendedProductPriceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: Spacing.MARGIN_XS,
+  },
+  recommendedProductPrice: {
+    fontSize: Typography.FONT_SIZE_MD,
+    fontWeight: Typography.FONT_WEIGHT_BOLD,
+    color: Colors.TEXT_PRIMARY,
+    marginRight: Spacing.MARGIN_SM,
+  },
+  recommendedProductOriginalPrice: {
+    fontSize: Typography.FONT_SIZE_SM,
+    color: Colors.TEXT_SECONDARY,
+    textDecorationLine: 'line-through',
+  },
+  recommendedProductRating: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  recommendedProductRatingText: {
+    fontSize: Typography.FONT_SIZE_XS,
+    color: Colors.TEXT_SECONDARY,
+    marginLeft: Spacing.MARGIN_XS,
+  },
+  reviewsNoteText: {
+    fontSize: Typography.FONT_SIZE_MD,
+    color: Colors.TEXT_PRIMARY,
+    marginBottom: Spacing.MARGIN_SM,
+    lineHeight: Typography.FONT_SIZE_MD * 1.5,
+  },
+  reviewsNoteSubtext: {
+    fontSize: Typography.FONT_SIZE_SM,
+    color: Colors.TEXT_SECONDARY,
+    fontStyle: 'italic',
+    lineHeight: Typography.FONT_SIZE_SM * 1.4,
+  },
+  // Description Section
+  descriptionSection: {
+    marginBottom: Spacing.MARGIN_SM,
+    paddingBottom: Spacing.PADDING_SM,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.BORDER,
+  },
+  descriptionTitle: {
+    fontSize: Typography.FONT_SIZE_SM,
+    fontWeight: Typography.FONT_WEIGHT_BOLD,
+    color: Colors.TEXT_PRIMARY,
+    marginBottom: Spacing.MARGIN_XS,
+  },
+  descriptionText: {
+    fontSize: Typography.FONT_SIZE_SM,
+    color: Colors.TEXT_SECONDARY,
+    lineHeight: Typography.FONT_SIZE_SM * 1.5,
+  },
+  readMoreButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: Spacing.MARGIN_SM,
+    alignSelf: 'flex-start',
+  },
+  readMoreText: {
+    fontSize: Typography.FONT_SIZE_SM,
+    color: Colors.VIBRANT_PINK,
+    fontWeight: Typography.FONT_WEIGHT_MEDIUM,
+    marginRight: Spacing.MARGIN_XS,
+  },
+  // Stock Information Section (Full Width under carousel)
+  stockSectionFullWidth: {
+    width: width,
+    backgroundColor: Colors.WHITE,
+    paddingVertical: Spacing.PADDING_SM,
+    paddingHorizontal: Spacing.PADDING_MD,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.BORDER,
+  },
+  // Stock Information Section (Inside carousel container)
+  stockSectionInCarousel: {
+    width: width,
+    backgroundColor: Colors.WHITE,
+    paddingTop: 0,
+    paddingBottom: Spacing.PADDING_SM,
+    paddingHorizontal: Spacing.PADDING_MD,
+  },
+  // Product Name (Inside carousel container, under stock badge)
+  productNameInCarousel: {
+    width: width,
+    backgroundColor: Colors.WHITE,
+    paddingHorizontal: Spacing.PADDING_MD,
+    paddingBottom: Spacing.PADDING_MD,
+  },
+  productNameText: {
+    fontSize: Typography.FONT_SIZE_MD,
+    fontWeight: Typography.FONT_WEIGHT_BOLD,
+    color: Colors.TEXT_PRIMARY,
+    textAlign: 'left',
+  },
+  productNameReadMoreButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: Spacing.MARGIN_XS,
+    alignSelf: 'flex-start',
+  },
+  productNameReadMoreText: {
+    fontSize: Typography.FONT_SIZE_SM,
+    color: Colors.VIBRANT_PINK,
+    fontWeight: Typography.FONT_WEIGHT_MEDIUM,
+    marginRight: Spacing.MARGIN_XS,
+  },
+  stockSection: {
+    marginBottom: Spacing.MARGIN_SM,
+    paddingBottom: Spacing.PADDING_SM,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.BORDER,
+  },
+  stockStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stockStatusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'center',
+    width: 450,
+    paddingHorizontal: Spacing.PADDING_MD,
+    paddingVertical: Spacing.PADDING_SM,
+    borderRadius: Spacing.BORDER_RADIUS_MD,
+    gap: Spacing.MARGIN_XS,
+  },
+  stockStatusText: {
+    fontSize: Typography.FONT_SIZE_MD,
+    fontWeight: Typography.FONT_WEIGHT_BOLD,
+  },
+  // Short Description
+  shortDescriptionSection: {
+    marginBottom: Spacing.MARGIN_SM,
+    paddingBottom: Spacing.PADDING_SM,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.BORDER,
+  },
+  shortDescriptionText: {
+    fontSize: Typography.FONT_SIZE_SM,
+    color: Colors.TEXT_PRIMARY,
+    fontWeight: Typography.FONT_WEIGHT_MEDIUM,
+    lineHeight: Typography.FONT_SIZE_SM * 1.4,
+  },
+  // Meta Info Section (Company, Category, Ranking)
+  metaInfoSection: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.MARGIN_SM,
+    marginBottom: Spacing.MARGIN_SM,
+    paddingBottom: Spacing.PADDING_SM,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.BORDER,
+  },
+  metaInfoItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.MARGIN_XS,
+  },
+  metaInfoText: {
+    fontSize: Typography.FONT_SIZE_XS,
+    color: Colors.TEXT_SECONDARY,
+  },
+  // Offers Section
+  offersSection: {
+    marginBottom: Spacing.MARGIN_SM,
+    paddingBottom: Spacing.PADDING_SM,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.BORDER,
+  },
+  offersSectionTitle: {
+    fontSize: Typography.FONT_SIZE_SM,
+    fontWeight: Typography.FONT_WEIGHT_BOLD,
+    color: Colors.TEXT_PRIMARY,
+    marginBottom: Spacing.MARGIN_SM,
+  },
+  offerItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: Spacing.MARGIN_SM,
+    marginBottom: Spacing.MARGIN_SM,
+    padding: Spacing.PADDING_SM,
+    backgroundColor: Colors.LIGHT_GRAY + '40',
+    borderRadius: Spacing.BORDER_RADIUS_SM,
+  },
+  offerContent: {
+    flex: 1,
+  },
+  offerTitle: {
+    fontSize: Typography.FONT_SIZE_SM,
+    fontWeight: Typography.FONT_WEIGHT_BOLD,
+    color: Colors.TEXT_PRIMARY,
+    marginBottom: Spacing.MARGIN_XS,
+  },
+  offerDescription: {
+    fontSize: Typography.FONT_SIZE_XS,
+    color: Colors.TEXT_SECONDARY,
+    lineHeight: Typography.FONT_SIZE_XS * 1.4,
+  },
+  // Bottom Bar
+  bottomBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.PADDING_MD,
+    paddingVertical: Spacing.PADDING_MD,
+    backgroundColor: Colors.WHITE,
+    borderTopWidth: 1,
+    borderTopColor: Colors.BORDER,
+    ...Spacing.SHADOW_MD,
+  },
+  bottomWishlistButton: {
+    width: 50,
+    height: 50,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: Spacing.MARGIN_MD,
+  },
+  addToCartBottomButton: {
+    flex: 1,
+    backgroundColor: Colors.DARK_GRAY,
+    paddingVertical: Spacing.PADDING_MD,
+    borderRadius: Spacing.BORDER_RADIUS_MD,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addToCartBottomText: {
+    color: Colors.WHITE,
+    fontSize: Typography.FONT_SIZE_MD,
+    fontWeight: Typography.FONT_WEIGHT_BOLD,
+  },
+  addToCartBottomDiscount: {
+    color: Colors.WHITE,
+    fontSize: Typography.FONT_SIZE_XS,
+    marginTop: Spacing.MARGIN_XS,
   },
 });

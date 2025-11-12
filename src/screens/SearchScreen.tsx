@@ -16,7 +16,7 @@ const { width } = Dimensions.get('window');
 
 // Mock data for Trends sections
 const twoPieceSet = [
-  { id: '1', name: 'Blue Floral Set', price: '$45.00', image: '👗', discount: '-30%' },
+  { id: '1', name: 'Blue Floral Set', price: 'GH₵45.00', image: '👗', discount: '-30%' },
 ];
 
 const kidsItems = [
@@ -47,7 +47,7 @@ export const SearchScreen: React.FC = () => {
     <View style={styles.header}>
       <View style={styles.headerContent}>
         <View style={styles.logoContainer}>
-          <Text style={styles.logo}>Glamora Trends</Text>
+          <Text style={styles.logo}>SIAMAE Trends</Text>
           <View style={styles.logoArrow}>
             <Ionicons name="arrow-forward" size={16} color={Colors.SHEIN_PINK} />
           </View>
@@ -121,7 +121,7 @@ export const SearchScreen: React.FC = () => {
       />
       <View style={styles.userReview}>
                   <Text style={styles.reviewText}>
-            {title === 'GLAMORA CURVE' 
+            {title === 'SIAMAE CURVE' 
               ? 's***o: Wow 😍 I loved it and I\'m very comfortable on it 👌'
               : 'g***o: super pretty 😍😍'
             }
@@ -136,8 +136,8 @@ export const SearchScreen: React.FC = () => {
       <ScrollView showsVerticalScrollIndicator={false}>
         {renderTwoPieceSet()}
         {renderProductSection(kidsItems, 'Kids Collection')}
-        {renderProductSection(sheinSxyCurve, 'GLAMORA CURVE', '316K Followers')}
-        {renderProductSection(vibekara, 'Glamora Maternity', '23K Followers', true)}
+        {renderProductSection(sheinSxyCurve, 'SIAMAE CURVE', '316K Followers')}
+        {renderProductSection(vibekara, 'SIAMAE Maternity', '23K Followers', true)}
       </ScrollView>
     </SafeAreaView>
   );

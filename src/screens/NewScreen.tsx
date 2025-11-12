@@ -1,142 +1,230 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
-  TouchableOpacity,
   FlatList,
+  TouchableOpacity,
   Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../constants/colors';
+import { Spacing } from '../constants/spacing';
+import { CategoryTabs } from '../components/CategoryTabs';
+import { ProductCard } from '../components/ProductCard';
+import { LoadingScreen } from '../components/LoadingScreen';
+import { Header } from '../components/Header';
+import { useNewArrivals, usePricingRules, useWishlistActions, useWishlist } from '../hooks/erpnext';
+import { useUserSession } from '../context/UserContext';
+import { getProductDiscount } from '../utils/pricingRules';
 
 const { width } = Dimensions.get('window');
 
-// Mock data for new arrivals
-const newArrivals = [
-  { id: '1', name: 'Summer Floral Dress', price: 'GH₵25.00', image: '👗', isNew: true },
-  { id: '2', name: 'Denim Jacket', price: 'GH₵35.00', image: '🧥', isNew: true },
-  { id: '3', name: 'Casual Sneakers', price: 'GH₵18.00', image: '👟', isNew: true },
-  { id: '4', name: 'Elegant Blouse', price: 'GH₵22.00', image: '👚', isNew: true },
-];
-
-const trendingNow = [
-  { id: '1', name: 'Crop Top Set', price: 'GH₵15.00', image: '👕', trend: '🔥 Trending' },
-  { id: '2', name: 'Wide Leg Pants', price: 'GH₵28.00', image: '👖', trend: 'New Style' },
-  { id: '3', name: 'Statement Necklace', price: 'GH₵8.00', image: '💍', trend: 'Popular' },
-  { id: '4', name: 'Crossbody Bag', price: 'GH₵12.00', image: '👜', trend: 'Must Have' },
-];
-
-const categories = ['All', 'Women', 'Men', 'Kids', 'Accessories'];
+// Map UI category names to ERPNext item_group names
+const mapCategoryToItemGroup = (category: string): string | null => {
+  const categoryMap: Record<string, string> = {
+    'Women': 'Women',
+    'Men': 'Men',
+    'Kids': 'Kids',
+    'Curve': 'Curve',
+    'Home': 'Home',
+  };
+  return category === 'All' ? null : (categoryMap[category] || null);
+};
 
 export const NewScreen: React.FC = () => {
+  const navigation = useNavigation();
+  const { user } = useUserSession();
+  const { wishlistItems, refresh: refreshWishlist } = useWishlist(user?.email || null);
+  const { toggleWishlist } = useWishlistActions(refreshWishlist);
   const [selectedCategory, setSelectedCategory] = useState('All');
+  
+  // Map category to item group name
+  const itemGroupName = mapCategoryToItemGroup(selectedCategory);
+  
+  // Fetch pricing rules for discounts
+  const { data: pricingRules = [], loading: pricingRulesLoading } = usePricingRules();
+  
+  // Optimistic state for immediate UI updates
+  const [optimisticWishlist, setOptimisticWishlist] = useState<Set<string>>(new Set());
+  const [pendingOperations, setPendingOperations] = useState<Set<string>>(new Set());
+  
+  // Create a Set of wishlisted product IDs for quick lookup
+  const wishlistedProductIds = useMemo(() => {
+    const baseSet = new Set(wishlistItems.map(item => item.productId));
+    // Merge with optimistic updates
+    optimisticWishlist.forEach(id => baseSet.add(id));
+    return baseSet;
+  }, [wishlistItems, optimisticWishlist]);
+  
+  // Sync optimistic state with actual wishlist when it updates
+  // Only sync when not currently performing operations to avoid infinite loops
+  useEffect(() => {
+    if (pendingOperations.size > 0) {
+      return; // Don't sync while operations are pending
+    }
+    
+    const actualSet = new Set(wishlistItems.map(item => item.productId));
+    setOptimisticWishlist(prev => {
+      const newSet = new Set(prev);
+      // Remove items that are no longer in the actual wishlist
+      prev.forEach(id => {
+        if (!actualSet.has(id)) {
+          newSet.delete(id);
+        }
+      });
+      // Only update if there's a change to prevent unnecessary re-renders
+      if (newSet.size !== prev.size || Array.from(newSet).some(id => !prev.has(id))) {
+        return newSet;
+      }
+      return prev; // Return same reference if no change
+    });
+  }, [wishlistItems, pendingOperations.size]);
+  
+  // Always fetch all new arrivals, then filter by category client-side
+  const { data: allNewArrivals, loading: newArrivalsLoading } = useNewArrivals(100);
+  
+  // Check if page is initially loading (fresh load - no data loaded yet)
+  const isInitialLoading = (!allNewArrivals && newArrivalsLoading) && 
+    (!pricingRules || pricingRules.length === 0);
+  
+  // Filter new arrivals by selected category
+  const displayArrivals = useMemo(() => {
+    if (!allNewArrivals || allNewArrivals.length === 0) {
+      return [];
+    }
+    
+    // If "All" is selected, return all new arrivals
+    if (selectedCategory === 'All') {
+      return allNewArrivals;
+    }
+    
+    // Filter by category/item_group
+    // Check both item_group and category fields to match
+    return allNewArrivals.filter((product: any) => {
+      const productCategory = product.category || product.itemGroup || '';
+      // Case-insensitive comparison
+      return productCategory.toLowerCase() === itemGroupName?.toLowerCase();
+    });
+  }, [selectedCategory, allNewArrivals, itemGroupName]);
+  
+  const isLoading = newArrivalsLoading;
 
-  const renderHeader = () => (
-    <View style={styles.header}>
-      <View style={styles.headerTop}>
-        <Text style={styles.headerTitle}>New Arrivals</Text>
-        <TouchableOpacity style={styles.notificationButton}>
-          <Ionicons name="notifications-outline" size={24} color={Colors.BLACK} />
-        </TouchableOpacity>
-      </View>
-      <Text style={styles.headerSubtitle}>Discover the latest trends and fresh styles</Text>
-    </View>
-  );
 
-  const renderCategoryTabs = () => (
-    <View style={styles.categoryTabs}>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-        {categories.map((category) => (
-          <TouchableOpacity
-            key={category}
-            style={[
-              styles.categoryTab,
-              selectedCategory === category && styles.categoryTabActive
-            ]}
-            onPress={() => setSelectedCategory(category)}
-          >
-            <Text style={[
-              styles.categoryTabText,
-              selectedCategory === category && styles.categoryTabTextActive
-            ]}>
-              {category}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-    </View>
-  );
+  const renderProductItem = ({ item, index }: { item: any; index: number }) => {
+    const discount = getProductDiscount(item, pricingRules);
+    const isLeftColumn = index % 2 === 0;
+    const row = Math.floor(index / 2);
+    
+    // Staggered layout pattern for visual interest
+    const patterns = [
+      ['tall', 'short'],
+      ['medium', 'tall'],
+      ['short', 'medium'],
+    ];
+    const patternIndex = row % patterns.length;
+    const variant = (isLeftColumn 
+      ? patterns[patternIndex][0] 
+      : patterns[patternIndex][1]
+    ) as 'tall' | 'medium' | 'short';
 
-  const renderProductSection = (products: any[], title: string, subtitle?: string) => (
-    <View style={styles.section}>
-      <View style={styles.sectionHeader}>
-        <View style={styles.sectionTitleContainer}>
-          <Text style={styles.sectionTitle}>{title}</Text>
-          <Ionicons name="sparkles" size={20} color={Colors.SHEIN_PINK} />
-        </View>
-        {subtitle && <Text style={styles.sectionSubtitle}>{subtitle}</Text>}
-        <TouchableOpacity>
-          <Text style={styles.viewMoreText}>View all {'>'}</Text>
-        </TouchableOpacity>
-      </View>
-      <FlatList
-        data={products}
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.productsList}
-        renderItem={({ item }) => (
-          <View style={styles.productCard}>
-            <View style={styles.productImage}>
-              <Text style={styles.productEmoji}>{item.image}</Text>
-              {item.isNew && (
-                <View style={styles.newTag}>
-                  <Text style={styles.newTagText}>NEW</Text>
-                </View>
-              )}
-              {item.trend && (
-                <View style={styles.trendTag}>
-                  <Text style={styles.trendText}>{item.trend}</Text>
-                </View>
-              )}
-            </View>
-            <Text style={styles.productName} numberOfLines={2}>{item.name}</Text>
-            <Text style={styles.productPrice}>{item.price}</Text>
-          </View>
-        )}
-        keyExtractor={(item) => item.id}
+    return (
+      <ProductCard
+        product={item}
+        onPress={(productId) => {
+          (navigation as any).navigate('ProductDetails', { productId });
+        }}
+        onWishlistPress={async (productId) => {
+          // Prevent multiple simultaneous operations on the same item
+          if (pendingOperations.has(productId)) {
+            return;
+          }
+          
+          const isWishlisted = wishlistedProductIds.has(productId);
+          
+          // Mark operation as pending
+          setPendingOperations(prev => new Set(prev).add(productId));
+          
+          // Optimistic update - immediately update UI
+          setOptimisticWishlist(prev => {
+            const newSet = new Set(prev);
+            if (isWishlisted) {
+              newSet.delete(productId);
+            } else {
+              newSet.add(productId);
+            }
+            return newSet;
+          });
+          
+          try {
+            await toggleWishlist(productId, isWishlisted);
+            // refreshWishlist is called automatically by useWishlistActions
+          } finally {
+            // Remove from pending after a short delay to allow wishlist to sync
+            setTimeout(() => {
+              setPendingOperations(prev => {
+                const newSet = new Set(prev);
+                newSet.delete(productId);
+                return newSet;
+              });
+            }, 500);
+          }
+        }}
+        isWishlisted={wishlistedProductIds.has(item.id)}
+        style={styles.productCard}
+        variant={variant}
+        pricingDiscount={discount}
       />
-    </View>
-  );
+    );
+  };
 
-  const renderFeaturedBanner = () => (
-    <View style={styles.featuredBanner}>
-      <View style={styles.bannerContent}>
-        <View style={styles.bannerTextContainer}>
-          <Text style={styles.bannerTitle}>Spring Collection</Text>
-          <Text style={styles.bannerSubtitle}>Up to 50% off new arrivals</Text>
-          <TouchableOpacity style={styles.bannerButton}>
-            <Text style={styles.bannerButtonText}>Shop Now</Text>
-          </TouchableOpacity>
+  const renderProducts = () => {
+    if (displayArrivals.length === 0) {
+      return (
+        <View style={styles.emptyContainer}>
+          <Ionicons name="cube-outline" size={64} color={Colors.TEXT_SECONDARY} />
+          <Text style={styles.emptyText}>No new arrivals found</Text>
+          <Text style={styles.emptySubtext}>
+            {selectedCategory === 'All' 
+              ? 'Check back soon for new products!' 
+              : `No new arrivals in ${selectedCategory} category`}
+          </Text>
         </View>
-        <View style={styles.bannerImage}>
-          <Text style={styles.bannerEmoji}>🌸</Text>
-        </View>
-      </View>
-    </View>
-  );
+      );
+    }
+
+    return (
+      <FlatList
+        data={displayArrivals}
+        numColumns={2}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.productsList}
+        columnWrapperStyle={styles.productRow}
+        renderItem={renderProductItem}
+        keyExtractor={(item) => item.id}
+        removeClippedSubviews={true}
+        initialNumToRender={6}
+        maxToRenderPerBatch={4}
+        windowSize={10}
+      />
+    );
+  };
+
+  // Show loading screen on initial load
+  if (isInitialLoading) {
+    return <LoadingScreen />;
+  }
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView showsVerticalScrollIndicator={false}>
-        {renderHeader()}
-        {renderCategoryTabs()}
-        {renderFeaturedBanner()}
-        {renderProductSection(newArrivals, 'New Arrivals', 'Fresh styles just in')}
-        {renderProductSection(trendingNow, 'Trending Now', 'What\'s hot this week')}
-      </ScrollView>
+      <Header />
+      <CategoryTabs 
+        selectedCategory={selectedCategory}
+        onSelectCategory={setSelectedCategory}
+      />
+      {renderProducts()}
     </SafeAreaView>
   );
 };
@@ -146,191 +234,36 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Colors.BACKGROUND,
   },
-  header: {
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    backgroundColor: Colors.WHITE,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.BORDER,
-  },
-  headerTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: Colors.BLACK,
-  },
-  notificationButton: {
-    width: 40,
-    height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  headerSubtitle: {
-    fontSize: 16,
-    color: Colors.TEXT_SECONDARY,
-  },
-  categoryTabs: {
-    paddingVertical: 12,
-    backgroundColor: Colors.WHITE,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.BORDER,
-  },
-  categoryTab: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    marginHorizontal: 4,
-    borderRadius: 20,
-  },
-  categoryTabActive: {
-    backgroundColor: Colors.SHEIN_PINK,
-  },
-  categoryTabText: {
-    fontSize: 14,
-    color: Colors.TEXT_SECONDARY,
-    fontWeight: '500',
-  },
-  categoryTabTextActive: {
-    color: Colors.WHITE,
-  },
-  featuredBanner: {
-    margin: 16,
-    backgroundColor: Colors.SHEIN_PINK,
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-  bannerContent: {
-    flexDirection: 'row',
-    padding: 20,
-    alignItems: 'center',
-  },
-  bannerTextContainer: {
-    flex: 1,
-  },
-  bannerTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: Colors.WHITE,
-    marginBottom: 4,
-  },
-  bannerSubtitle: {
-    fontSize: 14,
-    color: Colors.WHITE,
-    opacity: 0.9,
-    marginBottom: 12,
-  },
-  bannerButton: {
-    backgroundColor: Colors.WHITE,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    alignSelf: 'flex-start',
-  },
-  bannerButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: Colors.SHEIN_PINK,
-  },
-  bannerImage: {
-    width: 80,
-    height: 80,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  bannerEmoji: {
-    fontSize: 60,
-  },
-  section: {
-    paddingVertical: 16,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    marginBottom: 12,
-  },
-  sectionTitleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: Colors.BLACK,
-  },
-  sectionSubtitle: {
-    fontSize: 14,
-    color: Colors.TEXT_SECONDARY,
-  },
-  viewMoreText: {
-    fontSize: 14,
-    color: Colors.SHEIN_PINK,
-    fontWeight: '500',
-  },
   productsList: {
-    paddingHorizontal: 16,
+    paddingHorizontal: Spacing.SCREEN_PADDING,
+    paddingTop: Spacing.PADDING_MD,
+    paddingBottom: Spacing.PADDING_XL,
+  },
+  productRow: {
+    justifyContent: 'space-between',
+    marginBottom: Spacing.MARGIN_SM,
   },
   productCard: {
-    width: 140,
-    marginRight: 12,
+    width: (width - Spacing.SCREEN_PADDING * 2 - Spacing.MARGIN_SM) / 2,
+    marginBottom: 0, // Row spacing handled by columnWrapperStyle
   },
-  productImage: {
-    width: 140,
-    height: 160,
-    backgroundColor: Colors.LIGHT_GRAY,
-    borderRadius: 8,
-    justifyContent: 'center',
+  emptyContainer: {
+    flex: 1,
+    padding: Spacing.PADDING_XL * 2,
     alignItems: 'center',
-    marginBottom: 8,
-    position: 'relative',
+    justifyContent: 'center',
   },
-  productEmoji: {
-    fontSize: 60,
-  },
-  newTag: {
-    position: 'absolute',
-    top: 8,
-    left: 8,
-    backgroundColor: Colors.SUCCESS,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  newTagText: {
-    fontSize: 10,
-    color: Colors.WHITE,
-    fontWeight: 'bold',
-  },
-  trendTag: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    backgroundColor: Colors.SHEIN_ORANGE,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  trendText: {
-    fontSize: 10,
-    color: Colors.WHITE,
-    fontWeight: 'bold',
-  },
-  productName: {
-    fontSize: 14,
-    color: Colors.BLACK,
-    marginBottom: 4,
+  emptyText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: Colors.TEXT_PRIMARY,
+    marginTop: Spacing.MARGIN_MD,
+    marginBottom: Spacing.MARGIN_SM,
     textAlign: 'center',
   },
-  productPrice: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colors.BLACK,
+  emptySubtext: {
+    fontSize: 14,
+    color: Colors.TEXT_SECONDARY,
     textAlign: 'center',
   },
 });

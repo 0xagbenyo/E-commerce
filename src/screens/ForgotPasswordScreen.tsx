@@ -74,7 +74,7 @@ export const ForgotPasswordScreen: React.FC = () => {
             <View style={styles.successIcon}>
               <Ionicons name="checkmark-circle" size={80} color={Colors.WHITE} />
             </View>
-            <Text style={styles.logo}>GLAMORA</Text>
+            <Text style={styles.logo}>SIAMAE</Text>
           </LinearGradient>
 
           <View style={styles.content}>
@@ -139,7 +139,7 @@ export const ForgotPasswordScreen: React.FC = () => {
             >
               <Ionicons name="arrow-back" size={24} color={Colors.WHITE} />
             </TouchableOpacity>
-            <Text style={styles.logo}>GLAMORA</Text>
+            <Text style={styles.logo}>SIAMAE</Text>
             <Text style={styles.tagline}>Reset your password</Text>
           </LinearGradient>
 

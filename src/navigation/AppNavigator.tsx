@@ -13,6 +13,8 @@ import { RegisterScreen } from '../screens/RegisterScreen';
 import { ForgotPasswordScreen } from '../screens/ForgotPasswordScreen';
 import { HomeScreen } from '../screens/HomeScreen';
 import { CategoriesScreen } from '../screens/CategoriesScreen';
+import { CategoryProductsScreen } from '../screens/CategoryProductsScreen';
+import { AllDealsScreen } from '../screens/AllDealsScreen';
 import { SearchScreen } from '../screens/SearchScreen';
 import { NewScreen } from '../screens/NewScreen';
 import { CartScreen } from '../screens/CartScreen';
@@ -22,6 +24,7 @@ import { CheckoutScreen } from '../screens/CheckoutScreen';
 import { OrderSuccessScreen } from '../screens/OrderSuccessScreen';
 import { OrderHistoryScreen } from '../screens/OrderHistoryScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
+import { WishlistScreen } from '../screens/WishlistScreen';
 
 // Types
 import { RootStackParamList, AuthStackParamList, MainTabParamList } from '../types';
@@ -127,6 +130,21 @@ export const AppNavigator = () => {
         <Stack.Screen 
           name="ProductDetails" 
           component={ProductDetailsScreen}
+          options={{ presentation: 'card' }}
+        />
+        <Stack.Screen 
+          name="CategoryProducts" 
+          component={CategoryProductsScreen}
+          options={{ presentation: 'card' }}
+        />
+        <Stack.Screen 
+          name="AllDeals" 
+          component={AllDealsScreen}
+          options={{ presentation: 'card' }}
+        />
+        <Stack.Screen 
+          name="Wishlist" 
+          component={WishlistScreen}
           options={{ presentation: 'card' }}
         />
         <Stack.Screen name="Splash" component={SplashScreen} />

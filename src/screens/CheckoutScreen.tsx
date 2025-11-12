@@ -131,7 +131,7 @@ export const CheckoutScreen: React.FC = () => {
   });
 
   const formatPrice = (price: number) => {
-    return `$${price.toFixed(2)}`;
+    return `GH₵${price.toFixed(2)}`;
   };
 
   const calculateSubtotal = () => {

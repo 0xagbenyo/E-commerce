@@ -18,10 +18,12 @@ const cardWidth = (width - Spacing.SCREEN_PADDING * 3) / 2;
 
 export interface ProductCardProps {
   product: Product;
-  onPress: (productId: string) => void;
-  onWishlistPress: (productId: string) => void;
+  onPress?: (productId: string) => void;
+  onWishlistPress?: (productId: string) => void;
   isWishlisted?: boolean;
   style?: any;
+  variant?: 'tall' | 'medium' | 'short'; // For staggered layout
+  pricingDiscount?: number; // Discount from pricing rules
 }
 
 export const ProductCard: React.FC<ProductCardProps> = React.memo(({
@@ -30,13 +32,24 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({
   onWishlistPress,
   isWishlisted = false,
   style,
+  variant = 'medium',
+  pricingDiscount = 0,
 }) => {
+  // Safety check for product
+  if (!product) {
+    return null;
+  }
+
   const formatPrice = (price: number) => {
     return `GH₵${price.toFixed(2)}`;
   };
 
   const calculateDiscount = () => {
-    if (product.originalPrice && product.originalPrice > product.price) {
+    // Use pricing rule discount if available, otherwise calculate from prices
+    if (pricingDiscount && typeof pricingDiscount === 'number' && pricingDiscount > 0) {
+      return Math.round(pricingDiscount);
+    }
+    if (product?.originalPrice && product?.price && product.originalPrice > product.price) {
       return Math.round(((product.originalPrice - product.price) / product.originalPrice) * 100);
     }
     return 0;
@@ -44,13 +57,65 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({
 
   const discount = calculateDiscount();
 
+  // Calculate prices based on discount
+  const getDisplayPrices = () => {
+    if (!product) {
+      return { displayPrice: 0, originalPrice: 0 };
+    }
+    if (discount > 0) {
+      // If we have a pricing rule discount, calculate the new price from current price
+      if (pricingDiscount && typeof pricingDiscount === 'number' && pricingDiscount > 0) {
+        const discountedPrice = product.price * (1 - discount / 100);
+        return {
+          displayPrice: discountedPrice,
+          originalPrice: product.price, // Current price becomes the "original"
+        };
+      }
+      // Otherwise use the existing price structure
+      return {
+        displayPrice: product.price,
+        originalPrice: product.originalPrice,
+      };
+    }
+    return {
+      displayPrice: product.price,
+      originalPrice: product.originalPrice,
+    };
+  };
+
+  const { displayPrice, originalPrice } = getDisplayPrices();
+
+  // Calculate heights based on variant for very subtle staggered layout
+  const getHeights = () => {
+    switch (variant) {
+      case 'tall':
+        return {
+          imageHeight: cardWidth * 1.15, // Very slightly taller image
+          contentPadding: Spacing.PADDING_MD, // Standard content space
+        };
+      case 'short':
+        return {
+          imageHeight: cardWidth * 1.10, // Very slightly shorter image
+          contentPadding: Spacing.PADDING_MD, // Standard content space
+        };
+      case 'medium':
+      default:
+        return {
+          imageHeight: cardWidth * 1.12, // Default image
+          contentPadding: Spacing.PADDING_MD, // Standard content space
+        };
+    }
+  };
+
+  const { imageHeight, contentPadding } = getHeights();
+
   return (
     <TouchableOpacity
-      style={[styles.container, style]}
-      onPress={() => onPress(product.id)}
+      style={[styles.container, style, { alignSelf: 'flex-start' }]}
+      onPress={() => onPress?.(product.id)}
       activeOpacity={0.9}
     >
-      <View style={styles.imageContainer}>
+      <View style={[styles.imageContainer, { height: imageHeight }]}>
         {product.images && product.images.length > 0 && product.images[0] ? (
           <Image
             source={{ uri: product.images[0] }}
@@ -64,17 +129,19 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({
         )}
         
         {/* Wishlist Button */}
-        <TouchableOpacity
-          style={styles.wishlistButton}
-          onPress={() => onWishlistPress(product.id)}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          <Ionicons
-            name={isWishlisted ? 'heart' : 'heart-outline'}
-            size={20}
-            color={isWishlisted ? Colors.VIBRANT_PINK : Colors.WHITE}
-          />
-        </TouchableOpacity>
+        {onWishlistPress && (
+          <TouchableOpacity
+            style={styles.wishlistButton}
+            onPress={() => onWishlistPress(product.id)}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Ionicons
+              name={isWishlisted ? 'heart' : 'heart-outline'}
+              size={20}
+              color={isWishlisted ? Colors.VIBRANT_PINK : Colors.WHITE}
+            />
+          </TouchableOpacity>
+        )}
 
         {/* Discount Badge */}
         {discount > 0 && (
@@ -91,42 +158,63 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({
         )}
       </View>
 
-      <View style={styles.content}>
-        <Text style={styles.brand} numberOfLines={1}>
-          {product.brand}
-        </Text>
+      <View style={[styles.content, { padding: contentPadding }]}>
+        {product.brand ? (
+          <Text style={styles.brand} numberOfLines={1} ellipsizeMode="tail">
+            {product.brand}
+          </Text>
+        ) : null}
         
-        {product.company && (
-          <Text style={styles.company} numberOfLines={1}>
+        {product.company && variant !== 'short' ? (
+          <Text style={styles.company} numberOfLines={1} ellipsizeMode="tail">
             {product.company}
           </Text>
-        )}
+        ) : null}
         
-        <Text style={styles.name} numberOfLines={2}>
-          {product.name}
-        </Text>
+        {product.name ? (
+          <Text 
+            style={styles.name} 
+            numberOfLines={variant === 'tall' ? 3 : variant === 'short' ? 1 : 2}
+            ellipsizeMode="tail"
+          >
+            {product.name}
+          </Text>
+        ) : null}
 
         <View style={styles.priceContainer}>
-          <Text style={styles.price}>
-            {formatPrice(product.price)}
-          </Text>
-          
-          {product.originalPrice && product.originalPrice > product.price && (
-            <Text style={styles.originalPrice}>
-              {formatPrice(product.originalPrice)}
-            </Text>
-          )}
+          <View style={styles.priceRow} pointerEvents="none">
+            <View style={styles.priceTextContainer}>
+              <Text 
+                style={styles.price}
+                numberOfLines={1}
+                ellipsizeMode="tail"
+              >
+                {formatPrice(displayPrice || 0)}
+              </Text>
+            </View>
+            {originalPrice && originalPrice > (displayPrice || 0) && (
+              <View style={styles.originalPriceTextContainer}>
+                <Text 
+                  style={styles.originalPrice}
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
+                >
+                  {formatPrice(originalPrice)}
+                </Text>
+              </View>
+            )}
+          </View>
         </View>
 
-        {/* Rating */}
-        {product.rating > 0 && (
+        {/* Rating - only show for tall and medium variants */}
+        {product.rating && product.rating > 0 && variant !== 'short' ? (
           <View style={styles.ratingContainer}>
             <Ionicons name="star" size={12} color={Colors.WARNING} />
             <Text style={styles.rating}>
-              {product.rating.toFixed(1)} ({product.reviewCount})
+              {product.rating.toFixed(1)} ({product.reviewCount || 0})
             </Text>
           </View>
-        )}
+        ) : null}
       </View>
     </TouchableOpacity>
   );
@@ -137,7 +225,9 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({
     prevProps.product.price === nextProps.product.price &&
     prevProps.product.images?.[0] === nextProps.product.images?.[0] &&
     prevProps.isWishlisted === nextProps.isWishlisted &&
-    prevProps.style === nextProps.style
+    prevProps.style === nextProps.style &&
+    prevProps.variant === nextProps.variant &&
+    prevProps.pricingDiscount === nextProps.pricingDiscount
   );
 });
 
@@ -146,14 +236,14 @@ const styles = StyleSheet.create({
     width: cardWidth,
     backgroundColor: Colors.SURFACE,
     borderRadius: Spacing.BORDER_RADIUS_LG,
-    marginBottom: Spacing.MARGIN_MD,
+    marginBottom: Spacing.MARGIN_SM,
+    overflow: 'hidden', // Prevent any content from overflowing
     ...Spacing.SHADOW_SM,
   },
   
   imageContainer: {
     position: 'relative',
     width: '100%',
-    height: cardWidth * 1.3,
     borderTopLeftRadius: Spacing.BORDER_RADIUS_LG,
     borderTopRightRadius: Spacing.BORDER_RADIUS_LG,
     overflow: 'hidden',
@@ -217,7 +307,9 @@ const styles = StyleSheet.create({
   },
   
   content: {
-    padding: Spacing.PADDING_MD,
+    width: '100%',
+    flexShrink: 1,
+    overflow: 'hidden',
   },
   
   brand: {
@@ -244,16 +336,36 @@ const styles = StyleSheet.create({
   },
   
   priceContainer: {
+    marginBottom: Spacing.MARGIN_XS,
+    width: '100%',
+    overflow: 'hidden',
+  },
+  
+  priceRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: Spacing.MARGIN_XS,
+    width: '100%',
+  },
+  
+  priceTextContainer: {
+    flexShrink: 1,
+    flexGrow: 0,
+    minWidth: 0,
+    maxWidth: '70%',
+    marginRight: 6,
   },
   
   price: {
     fontSize: Typography.FONT_SIZE_MD,
     color: Colors.TEXT_PRIMARY,
     fontWeight: Typography.FONT_WEIGHT_BOLD,
-    marginRight: Spacing.MARGIN_SM,
+  },
+  
+  originalPriceTextContainer: {
+    flexShrink: 1,
+    flexGrow: 0,
+    minWidth: 0,
+    maxWidth: '28%',
   },
   
   originalPrice: {

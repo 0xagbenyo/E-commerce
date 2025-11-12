@@ -7,74 +7,30 @@ import {
   TouchableOpacity,
   FlatList,
   Dimensions,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../constants/colors';
+import { useWishlist } from '../hooks/erpnext';
+import { ProductCard } from '../components/ProductCard';
+import { useNavigation } from '@react-navigation/native';
+import { WishlistItem } from '../types';
+import { useUserSession } from '../context/UserContext';
 
 const { width } = Dimensions.get('window');
 
-// Mock wishlist data
-const wishlistItems = [
-  {
-    id: '1',
-    name: 'Glamora Plus Size Summer Dress',
-    brand: 'GLAMORA CURVE',
-    price: 'GH₵28.50',
-    originalPrice: 'GH₵35.00',
-    discount: '-19%',
-    image: '👗',
-    colors: ['#FF6B6B', '#4ECDC4', '#45B7D1'],
-    sizes: ['S', 'M', 'L', 'XL'],
-    inStock: true,
-  },
-  {
-    id: '2',
-    name: 'Glamora Denim Jacket',
-    brand: 'GLAMORA STYLE',
-    price: 'GH₵42.00',
-    image: '🧥',
-    colors: ['#2C3E50', '#34495E'],
-    sizes: ['M', 'L', 'XL'],
-    inStock: true,
-  },
-  {
-    id: '3',
-    name: 'Glamora Floral Blouse',
-    brand: 'GLAMORA PRIVÉ',
-    price: 'GH₵18.90',
-    originalPrice: 'GH₵25.00',
-    discount: '-24%',
-    image: '👚',
-    colors: ['#E74C3C', '#F39C12', '#27AE60'],
-    sizes: ['S', 'M', 'L'],
-    inStock: false,
-  },
-  {
-    id: '4',
-    name: 'Glamora High-Waist Jeans',
-    brand: 'GLAMORA CURVE',
-    price: 'GH₵32.00',
-    image: '👖',
-    colors: ['#34495E', '#2C3E50'],
-    sizes: ['28', '30', '32', '34'],
-    inStock: true,
-  },
-  {
-    id: '5',
-    name: 'Glamora Evening Gown',
-    brand: 'GLAMORA LUXE',
-    price: 'GH₵89.00',
-    image: '👗',
-    colors: ['#8E44AD', '#2C3E50'],
-    sizes: ['S', 'M', 'L'],
-    inStock: true,
-  },
-];
-
 export const WishlistScreen: React.FC = () => {
+  const navigation = useNavigation();
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  
+  // Get user email from session
+  const { user } = useUserSession();
+  const userEmail = user?.email || null;
+  
+  // Fetch wishlist from ERPNext
+  const { wishlistItems, loading, error, refresh } = useWishlist(userEmail);
 
   const renderHeader = () => (
     <View style={styles.header}>
@@ -117,11 +73,17 @@ export const WishlistScreen: React.FC = () => {
     </View>
   );
 
-  const renderWishlistItem = ({ item }: { item: any }) => {
+  const renderWishlistItem = ({ item, index }: { item: WishlistItem; index: number }) => {
+    if (!item.product) {
+      return null; // Skip items without product data
+    }
+
     const isSelected = selectedItems.includes(item.id);
+    const variants: ('tall' | 'medium' | 'short')[] = ['tall', 'medium', 'short'];
+    const variant = variants[index % 3] as 'tall' | 'medium' | 'short';
     
     return (
-      <View style={[styles.wishlistItem, viewMode === 'list' && styles.listItem]}>
+      <View style={styles.wishlistItemWrapper}>
         <TouchableOpacity 
           style={styles.selectButton}
           onPress={() => {
@@ -138,81 +100,63 @@ export const WishlistScreen: React.FC = () => {
             color={isSelected ? Colors.SHEIN_PINK : Colors.TEXT_SECONDARY} 
           />
         </TouchableOpacity>
-
-        <View style={[styles.itemImage, viewMode === 'list' && styles.listItemImage]}>
-          <Text style={styles.itemEmoji}>{item.image}</Text>
-          {item.discount && (
-            <View style={styles.discountTag}>
-              <Text style={styles.discountText}>{item.discount}</Text>
-            </View>
-          )}
-          {!item.inStock && (
-            <View style={styles.outOfStockOverlay}>
-              <Text style={styles.outOfStockText}>Out of Stock</Text>
-            </View>
-          )}
-        </View>
-
-        <View style={styles.itemInfo}>
-          <Text style={styles.brandName}>{item.brand}</Text>
-          <Text style={styles.itemName} numberOfLines={2}>{item.name}</Text>
-          
-          <View style={styles.priceContainer}>
-            <Text style={styles.price}>{item.price}</Text>
-            {item.originalPrice && (
-              <Text style={styles.originalPrice}>{item.originalPrice}</Text>
-            )}
-          </View>
-
-          <View style={styles.colorSwatches}>
-            {item.colors.map((color: string, index: number) => (
-              <View 
-                key={index} 
-                style={[styles.colorSwatch, { backgroundColor: color }]} 
-              />
-            ))}
-          </View>
-
-          <View style={styles.sizeContainer}>
-            <Text style={styles.sizeLabel}>Size:</Text>
-            <View style={styles.sizeOptions}>
-              {item.sizes.map((size: string, index: number) => (
-                <View key={index} style={styles.sizeOption}>
-                  <Text style={styles.sizeText}>{size}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
-
-          <View style={styles.itemActions}>
-            <TouchableOpacity 
-              style={[styles.actionButton, !item.inStock && styles.disabledButton]}
-              disabled={!item.inStock}
-            >
-              <Text style={[styles.actionButtonText, !item.inStock && styles.disabledText]}>
-                Add to Cart
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.removeButton}>
-              <Ionicons name="trash-outline" size={16} color={Colors.ERROR} />
-            </TouchableOpacity>
-          </View>
-        </View>
+        <ProductCard
+          product={item.product}
+          variant={variant}
+          onPress={() => {
+            (navigation as any).navigate('ProductDetails', { productId: item.productId });
+          }}
+          onWishlistPress={() => {
+            // Handle remove from wishlist
+            console.log('Remove from wishlist:', item.productId);
+          }}
+        />
       </View>
     );
   };
 
+  const renderEmptyState = () => (
+    <View style={styles.emptyContainer}>
+      <Ionicons name="heart-outline" size={64} color={Colors.LIGHT_GRAY} />
+      <Text style={styles.emptyText}>Your wishlist is empty</Text>
+      <Text style={styles.emptySubtext}>Start adding items you love!</Text>
+    </View>
+  );
+
+  const renderLoadingState = () => (
+    <View style={styles.loadingContainer}>
+      <ActivityIndicator size="large" color={Colors.SHEIN_PINK} />
+      <Text style={styles.loadingText}>Loading your wishlist...</Text>
+    </View>
+  );
+
+  const renderErrorState = () => (
+    <View style={styles.errorContainer}>
+      <Ionicons name="alert-circle-outline" size={64} color={Colors.ERROR} />
+      <Text style={styles.errorText}>Failed to load wishlist</Text>
+      <TouchableOpacity style={styles.retryButton} onPress={refresh}>
+        <Text style={styles.retryButtonText}>Retry</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
   return (
     <SafeAreaView style={styles.container}>
       {renderHeader()}
-      <FlatList
-        data={wishlistItems}
-        renderItem={renderWishlistItem}
-        keyExtractor={(item) => item.id}
-        numColumns={viewMode === 'grid' ? 2 : 1}
-        contentContainerStyle={styles.wishlistContainer}
-        showsVerticalScrollIndicator={false}
-      />
+      {loading && renderLoadingState()}
+      {error && !loading && renderErrorState()}
+      {!loading && !error && wishlistItems.length === 0 && renderEmptyState()}
+      {!loading && !error && wishlistItems.length > 0 && (
+        <FlatList
+          data={wishlistItems}
+          renderItem={renderWishlistItem}
+          keyExtractor={(item) => item.id}
+          numColumns={viewMode === 'grid' ? 2 : 1}
+          contentContainerStyle={styles.wishlistContainer}
+          showsVerticalScrollIndicator={false}
+          columnWrapperStyle={viewMode === 'grid' ? styles.row : undefined}
+        />
+      )}
     </SafeAreaView>
   );
 };
@@ -288,6 +232,65 @@ const styles = StyleSheet.create({
   },
   wishlistContainer: {
     padding: 16,
+  },
+  wishlistItemWrapper: {
+    position: 'relative',
+    marginBottom: 16,
+  },
+  row: {
+    justifyContent: 'space-between',
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 100,
+  },
+  emptyText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: Colors.BLACK,
+    marginTop: 16,
+  },
+  emptySubtext: {
+    fontSize: 14,
+    color: Colors.TEXT_SECONDARY,
+    marginTop: 8,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 100,
+  },
+  loadingText: {
+    fontSize: 14,
+    color: Colors.TEXT_SECONDARY,
+    marginTop: 16,
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 100,
+  },
+  errorText: {
+    fontSize: 16,
+    color: Colors.ERROR,
+    marginTop: 16,
+    textAlign: 'center',
+  },
+  retryButton: {
+    marginTop: 24,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    backgroundColor: Colors.SHEIN_PINK,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: Colors.WHITE,
+    fontSize: 16,
+    fontWeight: '600',
   },
   wishlistItem: {
     backgroundColor: Colors.WHITE,

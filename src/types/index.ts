@@ -190,6 +190,9 @@ export type RootStackParamList = {
   Auth: undefined;
   Main: undefined;
   ProductDetails: { productId: string };
+  CategoryProducts: { categoryName: string; parentName: string };
+  AllDeals: { deals: Product[] };
+  Wishlist: undefined;
   Checkout: undefined;
   OrderSuccess: { orderId?: string };
   OrderHistory: undefined;
