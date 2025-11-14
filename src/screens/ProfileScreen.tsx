@@ -220,59 +220,42 @@ export const ProfileScreen: React.FC = () => {
     }
     
     return (
-      <View style={styles.header}>
-        <View style={styles.profileInfo}>
-          <View style={styles.avatar}>
+    <View style={styles.header}>
+      <View style={styles.profileInfo}>
+        <View style={styles.avatar}>
             <Text style={styles.avatarText}>{getUserInitials()}</Text>
-          </View>
-          <View style={styles.userInfo}>
-            <View style={styles.usernameRow}>
-              <Text style={styles.username}>{getUserDisplayName()}</Text>
-              <View style={styles.membershipBadge}>
-                <Text style={styles.membershipText}>S0</Text>
-              </View>
-            </View>
-            <View style={styles.profileEditRow}>
-              <Text style={styles.profileLabel}>My Profile</Text>
-              <Ionicons name="pencil" size={16} color={Colors.BLACK} />
-            </View>
-          </View>
-          <View style={styles.headerActions}>
-            <TouchableOpacity style={styles.headerIcon}>
-              <Ionicons name="grid" size={20} color={Colors.BLACK} />
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={styles.headerIcon}
-              onPress={() => (navigation as any).navigate('Settings')}
-            >
-              <Ionicons name="settings-outline" size={20} color={Colors.BLACK} />
-            </TouchableOpacity>
-          </View>
         </View>
-      </View>
-    );
-  };
-
-  const renderUserMetrics = () => (
-    <View style={styles.metricsContainer}>
-      <View style={styles.metricItem}>
-        <Text style={styles.metricValue}>0</Text>
-        <Text style={styles.metricLabel}>Coupons</Text>
-      </View>
-      <View style={styles.metricItem}>
-        <Text style={styles.metricValue}>0</Text>
-        <Text style={styles.metricLabel}>Points</Text>
-      </View>
-      <View style={styles.metricItem}>
-        <Ionicons name="wallet" size={24} color={Colors.BLACK} />
-        <Text style={styles.metricLabel}>Wallet</Text>
-      </View>
-      <View style={styles.metricItem}>
-        <Ionicons name="gift" size={24} color={Colors.BLACK} />
-        <Text style={styles.metricLabel}>Gift Card</Text>
+        <View style={styles.userInfo}>
+          <View style={styles.usernameRow}>
+              <Text style={styles.username}>{getUserDisplayName()}</Text>
+            <View style={styles.membershipBadge}>
+              <Text style={styles.membershipText}>S0</Text>
+            </View>
+          </View>
+            <TouchableOpacity 
+              style={styles.profileEditRow}
+              onPress={() => (navigation as any).navigate('EditProfile')}
+            >
+            <Text style={styles.profileLabel}>My Profile</Text>
+            <Ionicons name="pencil" size={16} color={Colors.BLACK} />
+            </TouchableOpacity>
+        </View>
+        <View style={styles.headerActions}>
+          <TouchableOpacity style={styles.headerIcon}>
+            <Ionicons name="grid" size={20} color={Colors.BLACK} />
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.headerIcon}
+              onPress={() => (navigation as any).navigate('Settings')}
+          >
+            <Ionicons name="settings-outline" size={20} color={Colors.BLACK} />
+          </TouchableOpacity>
+        </View>
       </View>
     </View>
   );
+  };
+
 
   const renderPricingRuleBanner = () => {
     // Only show banner if there's an active pricing rule with a discount
@@ -288,18 +271,18 @@ export const ProfileScreen: React.FC = () => {
     };
     
     return (
-      <TouchableOpacity 
+        <TouchableOpacity 
         style={styles.pricingRuleBanner}
         onPress={handleBannerPress}
         activeOpacity={0.8}
-      >
+        >
         <Ionicons name="pricetag" size={20} color={Colors.SHEIN_PINK} />
         <Text style={styles.pricingRuleBannerText}>
           Get {discountPercent}% Off - Tap to view deals!
         </Text>
         <Ionicons name="chevron-forward" size={16} color={Colors.SHEIN_PINK} />
-      </TouchableOpacity>
-    );
+        </TouchableOpacity>
+  );
   };
 
   const renderOrdersSection = () => (
@@ -330,7 +313,7 @@ export const ProfileScreen: React.FC = () => {
         <View style={styles.orderStatus}>
           <Ionicons name="arrow-undo-outline" size={24} color={Colors.BLACK} />
           <Text style={styles.orderStatusLabel}>Returns</Text>
-        </View>
+          </View>
       </View>
     </View>
   );
@@ -343,12 +326,12 @@ export const ProfileScreen: React.FC = () => {
           onPress={() => (navigation as any).navigate('Wishlist')}
           activeOpacity={0.7}
         >
-          <View style={styles.activityContent}>
+            <View style={styles.activityContent}>
             <Ionicons name="heart-outline" size={20} color={Colors.BLACK} />
             <Text style={styles.activityLabel}>Wishlist</Text>
             <Text style={styles.activityValue}>{wishlistCount} item{wishlistCount !== 1 ? 's' : ''}</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={16} color={Colors.TEXT_SECONDARY} />
+            </View>
+              <Ionicons name="chevron-forward" size={16} color={Colors.TEXT_SECONDARY} />
         </TouchableOpacity>
       </View>
     </View>
@@ -382,7 +365,6 @@ export const ProfileScreen: React.FC = () => {
         }
       >
         {renderHeader()}
-        {renderUserMetrics()}
         {renderPricingRuleBanner()}
         {renderOrdersSection()}
         {renderActivitiesSection()}
@@ -478,27 +460,6 @@ const styles = StyleSheet.create({
     height: 40,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  metricsContainer: {
-    flexDirection: 'row',
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.BORDER,
-  },
-  metricItem: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  metricValue: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: Colors.BLACK,
-    marginBottom: 4,
-  },
-  metricLabel: {
-    fontSize: 12,
-    color: Colors.TEXT_SECONDARY,
   },
   pricingRuleBanner: {
     flexDirection: 'row',

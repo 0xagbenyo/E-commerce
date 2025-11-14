@@ -14,7 +14,7 @@ import { Typography } from '../constants/typography';
 import { Spacing } from '../constants/spacing';
 
 const { width } = Dimensions.get('window');
-const cardWidth = (width - Spacing.SCREEN_PADDING * 3) / 2;
+const cardWidth = (width - Spacing.SCREEN_PADDING * 4) / 2;
 
 export interface ProductCardProps {
   product: Product;
@@ -92,19 +92,19 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({
     switch (variant) {
       case 'tall':
         return {
-          imageHeight: cardWidth * 1.15, // Very slightly taller image
-          contentPadding: Spacing.PADDING_MD, // Standard content space
+          imageHeight: cardWidth * 1.0, // Reduced height
+          contentPadding: Spacing.PADDING_SM, // Reduced content space
         };
       case 'short':
         return {
-          imageHeight: cardWidth * 1.10, // Very slightly shorter image
-          contentPadding: Spacing.PADDING_MD, // Standard content space
+          imageHeight: cardWidth * 0.9, // Reduced height
+          contentPadding: Spacing.PADDING_SM, // Reduced content space
         };
       case 'medium':
       default:
         return {
-          imageHeight: cardWidth * 1.12, // Default image
-          contentPadding: Spacing.PADDING_MD, // Standard content space
+          imageHeight: cardWidth * 0.95, // Reduced height
+          contentPadding: Spacing.PADDING_SM, // Reduced content space
         };
     }
   };
@@ -132,17 +132,17 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({
         
         {/* Wishlist Button */}
         {onWishlistPress && (
-          <TouchableOpacity
-            style={styles.wishlistButton}
-            onPress={() => onWishlistPress(product.id)}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          >
-            <Ionicons
-              name={isWishlisted ? 'heart' : 'heart-outline'}
-              size={20}
-              color={isWishlisted ? Colors.VIBRANT_PINK : Colors.WHITE}
-            />
-          </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.wishlistButton}
+          onPress={() => onWishlistPress(product.id)}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <Ionicons
+            name={isWishlisted ? 'heart' : 'heart-outline'}
+              size={16}
+            color={isWishlisted ? Colors.VIBRANT_PINK : Colors.WHITE}
+          />
+        </TouchableOpacity>
         )}
 
         {/* Cart Button */}
@@ -154,7 +154,7 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({
           >
             <Ionicons
               name="cart-outline"
-              size={20}
+              size={16}
               color={Colors.WHITE}
             />
           </TouchableOpacity>
@@ -178,8 +178,8 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({
       <View style={[styles.content, { padding: contentPadding }]}>
         {product.brand ? (
           <Text style={styles.brand} numberOfLines={1} ellipsizeMode="tail">
-            {product.brand}
-          </Text>
+          {product.brand}
+        </Text>
         ) : null}
         
         {product.company && variant !== 'short' ? (
@@ -189,13 +189,13 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({
         ) : null}
         
         {product.name ? (
-          <Text 
-            style={styles.name} 
-            numberOfLines={variant === 'tall' ? 3 : variant === 'short' ? 1 : 2}
+        <Text 
+          style={styles.name} 
+          numberOfLines={variant === 'tall' ? 3 : variant === 'short' ? 1 : 2}
             ellipsizeMode="tail"
-          >
-            {product.name}
-          </Text>
+        >
+          {product.name}
+        </Text>
         ) : null}
 
         <View style={styles.priceContainer}>
@@ -207,7 +207,7 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({
                 ellipsizeMode="tail"
               >
                 {formatPrice(displayPrice || 0)}
-              </Text>
+          </Text>
             </View>
             {originalPrice && originalPrice > (displayPrice || 0) && (
               <View style={styles.originalPriceTextContainer}>
@@ -217,16 +217,16 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({
                   ellipsizeMode="tail"
                 >
                   {formatPrice(originalPrice)}
-                </Text>
+            </Text>
               </View>
-            )}
+          )}
           </View>
         </View>
 
         {/* Rating - only show for tall and medium variants */}
         {product.rating && product.rating > 0 && variant !== 'short' ? (
           <View style={styles.ratingContainer}>
-            <Ionicons name="star" size={12} color={Colors.WARNING} />
+            <Ionicons name="star" size={10} color={Colors.WARNING} />
             <Text style={styles.rating}>
               {product.rating.toFixed(1)} ({product.reviewCount || 0})
             </Text>
@@ -252,7 +252,7 @@ const styles = StyleSheet.create({
   container: {
     width: cardWidth,
     backgroundColor: Colors.SURFACE,
-    borderRadius: Spacing.BORDER_RADIUS_LG,
+    borderRadius: Spacing.BORDER_RADIUS_MD,
     marginBottom: Spacing.MARGIN_SM,
     overflow: 'hidden', // Prevent any content from overflowing
     ...Spacing.SHADOW_SM,
@@ -261,8 +261,8 @@ const styles = StyleSheet.create({
   imageContainer: {
     position: 'relative',
     width: '100%',
-    borderTopLeftRadius: Spacing.BORDER_RADIUS_LG,
-    borderTopRightRadius: Spacing.BORDER_RADIUS_LG,
+    borderTopLeftRadius: Spacing.BORDER_RADIUS_MD,
+    borderTopRightRadius: Spacing.BORDER_RADIUS_MD,
     overflow: 'hidden',
   },
   
@@ -281,11 +281,11 @@ const styles = StyleSheet.create({
   
   wishlistButton: {
     position: 'absolute',
-    top: Spacing.MARGIN_SM,
-    right: Spacing.MARGIN_SM,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    top: Spacing.MARGIN_XS,
+    right: Spacing.MARGIN_XS,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     backgroundColor: 'rgba(0, 0, 0, 0.3)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -293,11 +293,11 @@ const styles = StyleSheet.create({
   
   cartButton: {
     position: 'absolute',
-    bottom: Spacing.MARGIN_SM,
-    right: Spacing.MARGIN_SM,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    bottom: Spacing.MARGIN_XS,
+    right: Spacing.MARGIN_XS,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     backgroundColor: 'rgba(0, 0, 0, 0.3)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -305,33 +305,33 @@ const styles = StyleSheet.create({
   
   discountBadge: {
     position: 'absolute',
-    top: Spacing.MARGIN_SM,
-    left: Spacing.MARGIN_SM,
+    top: Spacing.MARGIN_XS,
+    left: Spacing.MARGIN_XS,
     backgroundColor: Colors.VIBRANT_PINK,
-    paddingHorizontal: Spacing.PADDING_SM,
-    paddingVertical: Spacing.PADDING_XS,
+    paddingHorizontal: Spacing.PADDING_XS,
+    paddingVertical: 2,
     borderRadius: Spacing.BORDER_RADIUS_SM,
   },
   
   discountText: {
     color: Colors.WHITE,
-    fontSize: Typography.FONT_SIZE_XS,
+    fontSize: 10,
     fontWeight: Typography.FONT_WEIGHT_BOLD,
   },
   
   newBadge: {
     position: 'absolute',
-    bottom: Spacing.MARGIN_SM,
-    left: Spacing.MARGIN_SM,
+    bottom: Spacing.MARGIN_XS,
+    left: Spacing.MARGIN_XS,
     backgroundColor: Colors.ELECTRIC_BLUE,
-    paddingHorizontal: Spacing.PADDING_SM,
-    paddingVertical: Spacing.PADDING_XS,
+    paddingHorizontal: Spacing.PADDING_XS,
+    paddingVertical: 2,
     borderRadius: Spacing.BORDER_RADIUS_SM,
   },
   
   newText: {
     color: Colors.WHITE,
-    fontSize: Typography.FONT_SIZE_XS,
+    fontSize: 10,
     fontWeight: Typography.FONT_WEIGHT_BOLD,
   },
   
@@ -342,26 +342,26 @@ const styles = StyleSheet.create({
   },
   
   brand: {
-    fontSize: Typography.FONT_SIZE_SM,
+    fontSize: Typography.FONT_SIZE_XS,
     color: Colors.TEXT_SECONDARY,
     fontWeight: Typography.FONT_WEIGHT_MEDIUM,
-    marginBottom: Spacing.MARGIN_XS,
+    marginBottom: 2,
   },
   
   company: {
-    fontSize: Typography.FONT_SIZE_XS,
+    fontSize: 10,
     color: Colors.TEXT_SECONDARY,
     fontWeight: Typography.FONT_WEIGHT_REGULAR,
-    marginBottom: Spacing.MARGIN_XS,
+    marginBottom: 2,
     fontStyle: 'italic',
   },
   
   name: {
-    fontSize: Typography.FONT_SIZE_SM,
+    fontSize: Typography.FONT_SIZE_XS,
     color: Colors.TEXT_PRIMARY,
     fontWeight: Typography.FONT_WEIGHT_REGULAR,
-    marginBottom: Spacing.MARGIN_SM,
-    lineHeight: Typography.FONT_SIZE_SM * 1.4,
+    marginBottom: Spacing.MARGIN_XS,
+    lineHeight: Typography.FONT_SIZE_XS * 1.4,
   },
   
   priceContainer: {
@@ -385,7 +385,7 @@ const styles = StyleSheet.create({
   },
   
   price: {
-    fontSize: Typography.FONT_SIZE_MD,
+    fontSize: Typography.FONT_SIZE_SM,
     color: Colors.TEXT_PRIMARY,
     fontWeight: Typography.FONT_WEIGHT_BOLD,
   },
@@ -398,7 +398,7 @@ const styles = StyleSheet.create({
   },
   
   originalPrice: {
-    fontSize: Typography.FONT_SIZE_SM,
+    fontSize: Typography.FONT_SIZE_XS,
     color: Colors.TEXT_SECONDARY,
     textDecorationLine: 'line-through',
   },
@@ -409,7 +409,7 @@ const styles = StyleSheet.create({
   },
   
   rating: {
-    fontSize: Typography.FONT_SIZE_XS,
+    fontSize: 10,
     color: Colors.TEXT_SECONDARY,
     marginLeft: Spacing.MARGIN_XS,
   },

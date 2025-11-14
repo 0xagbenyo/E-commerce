@@ -213,12 +213,16 @@ export type RootStackParamList = {
   ProductDetails: { productId: string };
   CategoryProducts: { categoryName: string; parentName: string };
   AllDeals: { deals: Product[] };
+  PricingRules: undefined;
+  ProductBundles: undefined;
+  Search: { query?: string };
   Wishlist: undefined;
   Cart: undefined;
   Checkout: undefined;
   OrderSuccess: { orderId?: string };
   OrderHistory: undefined;
   InvoiceDetails: { invoiceId: string };
+  EditProfile: undefined;
   Settings: undefined;
 };
 

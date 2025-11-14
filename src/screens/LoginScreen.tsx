@@ -21,7 +21,7 @@ export const LoginScreen: React.FC = () => {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [isValid, setIsValid] = useState(false);
+  const [emailOrPhoneValid, setEmailOrPhoneValid] = useState<boolean | null>(null); // null = not validated yet, true/false = validation result
   const navigation = useNavigation();
   const { setUser } = useUserSession();
 
@@ -39,26 +39,21 @@ export const LoginScreen: React.FC = () => {
   const handleEmailOrPhoneChange = (text: string) => {
     setEmailOrPhone(text);
     const trimmedText = text.trim();
-    if (trimmedText) {
+    if (trimmedText.length > 0) {
       const isEmail = trimmedText.includes('@');
       const valid = isEmail ? validateEmail(trimmedText) : validatePhone(trimmedText);
-      setIsValid(valid && password.length > 0);
+      setEmailOrPhoneValid(valid);
     } else {
-      setIsValid(false);
+      setEmailOrPhoneValid(null); // Reset validation state when field is empty
     }
   };
 
   const handlePasswordChange = (text: string) => {
     setPassword(text);
-    const trimmedEmailOrPhone = emailOrPhone.trim();
-    if (trimmedEmailOrPhone && text.length > 0) {
-      const isEmail = trimmedEmailOrPhone.includes('@');
-      const valid = isEmail ? validateEmail(trimmedEmailOrPhone) : validatePhone(trimmedEmailOrPhone);
-      setIsValid(valid);
-    } else {
-      setIsValid(false);
-    }
   };
+
+  // Check if form is valid (both email/phone and password are valid)
+  const isFormValid = emailOrPhoneValid === true && password.length > 0;
 
   const handleContinue = async () => {
     const trimmedEmailOrPhone = emailOrPhone.trim();
@@ -185,7 +180,7 @@ export const LoginScreen: React.FC = () => {
               <TextInput
                 style={[
                   styles.input,
-                  emailOrPhone.trim() && !isValid && styles.inputError
+                  emailOrPhoneValid === false && styles.inputError
                 ]}
                 placeholder="Enter email or phone number"
                 value={emailOrPhone}
@@ -194,7 +189,7 @@ export const LoginScreen: React.FC = () => {
                 autoCapitalize="none"
                 autoCorrect={false}
               />
-              {emailOrPhone.trim() && !isValid && (
+              {emailOrPhoneValid === false && (
                 <Text style={styles.errorText}>
                   {emailOrPhone.includes('@') ? 'Please enter a valid email address' : 'Please enter a valid Ghana phone number'}
                 </Text>
@@ -205,10 +200,7 @@ export const LoginScreen: React.FC = () => {
               <Text style={styles.label}>Password</Text>
               <View style={styles.passwordInputWrapper}>
                 <TextInput
-                  style={[
-                    styles.passwordInput,
-                    password.length > 0 && !isValid && styles.inputError
-                  ]}
+                  style={styles.passwordInput}
                   placeholder="Enter your password"
                   value={password}
                   onChangeText={handlePasswordChange}
@@ -234,10 +226,10 @@ export const LoginScreen: React.FC = () => {
             <TouchableOpacity 
               style={[
                 styles.continueButton, 
-                (isLoading || !isValid) && styles.continueButtonDisabled
+                (isLoading || !isFormValid) && styles.continueButtonDisabled
               ]}
               onPress={handleContinue}
-              disabled={isLoading || !isValid}
+              disabled={isLoading || !isFormValid}
             >
               <Text style={styles.continueButtonText}>
                 {isLoading ? 'SIGNING IN...' : 'SIGN IN'}
@@ -246,7 +238,13 @@ export const LoginScreen: React.FC = () => {
 
             <TouchableOpacity 
               style={styles.forgotPasswordButton}
-              onPress={() => navigation.navigate('ForgotPassword' as never)}
+              onPress={() => {
+                // Extract email if the input is an email, otherwise pass empty
+                const trimmedInput = emailOrPhone.trim();
+                const isEmail = trimmedInput.includes('@');
+                const emailToPass = isEmail && validateEmail(trimmedInput) ? trimmedInput : '';
+                navigation.navigate('ForgotPassword' as never, { email: emailToPass } as never);
+              }}
             >
               <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
             </TouchableOpacity>

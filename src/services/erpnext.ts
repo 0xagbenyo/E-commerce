@@ -290,6 +290,55 @@ class ERPNextClient {
   // AUTHENTICATION
   // Note: Login uses session-based auth (cookies) for user authentication
   // But resource API calls (/api/resource/*) should use API key/secret authentication
+  
+  async resetPassword(email: string): Promise<{ message?: string; [key: string]: any }> {
+    try {
+      // ERPNext password reset endpoint
+      // This endpoint sends a password reset email to the user
+      const response = await this.client.get('/api/method/frappe.core.doctype.user.user.reset_password', {
+        params: {
+          user: email.trim(),
+        },
+      });
+      return response.data;
+    } catch (error) {
+      throw this.handleError(error);
+    }
+  }
+
+  async getTopCustomers(year?: number, month?: number): Promise<{
+    month: string;
+    year: string;
+    top_customers: Array<{
+      rank?: number;
+      customer: string;
+      total_sales: number;
+      invoice_count?: number;
+    }>;
+    top_items: Array<{
+      rank?: number;
+      item_name: string;
+      total_qty: number;
+      image: string | null;
+    }>;
+  }> {
+    try {
+      const currentDate = new Date();
+      const currentYear = year || currentDate.getFullYear();
+      const currentMonth = month || (currentDate.getMonth() + 1);
+      
+      const response = await this.client.get('/api/method/get_monthly_leaderboard', {
+        params: {
+          year: currentYear.toString(),
+          month: currentMonth.toString(),
+        },
+      });
+      return response.data.message || response.data;
+    } catch (error) {
+      throw this.handleError(error);
+    }
+  }
+
   async login(email: string, password: string): Promise<{ message?: string; full_name?: string; [key: string]: any }> {
     try {
       // Create a separate axios instance for login to avoid cookie interference
@@ -480,6 +529,7 @@ class ERPNextClient {
     first_name: string;
     last_name: string;
     middle_name?: string;
+    phone?: string;
     send_welcome_email?: boolean;
   }): Promise<any> {
     try {
@@ -498,6 +548,11 @@ class ERPNextClient {
       // Add middle name if provided
       if (userData.middle_name?.trim()) {
         userPayload.middle_name = userData.middle_name.trim();
+      }
+
+      // Add mobile number if provided
+      if (userData.phone?.trim()) {
+        userPayload.mobile_no = userData.phone.trim();
       }
 
       const response = await this.client.post(`${API_VERSION}/User`, userPayload);
@@ -524,9 +579,9 @@ class ERPNextClient {
         try {
           const response = await this.client.get(`${API_VERSION}/User`, {
             params: {
-              fields: JSON.stringify(['name', 'email', 'mobile_no']),
+              fields: JSON.stringify(['name', 'email', 'phone']),
               filters: JSON.stringify([
-                ['mobile_no', '=', phoneVariant]
+                ['phone', '=', phoneVariant]
               ]),
               limit_page_length: 1,
             },
@@ -546,9 +601,9 @@ class ERPNextClient {
         const last9Digits = normalizedPhone.slice(-9);
         const searchResponse = await this.client.get(`${API_VERSION}/User`, {
           params: {
-            fields: JSON.stringify(['name', 'email', 'mobile_no']),
+            fields: JSON.stringify(['name', 'email', 'phone']),
             filters: JSON.stringify([
-              ['mobile_no', 'like', `%${last9Digits}%`]
+              ['phone', 'like', `%${last9Digits}%`]
             ]),
             limit_page_length: 1,
           },
@@ -576,7 +631,7 @@ class ERPNextClient {
     try {
       const response = await this.client.get(`${API_VERSION}/User`, {
         params: {
-          fields: JSON.stringify(['name', 'email', 'full_name', 'first_name', 'last_name', 'middle_name', 'mobile_no']),
+          fields: JSON.stringify(['name', 'email', 'full_name', 'first_name', 'last_name', 'middle_name', 'phone', 'location']),
           filters: JSON.stringify([
             ['email', '=', email]
           ]),
@@ -591,7 +646,7 @@ class ERPNextClient {
           try {
             const fullUser = await this.client.get(`${API_VERSION}/User/${user.name}`);
             if (fullUser.data.data) {
-              return { ...user, image: fullUser.data.data.image };
+              return { ...user, image: fullUser.data.data.image, location: fullUser.data.data.location };
             }
           } catch (error) {
             // If fetching full document fails, return user without image
@@ -606,6 +661,36 @@ class ERPNextClient {
       if ((error as any)?.response?.status === 404 || (error as any)?.response?.status === 417) {
         return null;
       }
+      throw this.handleError(error);
+    }
+  }
+
+  async updateUser(userEmail: string, userData: { phone?: string; location?: string }): Promise<any> {
+    try {
+      // Use session client for user-specific operations
+      const sessionClient = this.getSessionClient();
+      
+      // First, get the user by email to get their name (ID)
+      const user = await this.getUserByEmail(userEmail);
+      if (!user || !user.name) {
+        throw new Error('User not found');
+      }
+
+      // Update the user document
+      const updateData: any = {};
+      if (userData.phone !== undefined) {
+        updateData.phone = userData.phone;
+      }
+      if (userData.location !== undefined) {
+        updateData.location = userData.location;
+      }
+
+      const response = await sessionClient.put(`${API_VERSION}/User/${user.name}`, updateData);
+      
+      console.log('User updated successfully:', response.data);
+      return response.data.data || response.data;
+    } catch (error) {
+      console.error('Error updating user:', error);
       throw this.handleError(error);
     }
   }
@@ -648,7 +733,11 @@ class ERPNextClient {
   }
 
   // ITEMS/PRODUCTS - Website Item based (Primary for marketplace)
-  async getWebsiteItems(filters?: any, limit: number = 20, offset: number = 0): Promise<any[]> {
+  async getWebsiteItems(filters?: any, limit: number = 20, offset: number = 0, orderBy?: string, sortByPrice?: 'asc' | 'desc'): Promise<any[]> {
+    // If price sorting is requested, use server-side sorting
+    if (sortByPrice) {
+      return this.getWebsiteItemsSortedByPrice(filters, limit, offset, sortByPrice);
+    }
     try {
       const fields = [
         "name",
@@ -679,7 +768,10 @@ class ERPNextClient {
       const mergedFilters = filters ? [...defaultFilters, ...filters] : defaultFilters;
       
       url += `&filters=${encodeURIComponent(JSON.stringify(mergedFilters))}`;
-      url += `&order_by=ranking%20desc`;
+      
+      // Use provided order_by or default to ranking desc
+      const orderByClause = orderBy || 'ranking desc';
+      url += `&order_by=${encodeURIComponent(orderByClause)}`;
 
       const response = await this.client.get(url);
       const websiteItems = response.data.data;
@@ -923,34 +1015,72 @@ class ERPNextClient {
 
   async searchWebsiteItems(query: string, company?: string): Promise<any[]> {
     try {
-      const filters: any = [['Website Item', 'published', '=', 1]];
-      
-      if (query) {
-        filters.push(['Website Item', 'web_item_name', 'like', `%${query}%`]);
+      if (!query || !query.trim()) {
+        return [];
       }
-      
+
+      const searchTerm = query.trim();
+      const allResults = new Map<string, any>(); // Use Map to avoid duplicates by name
+
+      // Search in web_item_name
+      try {
+        const nameFilters: any = [
+          ['Website Item', 'published', '=', 1],
+          ['Website Item', 'web_item_name', 'like', `%${searchTerm}%`]
+        ];
+        if (company) {
+          nameFilters.push(['Website Item', 'custom_company', '=', company]);
+        }
+        const nameResults = await this.getWebsiteItems(nameFilters, 50, 0);
+        nameResults.forEach((item: any) => {
+          if (item.name) {
+            allResults.set(item.name, item);
+          }
+        });
+      } catch (error) {
+        console.warn('Error searching by web_item_name:', error);
+      }
+
+      // Search in item_code
+      try {
+        const codeFilters: any = [
+          ['Website Item', 'published', '=', 1],
+          ['Website Item', 'item_code', 'like', `%${searchTerm}%`]
+        ];
       if (company) {
-        filters.push(['Website Item', 'custom_company', '=', company]);
+          codeFilters.push(['Website Item', 'custom_company', '=', company]);
+      }
+        const codeResults = await this.getWebsiteItems(codeFilters, 50, 0);
+        codeResults.forEach((item: any) => {
+          if (item.name) {
+            allResults.set(item.name, item);
+          }
+        });
+      } catch (error) {
+        console.warn('Error searching by item_code:', error);
       }
 
-      // Use getWebsiteItems which already handles prices and stock
-      // But we need more fields for search results
-      const fields = [
-        "name", 
-        "web_item_name", 
-        "item_code",
-        "website_image", 
-        "short_description",
-        "website_warehouse",
-        "brand",
-        "item_group",
-        "custom_company"
-      ];
-      let url = `${API_VERSION}/Website Item?fields=${encodeURIComponent(JSON.stringify(fields))}&limit_page_length=50`;
-      url += `&filters=${encodeURIComponent(JSON.stringify(filters))}`;
+      // Search in item_group
+      try {
+        const groupFilters: any = [
+          ['Website Item', 'published', '=', 1],
+          ['Website Item', 'item_group', 'like', `%${searchTerm}%`]
+        ];
+        if (company) {
+          groupFilters.push(['Website Item', 'custom_company', '=', company]);
+        }
+        const groupResults = await this.getWebsiteItems(groupFilters, 50, 0);
+        groupResults.forEach((item: any) => {
+          if (item.name) {
+            allResults.set(item.name, item);
+          }
+        });
+      } catch (error) {
+        console.warn('Error searching by item_group:', error);
+      }
 
-      const response = await this.client.get(url);
-      const websiteItems = response.data.data;
+      // Convert Map to Array
+      const websiteItems = Array.from(allResults.values());
       
       // Fetch prices and stock for search results
       const itemsWithPricesAndStock = await Promise.allSettled(
@@ -1055,9 +1185,15 @@ class ERPNextClient {
   }
 
   // Get latest Website Items (new arrivals) sorted by creation date
-  async getNewArrivals(limit: number = 20): Promise<any[]> {
+  async getNewArrivals(limit: number = 20, sortByPrice?: 'asc' | 'desc'): Promise<any[]> {
     return this.retryRequest(async () => {
-      // Fetch more items than needed, then sort and limit client-side
+      const filters = [['Website Item', 'published', '=', 1]];
+      // If price sorting is requested, use server-side sorting
+      if (sortByPrice) {
+        return this.getWebsiteItemsSortedByPrice(filters, limit, 0, sortByPrice);
+      }
+      
+      // Fetch more items than needed, then sort and limit client-side (for default sorting)
       const fetchLimit = limit * 3;
       
       // Website Item fields for eCommerce
@@ -1083,11 +1219,6 @@ class ERPNextClient {
         'ranking',
         'creation',
         'modified'
-      ];
-      
-      // Filter for published items only
-      const filters = [
-        ['Website Item', 'published', '=', 1]
       ];
       
       let url = `${API_VERSION}/Website Item?fields=${encodeURIComponent(JSON.stringify(fields))}&limit_page_length=${fetchLimit}`;
@@ -1168,11 +1299,149 @@ class ERPNextClient {
     });
   }
 
-  // Get Website Items by group/category
-  async getWebsiteItemsByGroup(groupName: string, limit: number = 50): Promise<any[]> {
+  // Get Website Items by group/category with optional price sorting
+  async getWebsiteItemsByGroup(groupName: string, limit: number = 50, sortByPrice?: 'asc' | 'desc'): Promise<any[]> {
+    // If price sorting is requested, use server-side sorting from ERPNext
+    if (sortByPrice) {
+      return this.getWebsiteItemsSortedByPrice(
+        [['Website Item', 'item_group', '=', groupName]],
+        limit,
+        0,
+        sortByPrice
+      );
+    }
     // Use getWebsiteItems with item_group filter - it already handles prices and stock
     const filters = [['Website Item', 'item_group', '=', groupName]];
     return this.getWebsiteItems(filters, limit, 0);
+  }
+  
+  /**
+   * Get Website Items sorted by price from ERPNext (server-side sorting)
+   * First queries Item Price to get sorted item codes, then fetches Website Items
+   */
+  async getWebsiteItemsSortedByPrice(
+    filters?: any,
+    limit: number = 20,
+    offset: number = 0,
+    sortDirection: 'asc' | 'desc' = 'asc'
+  ): Promise<any[]> {
+    try {
+      // Step 1: Get all Website Items first to get their item_codes
+      // Call getWebsiteItems with sortByPrice=undefined to avoid recursion
+      const allWebsiteItems = await this.getWebsiteItems(filters, 1000, 0, undefined, undefined); // Get more items to sort properly
+      const itemCodes = allWebsiteItems
+        .map((item: any) => item.item_code)
+        .filter((code: string) => code); // Filter out null/undefined
+      
+      if (itemCodes.length === 0) {
+        return [];
+      }
+      
+      // Step 2: Query Item Price sorted by price_list_rate
+      const priceList = this.config.defaultPriceList || 'Standard Selling';
+      const orderBy = sortDirection === 'asc' ? 'price_list_rate asc' : 'price_list_rate desc';
+      
+      // Build filters for Item Price: item_code in list AND price_list matches
+      const priceFilters = [
+        ['Item Price', 'item_code', 'in', itemCodes],
+        ['Item Price', 'price_list', '=', priceList]
+      ];
+      
+      const priceFields = ['item_code', 'price_list_rate', 'price_list'];
+      let priceUrl = `${API_VERSION}/Item Price?fields=${encodeURIComponent(JSON.stringify(priceFields))}`;
+      priceUrl += `&filters=${encodeURIComponent(JSON.stringify(priceFilters))}`;
+      priceUrl += `&order_by=${encodeURIComponent(orderBy)}`;
+      priceUrl += `&limit_page_length=${limit + offset}`; // Get enough to handle offset
+      
+      const priceResponse = await this.client.get(priceUrl);
+      const sortedPrices = priceResponse.data.data || [];
+      
+      // Step 3: Create a map of item_code -> price for quick lookup
+      const priceMap = new Map<string, number>();
+      sortedPrices.forEach((priceItem: any) => {
+        if (priceItem.item_code && priceItem.price_list_rate) {
+          // Keep the first (best) price for each item_code
+          if (!priceMap.has(priceItem.item_code)) {
+            priceMap.set(priceItem.item_code, priceItem.price_list_rate);
+          }
+        }
+      });
+      
+      // Step 4: Get sorted item codes (in price order)
+      const sortedItemCodes = sortedPrices
+        .map((priceItem: any) => priceItem.item_code)
+        .filter((code: string) => code)
+        .slice(offset, offset + limit); // Apply offset and limit
+      
+      // Step 5: Fetch Website Items for the sorted item codes
+      // We need to fetch them in the sorted order
+      const websiteItemMap = new Map<string, any>();
+      allWebsiteItems.forEach((item: any) => {
+        if (item.item_code) {
+          websiteItemMap.set(item.item_code, item);
+        }
+      });
+      
+      // Step 6: Build result array in price-sorted order
+      const sortedWebsiteItems = sortedItemCodes
+        .map((itemCode: string) => websiteItemMap.get(itemCode))
+        .filter((item: any) => item); // Remove any missing items
+      
+      // Step 7: Add prices and stock (prices already in map, just attach them)
+      const itemsWithPricesAndStock = await Promise.allSettled(
+        sortedWebsiteItems.map(async (item: any) => {
+          // Use price from priceMap if available
+          const price = priceMap.get(item.item_code);
+          if (price && price > 0) {
+            item.price_list_rate = price;
+          } else {
+            // Fallback to fetching price individually
+            try {
+              const fetchedPrice = await this.getItemPrice(item.item_code);
+              if (fetchedPrice > 0) {
+                item.price_list_rate = fetchedPrice;
+              }
+            } catch (error) {
+              console.warn(`Failed to fetch price for ${item.item_code}:`, error);
+            }
+          }
+          
+          // Fetch stock
+          if (item.website_warehouse && item.item_code) {
+            try {
+              const stockData = await this.getWarehouseStock(
+                item.website_warehouse,
+                item.item_code
+              );
+              
+              if (stockData && Array.isArray(stockData) && stockData.length > 0) {
+                const totalStock = stockData.reduce((sum: number, bin: any) => {
+                  const available = (bin.actual_qty || 0) - (bin.reserved_qty || 0);
+                  return sum + available;
+                }, 0);
+                item.available_stock = Math.max(0, totalStock);
+              } else {
+                item.available_stock = 0;
+              }
+            } catch (error) {
+              console.warn(`Failed to fetch stock for ${item.item_code}:`, error);
+              item.available_stock = 0;
+            }
+          } else {
+            item.available_stock = 0;
+          }
+          
+          return item;
+        })
+      );
+      
+      // Extract successful results
+      return itemsWithPricesAndStock
+        .filter((result): result is PromiseFulfilledResult<any> => result.status === 'fulfilled')
+        .map(result => result.value);
+    } catch (error) {
+      throw this.handleError(error);
+    }
   }
 
   // Legacy method - kept for backward compatibility
@@ -1720,9 +1989,40 @@ class ERPNextClient {
         }
       }
       
-      if (fullRules.length > 0) {
-        console.log('💰 PRICING RULES AVAILABLE:', fullRules.length);
-        fullRules.forEach((rule: any) => {
+      // Filter out expired rules
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      const activeRules = fullRules.filter((rule: any) => {
+        // Check if disabled
+        if (rule.disable === 1) {
+          return false;
+        }
+        
+        // Check valid_from date
+        if (rule.valid_from) {
+          const validFrom = new Date(rule.valid_from);
+          validFrom.setHours(0, 0, 0, 0);
+          if (today < validFrom) {
+            return false; // Rule hasn't started yet
+          }
+        }
+        
+        // Check valid_upto date
+        if (rule.valid_upto) {
+          const validUpto = new Date(rule.valid_upto);
+          validUpto.setHours(23, 59, 59, 999);
+          if (today > validUpto) {
+            return false; // Rule has expired
+          }
+        }
+        
+        return true; // Rule is active
+      });
+      
+      if (activeRules.length > 0) {
+        console.log('💰 PRICING RULES AVAILABLE:', activeRules.length);
+        activeRules.forEach((rule: any) => {
           console.log(`\n📌 ${rule.name}: ${rule.discount_percentage}% discount`);
           console.log(`   Apply On: ${rule.apply_on}, Valid: ${rule.valid_from} to ${rule.valid_upto || 'No Expiry'}`);
           
@@ -1743,7 +2043,13 @@ class ERPNextClient {
         });
       }
       
-      return fullRules;
+      // Log if any rules were filtered out
+      const expiredCount = fullRules.length - activeRules.length;
+      if (expiredCount > 0) {
+        console.log(`⚠️  Filtered out ${expiredCount} expired or inactive pricing rule(s)`);
+      }
+      
+      return activeRules;
     } catch (error) {
       console.warn('Error fetching pricing rules:', error);
       return [];
@@ -2508,9 +2814,140 @@ class ERPNextClient {
       return false;
     }
   }
+
+  /**
+   * Get random Product Bundles with their child table items
+   * Returns bundles with their component items
+   */
+  async getProductBundles(limit: number = 10): Promise<Array<{
+    bundleName: string;
+    newItemCode: string;
+    customCustomer?: string;
+    items: Array<{
+      itemCode: string;
+      itemName?: string;
+      image?: string | null;
+    }>;
+  }>> {
+    try {
+      // Fetch all Product Bundles
+      const listResponse = await this.client.get(`${API_VERSION}/Product Bundle?limit_page_length=500`);
+      const bundleNames = (listResponse.data.data || [])
+        .map((bundle: any) => bundle.name)
+        .filter((name: string) => name);
+
+      // Shuffle and get random bundles
+      const shuffled = bundleNames.sort(() => 0.5 - Math.random());
+      const selectedBundles = shuffled.slice(0, limit);
+
+      const bundlesWithItems: Array<{
+        bundleName: string;
+        newItemCode: string;
+        customCustomer?: string;
+        items: Array<{
+          itemCode: string;
+          itemName?: string;
+          image?: string | null;
+        }>;
+      }> = [];
+
+      // Fetch each bundle with its child table
+      for (const bundleName of selectedBundles) {
+        try {
+          const bundleResponse = await this.client.get(
+            `${API_VERSION}/Product Bundle/${bundleName}?fields=["*"]`
+          );
+          
+          if (bundleResponse.data.data) {
+            const bundle = bundleResponse.data.data;
+            const newItemCode = bundle.new_item_code;
+            
+            // Find child table - try common names
+            const childTableNames = [
+              'items',
+              'product_bundle_item',
+              'product_bundle_items',
+              'bundle_items',
+              'bundle_item'
+            ];
+            
+            let childTable: any[] = [];
+            for (const tableName of childTableNames) {
+              if (bundle[tableName] && Array.isArray(bundle[tableName])) {
+                childTable = bundle[tableName];
+                break;
+              }
+            }
+            
+            // If no standard name found, look for any array property
+            if (childTable.length === 0) {
+              for (const key in bundle) {
+                if (Array.isArray(bundle[key]) && bundle[key].length > 0) {
+                  const firstItem = bundle[key][0];
+                  if (firstItem && typeof firstItem === 'object' && firstItem.item_code) {
+                    childTable = bundle[key];
+                    break;
+                  }
+                }
+              }
+            }
+            
+            // Extract items from child table
+            const items = childTable
+              .map((row: any) => ({
+                itemCode: row.item_code || row.item,
+                itemName: row.item_name,
+              }))
+              .filter((item: any) => item.itemCode);
+            
+            if (items.length > 0) {
+              bundlesWithItems.push({
+                bundleName: bundle.name || bundleName,
+                newItemCode: newItemCode || '',
+                customCustomer: bundle.custom_customer || bundle.customCustomer || undefined,
+                items: items,
+              });
+            }
+          }
+        } catch (error) {
+          console.warn(`Could not fetch Product Bundle ${bundleName}:`, error);
+        }
+      }
+
+      // Fetch images for items
+      for (const bundle of bundlesWithItems) {
+        for (const item of bundle.items) {
+          try {
+            // Try to get Website Item to get the image
+            const filters = [['Website Item', 'item_code', '=', item.itemCode]];
+            const websiteItems = await this.getWebsiteItems(filters, 1);
+            if (websiteItems.length > 0) {
+              item.image = websiteItems[0].website_image || websiteItems[0].thumbnail || null;
+              item.itemName = websiteItems[0].item_name || websiteItems[0].web_item_name || item.itemName;
+            }
+          } catch (error) {
+            // If Website Item not found, try Item doctype
+            try {
+              const itemResponse = await this.client.get(`${API_VERSION}/Item/${item.itemCode}`);
+              if (itemResponse.data.data) {
+                item.image = itemResponse.data.data.image || null;
+                item.itemName = itemResponse.data.data.item_name || item.itemName;
+              }
+            } catch (itemError) {
+              // Item not found, keep image as null
+            }
+          }
+        }
+      }
+
+      return bundlesWithItems;
+    } catch (error) {
+      console.error('Error fetching Product Bundles:', error);
+      return [];
+    }
+  }
 }
 
-// Singleton instance
 let erpNextClient: ERPNextClient | null = null;
 
 export const initializeERPNext = (config: ERPNextConfig): ERPNextClient => {

@@ -11,6 +11,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
+import { RootStackParamList } from '../types';
+import type { NavigationProp } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../constants/colors';
 import { Spacing } from '../constants/spacing';
@@ -19,6 +21,7 @@ import { ProductCard } from '../components/ProductCard';
 import { LoadingScreen } from '../components/LoadingScreen';
 import { Header } from '../components/Header';
 import { Toast } from '../components/Toast';
+import { PriceFilter, SortOption } from '../components/PriceFilter';
 import { useNewArrivals, usePricingRules, useWishlistActions, useWishlist, useCartActions } from '../hooks/erpnext';
 import { useUserSession } from '../context/UserContext';
 import { getProductDiscount } from '../utils/pricingRules';
@@ -37,16 +40,35 @@ const mapCategoryToItemGroup = (category: string): string | null => {
 };
 
 export const NewScreen: React.FC = () => {
-  const navigation = useNavigation();
+  const navigation = useNavigation<NavigationProp<RootStackParamList>>();
   const { user } = useUserSession();
   const { wishlistItems, refresh: refreshWishlist } = useWishlist(user?.email || null);
   const { toggleWishlist } = useWishlistActions(refreshWishlist);
   const { addToCart: addItemToCart } = useCartActions();
   const [selectedCategory, setSelectedCategory] = useState('All');
 
+  // Handle category selection - navigate to CategoryProductsScreen if not "All"
+  const handleCategorySelect = useCallback((category: string) => {
+    if (category === 'All') {
+      setSelectedCategory('All');
+    } else {
+      // Navigate to CategoryProductsScreen with the selected category
+      const itemGroupName = mapCategoryToItemGroup(category);
+      if (itemGroupName) {
+        // For top-level categories from NewScreen, parentName is empty
+        // This will show sibling categories that also have no parent
+        navigation.navigate('CategoryProducts', {
+          categoryName: itemGroupName,
+          parentName: '', // Top-level categories have no parent
+        });
+      }
+    }
+  }, [navigation]);
+
   // Toast state
   const [toastVisible, setToastVisible] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
+  const [sortOption, setSortOption] = useState<SortOption>('default');
   
   // Map category to item group name
   const itemGroupName = mapCategoryToItemGroup(selectedCategory);
@@ -88,7 +110,9 @@ export const NewScreen: React.FC = () => {
   }, [wishlistItems, pendingOperations.size]);
   
   // Always fetch all new arrivals, then filter by category client-side
-  const { data: allNewArrivals, loading: newArrivalsLoading, refresh: refreshNewArrivals } = useNewArrivals(100);
+  // Convert sortOption to server-side sorting parameter
+  const sortByPrice = sortOption === 'lowToHigh' ? 'asc' : sortOption === 'highToLow' ? 'desc' : undefined;
+  const { data: allNewArrivals, loading: newArrivalsLoading, refresh: refreshNewArrivals } = useNewArrivals(100, sortByPrice);
   
   // Pull-to-refresh state
   const [refreshing, setRefreshing] = useState(false);
@@ -112,24 +136,27 @@ export const NewScreen: React.FC = () => {
   const isInitialLoading = (!allNewArrivals && newArrivalsLoading) && 
     (!pricingRules || pricingRules.length === 0);
   
-  // Filter new arrivals by selected category
+  // Filter new arrivals by selected category and sort
   const displayArrivals = useMemo(() => {
     if (!allNewArrivals || allNewArrivals.length === 0) {
       return [];
     }
     
-    // If "All" is selected, return all new arrivals
-    if (selectedCategory === 'All') {
-      return allNewArrivals;
+    // If "All" is selected, use all new arrivals
+    let filtered = allNewArrivals;
+    if (selectedCategory !== 'All') {
+    
+      // Filter by category/item_group
+      // Check both item_group and category fields to match
+      filtered = allNewArrivals.filter((product: any) => {
+        const productCategory = product.category || product.itemGroup || '';
+        // Case-insensitive comparison
+        return productCategory.toLowerCase() === itemGroupName?.toLowerCase();
+      });
     }
     
-    // Filter by category/item_group
-    // Check both item_group and category fields to match
-    return allNewArrivals.filter((product: any) => {
-      const productCategory = product.category || product.itemGroup || '';
-      // Case-insensitive comparison
-      return productCategory.toLowerCase() === itemGroupName?.toLowerCase();
-    });
+    // No client-side sorting needed - server-side sorting is already applied
+    return filtered;
   }, [selectedCategory, allNewArrivals, itemGroupName]);
   
   const isLoading = newArrivalsLoading;
@@ -277,7 +304,7 @@ export const NewScreen: React.FC = () => {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['bottom', 'left', 'right']}>
       <Toast
         message={toastMessage}
         type="success"
@@ -287,8 +314,11 @@ export const NewScreen: React.FC = () => {
       <Header />
       <CategoryTabs 
         selectedCategory={selectedCategory}
-        onSelectCategory={setSelectedCategory}
+        onSelectCategory={handleCategorySelect}
       />
+      <View style={styles.filterContainer}>
+        <PriceFilter onSortChange={setSortOption} currentSort={sortOption} />
+      </View>
       {renderProducts()}
     </SafeAreaView>
   );
@@ -330,5 +360,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: Colors.TEXT_SECONDARY,
     textAlign: 'center',
+  },
+  filterContainer: {
+    paddingHorizontal: Spacing.PADDING_MD,
+    paddingVertical: Spacing.PADDING_SM,
+    backgroundColor: Colors.WHITE,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.BORDER,
   },
 });

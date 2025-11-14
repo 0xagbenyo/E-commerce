@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   Dimensions,
   Image,
   RefreshControl,
+  Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -20,11 +21,100 @@ import { useUserSession } from '../context/UserContext';
 import { LoadingScreen } from '../components/LoadingScreen';
 import { ProductCard } from '../components/ProductCard';
 import { Header } from '../components/Header';
+import { SortOption } from '../components/PriceFilter';
 import { getProductDiscount } from '../utils/pricingRules';
 import { getERPNextClient } from '../services/erpnext';
 import { mapERPWebsiteItemToProduct } from '../services/mappers';
 
 const { width } = Dimensions.get('window');
+
+// Animated Category Item Component
+const AnimatedCategoryItem: React.FC<{
+  category: any;
+  image: string | undefined;
+  categoryName: string;
+  index: number;
+  onPress: () => void;
+}> = ({ category, image, categoryName, index, onPress }) => {
+  const scaleAnim = useRef(new Animated.Value(0)).current;
+  const shakeAnim = useRef(new Animated.Value(0)).current;
+  
+  useEffect(() => {
+    Animated.spring(scaleAnim, {
+      toValue: 1,
+      delay: index * 50,
+      useNativeDriver: true,
+      tension: 50,
+      friction: 7,
+    }).start();
+    
+    // Continuous shake animation
+    const createShakeAnimation = () => {
+      return Animated.sequence([
+        Animated.timing(shakeAnim, {
+          toValue: 2,
+          duration: 100,
+          useNativeDriver: true,
+        }),
+        Animated.timing(shakeAnim, {
+          toValue: -2,
+          duration: 100,
+          useNativeDriver: true,
+        }),
+      ]);
+    };
+    
+    const startContinuousShake = () => {
+      createShakeAnimation().start(() => {
+        startContinuousShake();
+      });
+    };
+    
+    startContinuousShake();
+  }, []);
+  
+  return (
+    <Animated.View
+            style={[
+        styles.childCategoryItem,
+        {
+          transform: [
+            { scale: scaleAnim },
+            { translateX: shakeAnim },
+          ],
+          opacity: scaleAnim,
+        },
+      ]}
+    >
+      <TouchableOpacity
+        style={{ alignItems: 'center' }}
+        onPress={onPress}
+      >
+        {image ? (
+          <View style={styles.childCategoryCircle}>
+            <Image
+              source={{ uri: image }}
+              style={styles.childCategoryImage}
+              resizeMode="cover"
+              onError={(error) => {
+                console.warn(`Failed to load image for category ${category.name}:`, image, error);
+              }}
+            />
+          </View>
+        ) : (
+          <View style={styles.childCategoryCircle}>
+            <Ionicons name="image" size={18} color={Colors.TEXT_SECONDARY} />
+          </View>
+        )}
+        {categoryName ? (
+          <Text style={styles.childCategoryName} numberOfLines={2}>
+            {categoryName}
+            </Text>
+        ) : null}
+          </TouchableOpacity>
+    </Animated.View>
+  );
+};
 
 export const CategoriesScreen: React.FC = () => {
   const navigation = useNavigation();
@@ -41,6 +131,7 @@ export const CategoriesScreen: React.FC = () => {
   const [childCategories, setChildCategories] = useState<any[]>([]);
   const [loadingChildren, setLoadingChildren] = useState(false);
   const [childImages, setChildImages] = useState<Record<string, string>>({});
+  const [sortOption, setSortOption] = useState<SortOption>('default');
   
   // Optimistic state for immediate UI updates
   const [optimisticWishlist, setOptimisticWishlist] = useState<Set<string>>(new Set());
@@ -96,7 +187,7 @@ export const CategoriesScreen: React.FC = () => {
         fetchChildCategories(firstParent.name);
       }
     }
-  }, [parentCategories]);
+  }, [parentCategories, sortOption]); // Include sortOption to refetch when sorting changes
 
   const fetchChildCategories = async (parentName: string) => {
     setLoadingChildren(true);
@@ -124,11 +215,13 @@ export const CategoriesScreen: React.FC = () => {
       setChildCategories(children);
 
       // Fetch product images for each child category (get multiple products and pick one randomly)
+      // Convert sortOption to server-side sorting parameter for image fetching
+      const sortByPrice = sortOption === 'lowToHigh' ? 'asc' : sortOption === 'highToLow' ? 'desc' : undefined;
       const images: Record<string, string> = {};
       for (const child of children) {
         try {
-          // Fetch multiple products (up to 20) to get a better selection
-          const websiteItems = await client.getWebsiteItemsByGroup(child.name, 20);
+          // Fetch multiple products (up to 20) to get a better selection, with optional price sorting
+          const websiteItems = await client.getWebsiteItemsByGroup(child.name, 20, sortByPrice);
           if (websiteItems && websiteItems.length > 0) {
             // Map all products
             const products = websiteItems.map((item: any) => mapERPWebsiteItemToProduct(item));
@@ -177,7 +270,7 @@ export const CategoriesScreen: React.FC = () => {
   const handleCategorySelect = useCallback((categoryName: string) => {
     setSelectedCategory(categoryName);
     fetchChildCategories(categoryName);
-  }, []);
+  }, [sortOption]); // Include sortOption to refetch when sorting changes
   
   // Handle pull-to-refresh
   const onRefresh = useCallback(async () => {
@@ -206,33 +299,33 @@ export const CategoriesScreen: React.FC = () => {
     ) || [];
 
     return (
-      <View style={styles.sidebar}>
-        <View style={styles.sidebarHeader}>
-          <View style={styles.sidebarIndicator} />
-          <Text style={styles.sidebarTitle}>Just for You</Text>
-        </View>
+    <View style={styles.sidebar}>
+      <View style={styles.sidebarHeader}>
+        <View style={styles.sidebarIndicator} />
+        <Text style={styles.sidebarTitle}>Just for You</Text>
+      </View>
         {categoriesLoading ? null : (
-          <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView showsVerticalScrollIndicator={false}>
             {parentOnly && parentOnly.length > 0 ? (
               parentOnly.map((category) => {
                 const categoryName = category.name || category.item_group_name || '';
                 if (!categoryName) return null;
                 return (
-                  <TouchableOpacity
+          <TouchableOpacity
                     key={category.name || category.item_group_name}
-                    style={[
-                      styles.sidebarItem,
+            style={[
+              styles.sidebarItem,
                       selectedCategory === category.name && styles.sidebarItemActive
-                    ]}
+            ]}
                     onPress={() => handleCategorySelect(category.name)}
-                  >
-                    <Text style={[
-                      styles.sidebarItemText,
+          >
+            <Text style={[
+              styles.sidebarItemText,
                       selectedCategory === category.name && styles.sidebarItemTextActive
-                    ]}>
+            ]}>
                       {categoryName}
-                    </Text>
-                  </TouchableOpacity>
+            </Text>
+          </TouchableOpacity>
                 );
               })
             ) : (
@@ -240,10 +333,10 @@ export const CategoriesScreen: React.FC = () => {
                 <Text style={styles.emptyText}>No categories available</Text>
               </View>
             )}
-          </ScrollView>
+      </ScrollView>
         )}
-      </View>
-    );
+    </View>
+  );
   };
 
   const renderProductGrid = (products: any[], title: string, showTrendsLogo = false) => (
@@ -366,39 +459,21 @@ export const CategoriesScreen: React.FC = () => {
           {childCategories.map((category: any, index: number) => {
             const image = childImages[category.name];
             const categoryName = category.item_group_name || category.name || 'Category';
+            
             return (
-              <TouchableOpacity
+              <AnimatedCategoryItem
                 key={category.name || category.item_group_name || `category-${index}`}
-                style={styles.childCategoryItem}
+                category={category}
+                image={image}
+                categoryName={categoryName}
+                index={index}
                 onPress={() => {
                   (navigation as any).navigate('CategoryProducts', {
                     categoryName: category.name,
                     parentName: selectedCategory,
                   });
                 }}
-              >
-                {image ? (
-                  <View style={styles.childCategoryCircle}>
-                    <Image
-                      source={{ uri: image }}
-                      style={styles.childCategoryImage}
-                      resizeMode="cover"
-                      onError={(error) => {
-                        console.warn(`Failed to load image for category ${category.name}:`, image, error);
-                      }}
-                    />
-                  </View>
-                ) : (
-                  <View style={styles.childCategoryCircle}>
-                    <Ionicons name="image" size={24} color={Colors.TEXT_SECONDARY} />
-                  </View>
-                )}
-                {categoryName ? (
-                  <Text style={styles.childCategoryName} numberOfLines={2}>
-                    {categoryName}
-                  </Text>
-                ) : null}
-              </TouchableOpacity>
+              />
             );
           })}
         </View>
@@ -418,7 +493,7 @@ export const CategoriesScreen: React.FC = () => {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['bottom', 'left', 'right']}>
       <Header />
       <View style={styles.content}>
         {renderSidebar()}
@@ -578,18 +653,18 @@ const styles = StyleSheet.create({
   },
   childCategoryItem: {
     alignItems: 'center',
-    marginBottom: 24,
+    marginBottom: 16,
     width: '25%',
     paddingHorizontal: 4,
   },
   childCategoryCircle: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: Colors.LIGHT_GRAY,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 6,
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: Colors.BORDER,
@@ -600,10 +675,10 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.LIGHT_GRAY,
   },
   childCategoryEmoji: {
-    fontSize: 36,
+    fontSize: 28,
   },
   childCategoryName: {
-    fontSize: 12,
+    fontSize: 10,
     color: Colors.TEXT_SECONDARY,
     textAlign: 'center',
     fontWeight: '500',
@@ -626,6 +701,13 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     justifyContent: 'space-between',
     paddingHorizontal: 8,
+  },
+  filterContainer: {
+    paddingHorizontal: Spacing.PADDING_MD,
+    paddingVertical: Spacing.PADDING_SM,
+    backgroundColor: Colors.WHITE,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.BORDER,
   },
 });
 

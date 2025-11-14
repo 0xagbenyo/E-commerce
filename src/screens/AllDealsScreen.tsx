@@ -15,6 +15,7 @@ import { Colors } from '../constants/colors';
 import { Spacing } from '../constants/spacing';
 import { Typography } from '../constants/typography';
 import { ProductCard } from '../components/ProductCard';
+import { PriceFilter, SortOption } from '../components/PriceFilter';
 import { Product } from '../types';
 
 const { width } = Dimensions.get('window');
@@ -26,8 +27,10 @@ interface RouteParams {
 export const AllDealsScreen: React.FC = () => {
   const route = useRoute();
   const navigation = useNavigation();
-  const { deals = [] } = (route.params as RouteParams) || {};
+  const routeParams = (route.params as RouteParams) || {};
+  const deals = Array.isArray(routeParams.deals) ? routeParams.deals : [];
   const [refreshing, setRefreshing] = useState(false);
+  const [sortOption, setSortOption] = useState<SortOption>('default');
   
   // Handle pull-to-refresh
   const onRefresh = useCallback(async () => {
@@ -39,10 +42,22 @@ export const AllDealsScreen: React.FC = () => {
     }, 1000);
   }, []);
 
-  // Sort deals by discount percentage (highest first)
+  // Sort deals by price or discount
   const sortedDeals = useMemo(() => {
-    return [...deals].sort((a: any, b: any) => (b.discount || 0) - (a.discount || 0));
-  }, [deals]);
+    if (!Array.isArray(deals) || deals.length === 0) {
+      return [];
+    }
+    const sorted = [...deals];
+    switch (sortOption) {
+      case 'lowToHigh':
+        return sorted.sort((a: any, b: any) => (a.price || 0) - (b.price || 0));
+      case 'highToLow':
+        return sorted.sort((a: any, b: any) => (b.price || 0) - (a.price || 0));
+      default:
+        // Default: sort by discount percentage (highest first)
+        return sorted.sort((a: any, b: any) => (b.discount || 0) - (a.discount || 0));
+    }
+  }, [deals, sortOption]);
 
   const handleBack = () => {
     navigation.goBack();
@@ -59,52 +74,65 @@ export const AllDealsScreen: React.FC = () => {
   );
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['bottom', 'left', 'right']}>
       {renderHeader()}
-      <FlatList
-        data={sortedDeals}
-        numColumns={2}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.gridContainer}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={Colors.SHEIN_PINK}
-            colors={[Colors.SHEIN_PINK]}
-          />
-        }
-        renderItem={({ item, index }) => {
-          const isLeftColumn = index % 2 === 0;
-          const row = Math.floor(index / 2);
-          const patterns = [
-            ['tall', 'short'],
-            ['medium', 'tall'],
-            ['short', 'medium'],
-          ];
-          const patternIndex = row % patterns.length;
-          const variant = (isLeftColumn
-            ? patterns[patternIndex][0]
-            : patterns[patternIndex][1]
-          ) as 'tall' | 'medium' | 'short';
-
-          return (
-            <ProductCard
-              product={item}
-              onPress={(productId) => {
-                (navigation as any).navigate('ProductDetails', { productId });
-              }}
-              onWishlistPress={(productId) => {
-                console.log('Toggle wishlist for:', productId);
-              }}
-              style={styles.productCard}
-              variant={variant}
-              pricingDiscount={(item as any).discount}
+      <View style={styles.filterContainer}>
+        <PriceFilter onSortChange={setSortOption} currentSort={sortOption} />
+      </View>
+      {!Array.isArray(sortedDeals) || sortedDeals.length === 0 ? (
+        <View style={styles.emptyContainer}>
+          <Ionicons name="pricetag-outline" size={48} color={Colors.TEXT_SECONDARY} />
+          <Text style={styles.emptyText}>No deals available</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={sortedDeals}
+          numColumns={2}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.gridContainer}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={Colors.SHEIN_PINK}
+              colors={[Colors.SHEIN_PINK]}
             />
-          );
-        }}
-        keyExtractor={(item) => item.id}
-      />
+          }
+          renderItem={({ item, index }) => {
+            if (!item || !item.id) {
+              return null;
+            }
+            const isLeftColumn = index % 2 === 0;
+            const row = Math.floor(index / 2);
+            const patterns = [
+              ['tall', 'short'],
+              ['medium', 'tall'],
+              ['short', 'medium'],
+            ];
+            const patternIndex = row % patterns.length;
+            const variant = (isLeftColumn
+              ? patterns[patternIndex][0]
+              : patterns[patternIndex][1]
+            ) as 'tall' | 'medium' | 'short';
+
+            return (
+              <ProductCard
+                product={item}
+                onPress={(productId) => {
+                  (navigation as any).navigate('ProductDetails', { productId });
+                }}
+                onWishlistPress={(productId) => {
+                  console.log('Toggle wishlist for:', productId);
+                }}
+                style={styles.productCard}
+                variant={variant}
+                pricingDiscount={(item as any).discount}
+              />
+            );
+          }}
+          keyExtractor={(item, index) => item?.id || `deal-${index}`}
+        />
+      )}
     </SafeAreaView>
   );
 };
@@ -136,6 +164,10 @@ const styles = StyleSheet.create({
     flex: 1,
     textAlign: 'center',
   },
+  filterContainer: {
+    paddingHorizontal: Spacing.PADDING_MD,
+    paddingVertical: Spacing.PADDING_SM,
+  },
   gridContainer: {
     paddingHorizontal: Spacing.PADDING_SM,
     paddingVertical: Spacing.PADDING_MD,
@@ -144,6 +176,18 @@ const styles = StyleSheet.create({
   productCard: {
     width: '48%',
     marginBottom: Spacing.MARGIN_SM,
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 100,
+  },
+  emptyText: {
+    fontSize: Typography.FONT_SIZE_MD,
+    color: Colors.TEXT_SECONDARY,
+    marginTop: Spacing.MARGIN_MD,
+    fontWeight: Typography.FONT_WEIGHT_SEMIBOLD,
   },
 });
 

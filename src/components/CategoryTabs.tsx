@@ -81,7 +81,7 @@ export const CategoryTabs: React.FC<CategoryTabsProps> = ({
             onPress={handleMenuPress}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
-            <Ionicons name="menu" size={24} color={isRedVariant ? Colors.WHITE : Colors.BLACK} />
+            <Ionicons name="menu" size={24} color={Colors.BLACK} />
           </TouchableOpacity>
         </View>
       )}
@@ -91,35 +91,32 @@ export const CategoryTabs: React.FC<CategoryTabsProps> = ({
 
 const styles = StyleSheet.create({
   container: {
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.LIGHT_GRAY,
-    backgroundColor: Colors.WHITE,
+    backgroundColor: '#DC143C',
     flexDirection: 'row',
     alignItems: 'center',
   },
   containerRed: {
-    backgroundColor: Colors.FLASH_SALE_RED,
-    borderBottomWidth: 0,
+    backgroundColor: '#DC143C',
   },
   scrollView: {
     flex: 1,
   },
   scrollContent: {
     paddingHorizontal: Spacing.PADDING_MD,
-    paddingVertical: Spacing.PADDING_SM,
-    gap: Spacing.MARGIN_SM,
+    paddingVertical: Spacing.PADDING_XS,
+    gap: Spacing.MARGIN_XS,
   },
   tab: {
-    paddingHorizontal: Spacing.PADDING_MD,
-    paddingVertical: Spacing.PADDING_SM,
-    borderRadius: 20,
+    paddingHorizontal: Spacing.PADDING_SM,
+    paddingVertical: Spacing.PADDING_XS,
+    borderRadius: 16,
     backgroundColor: Colors.LIGHT_GRAY,
     marginRight: Spacing.MARGIN_XS,
   },
   tabRed: {
     backgroundColor: 'transparent',
     borderRadius: 0,
-    paddingBottom: Spacing.PADDING_SM,
+    paddingBottom: Spacing.PADDING_XS,
   },
   tabActive: {
     backgroundColor: Colors.SHEIN_PINK,
@@ -130,18 +127,18 @@ const styles = StyleSheet.create({
     borderBottomColor: Colors.WHITE,
   },
   tabText: {
-    fontSize: Typography.FONT_SIZE_SM,
+    fontSize: Typography.FONT_SIZE_XS,
     color: Colors.DARK_GRAY,
     fontWeight: '500',
   },
   tabTextRed: {
-    color: Colors.WHITE,
+    color: Colors.BLACK,
   },
   tabTextActive: {
     color: Colors.WHITE,
   },
   tabTextActiveRed: {
-    color: Colors.WHITE,
+    color: Colors.BLACK,
     fontWeight: '600',
   },
   menuIconContainer: {

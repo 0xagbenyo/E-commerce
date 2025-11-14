@@ -1,150 +1,125 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
-  TouchableOpacity,
   FlatList,
-  Dimensions,
+  ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useRoute } from '@react-navigation/native';
 import { Colors } from '../constants/colors';
-
-const { width } = Dimensions.get('window');
-
-// Mock data for Trends sections
-const twoPieceSet = [
-  { id: '1', name: 'Blue Floral Set', price: 'GH₵45.00', image: '👗', discount: '-30%' },
-];
-
-const kidsItems = [
-  { id: '1', name: 'Dreamy T-Shirt Set', price: 'GH₵11.80', image: '👕' },
-  { id: '2', name: 'Souflis Sportswear', price: 'GH₵11.90', image: '🏃‍♀️' },
-  { id: '3', name: 'Elladie Kids Dress', price: 'GH₵9.30', image: '👗' },
-  { id: '4', name: 'Playful Pattern Set', price: 'GH₵10.60', image: '👚' },
-];
-
-const sheinSxyCurve = [
-  { id: '1', name: 'One Shoulder Top', price: 'GH₵11.00', image: '👚' },
-  { id: '2', name: 'Denim Look Dress', price: 'GH₵31.68', image: '👗' },
-  { id: '3', name: 'Denim Crop Top Set', price: 'GH₵17.00', image: '👕' },
-  { id: '4', name: 'Denim Maxi Dress', price: 'GH₵29.00', image: '👗' },
-];
-
-const vibekara = [
-  { id: '1', name: 'Pink Floral Dress', price: 'GH₵21.00', image: '👗' },
-  { id: '2', name: 'Textured Midi Dress', price: 'GH₵24.30', image: '👗' },
-  { id: '3', name: 'Ruched Mini Dress', price: 'GH₵19.30', image: '👗' },
-  { id: '4', name: 'Red Midi Dress', price: 'GH₵17.90', image: '👗' },
-];
+import { useSearchProducts } from '../hooks/erpnext';
+import { ProductCard } from '../components/ProductCard';
+import { useNavigation } from '@react-navigation/native';
+import { Spacing } from '../constants/spacing';
+import { Header } from '../components/Header';
+import { PriceFilter, SortOption } from '../components/PriceFilter';
 
 export const SearchScreen: React.FC = () => {
-  const [searchQuery, setSearchQuery] = useState('قفطان مغربي');
+  const route = useRoute();
+  const navigation = useNavigation();
+  const routeQuery = (route.params as any)?.query || '';
+  const [searchQuery, setSearchQuery] = useState(routeQuery);
   const [refreshing, setRefreshing] = useState(false);
+  const [sortOption, setSortOption] = useState<SortOption>('default');
+  
+  // Update search query when route params change (when navigating from Header)
+  useEffect(() => {
+    const currentQuery = (route.params as any)?.query || '';
+    if (currentQuery !== searchQuery) {
+      setSearchQuery(currentQuery);
+    }
+  }, [route.params]);
+
+  // Perform search using the hook - this will automatically filter as searchQuery changes
+  const { data: searchResults, loading, error } = useSearchProducts(searchQuery);
+  
+  // Sort search results
+  const sortedResults = React.useMemo(() => {
+    if (!searchResults || searchResults.length === 0) return [];
+
+    const sorted = [...searchResults];
+    switch (sortOption) {
+      case 'lowToHigh':
+        return sorted.sort((a, b) => (a.price || 0) - (b.price || 0));
+      case 'highToLow':
+        return sorted.sort((a, b) => (b.price || 0) - (a.price || 0));
+      default:
+        return sorted;
+    }
+  }, [searchResults, sortOption]);
   
   // Handle pull-to-refresh
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    // SearchScreen uses mock data, so just simulate refresh
+    // The useSearchProducts hook will automatically refetch when searchQuery changes
     setTimeout(() => {
       setRefreshing(false);
     }, 1000);
-  }, []);
+  }, [searchQuery]);
 
-  const renderHeader = () => (
-    <View style={styles.header}>
-      <View style={styles.headerContent}>
-        <View style={styles.logoContainer}>
-          <Text style={styles.logo}>SIAMAE Trends</Text>
-          <View style={styles.logoArrow}>
-            <Ionicons name="arrow-forward" size={16} color={Colors.SHEIN_PINK} />
+  const renderSearchResults = () => {
+    if (loading) {
+      return (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={Colors.SHEIN_PINK} />
+          <Text style={styles.loadingText}>Searching...</Text>
           </View>
+      );
+    }
+
+    if (error) {
+      return (
+        <View style={styles.errorContainer}>
+          <Ionicons name="alert-circle" size={48} color={Colors.ERROR} />
+          <Text style={styles.errorText}>Error searching products</Text>
+          <Text style={styles.errorSubtext}>{error.message}</Text>
         </View>
-        
-        <View style={styles.searchContainer}>
-          <Text style={styles.searchPlaceholder}>{searchQuery}</Text>
-          <View style={styles.searchActions}>
-            <TouchableOpacity style={styles.searchIcon}>
-              <Ionicons name="search" size={20} color={Colors.BLACK} />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.searchIcon}>
-              <Ionicons name="heart-outline" size={20} color={Colors.BLACK} />
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
+      );
+    }
+
+    if (!searchQuery.trim()) {
+      return (
+        <View style={styles.emptyContainer}>
+          <Ionicons name="search" size={64} color={Colors.TEXT_SECONDARY} />
+          <Text style={styles.emptyText}>Enter a search term</Text>
+          <Text style={styles.emptySubtext}>Search for products by name, code, or category</Text>
     </View>
   );
+    }
 
-  const renderTwoPieceSet = () => (
-    <View style={styles.section}>
-      <View style={styles.sectionHeader}>
-        <View style={styles.hashtagContainer}>
-          <Text style={styles.hashtag}>#TwoPieceSet</Text>
-          <Ionicons name="chevron-forward" size={16} color={Colors.BLACK} />
-        </View>
-      </View>
-      <View style={styles.featuredProduct}>
-        <View style={styles.featuredImage}>
-          <Text style={styles.featuredEmoji}>👗</Text>
-        </View>
-        <Text style={styles.featuredPrice}>GH₵45.00</Text>
-      </View>
+    if (!searchResults || searchResults.length === 0) {
+      return (
+        <View style={styles.emptyContainer}>
+          <Ionicons name="search-outline" size={64} color={Colors.TEXT_SECONDARY} />
+          <Text style={styles.emptyText}>No results found</Text>
+          <Text style={styles.emptySubtext}>Try a different search term</Text>
     </View>
   );
+    }
 
-  const renderProductSection = (products: any[], title: string, subtitle?: string, showNewTag = false) => (
-    <View style={styles.section}>
-      <View style={styles.sectionHeader}>
-        <View style={styles.sectionTitleRow}>
-          <Text style={styles.sectionTitle}>{title}</Text>
-          {showNewTag && (
-            <View style={styles.newTag}>
-              <Text style={styles.newTagText}>New</Text>
-            </View>
-          )}
-          <Ionicons name="chevron-forward" size={16} color={Colors.BLACK} />
-        </View>
-        {subtitle && <Text style={styles.sectionSubtitle}>{subtitle}</Text>}
+    return (
+      <>
+        <View style={styles.filterContainer}>
+          <PriceFilter onSortChange={setSortOption} currentSort={sortOption} />
       </View>
       <FlatList
-        data={products}
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.productsList}
-        renderItem={({ item }) => (
-          <View style={styles.productCard}>
-            <View style={styles.productImage}>
-              <Text style={styles.productEmoji}>{item.image}</Text>
-              {item.discount && (
-                <View style={styles.discountTag}>
-                  <Text style={styles.discountText}>{item.discount}</Text>
-                </View>
-              )}
-            </View>
-            <Text style={styles.productPrice}>{item.price}</Text>
-          </View>
-        )}
+          data={sortedResults}
+        numColumns={2}
         keyExtractor={(item) => item.id}
-      />
-      <View style={styles.userReview}>
-                  <Text style={styles.reviewText}>
-            {title === 'SIAMAE CURVE' 
-              ? 's***o: Wow 😍 I loved it and I\'m very comfortable on it 👌'
-              : 'g***o: super pretty 😍😍'
-            }
-          </Text>
-      </View>
-    </View>
-  );
-
-  return (
-    <SafeAreaView style={styles.container}>
-      {renderHeader()}
-      <ScrollView 
-        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.resultsList}
+        columnWrapperStyle={styles.resultsRow}
+        renderItem={({ item }) => (
+          <ProductCard
+            product={item}
+            variant={['tall', 'medium', 'short'][Math.floor(Math.random() * 3)] as any}
+            onPress={() => (navigation as any).navigate('ProductDetails', { productId: item.id })}
+            style={styles.productCard}
+          />
+        )}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -153,12 +128,26 @@ export const SearchScreen: React.FC = () => {
             colors={[Colors.SHEIN_PINK]}
           />
         }
-      >
-        {renderTwoPieceSet()}
-        {renderProductSection(kidsItems, 'Kids Collection')}
-        {renderProductSection(sheinSxyCurve, 'SIAMAE CURVE', '316K Followers')}
-        {renderProductSection(vibekara, 'SIAMAE Maternity', '23K Followers', true)}
-      </ScrollView>
+      />
+      </>
+  );
+  };
+
+  return (
+    <SafeAreaView style={styles.container} edges={['bottom', 'left', 'right']}>
+      <Header 
+        searchValue={searchQuery}
+        onSearchChange={(text) => {
+          setSearchQuery(text);
+          // Update route params to keep navigation in sync
+          (navigation as any).setParams({ query: text });
+        }}
+        showBackButton={true}
+        onBackPress={() => {
+          (navigation as any).goBack();
+        }}
+      />
+      {renderSearchResults()}
     </SafeAreaView>
   );
 };
@@ -168,159 +157,70 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Colors.BACKGROUND,
   },
-  header: {
-    backgroundColor: Colors.SHEIN_PINK,
-    paddingTop: 12,
-    paddingBottom: 16,
-  },
-  headerContent: {
-    paddingHorizontal: 16,
-  },
-  logoContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  logo: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: Colors.WHITE,
-  },
-  logoArrow: {
-    marginLeft: 8,
-  },
-  searchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.WHITE,
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-  },
-  searchPlaceholder: {
+  loadingContainer: {
     flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 32,
+  },
+  loadingText: {
+    marginTop: 12,
     fontSize: 16,
     color: Colors.TEXT_SECONDARY,
   },
-  searchActions: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  searchIcon: {
-    padding: 4,
-  },
-  section: {
-    paddingVertical: 16,
-  },
-  sectionHeader: {
-    paddingHorizontal: 16,
-    marginBottom: 12,
-  },
-  hashtagContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  hashtag: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: Colors.BLACK,
-  },
-  featuredProduct: {
-    paddingHorizontal: 16,
-    alignItems: 'center',
-  },
-  featuredImage: {
-    width: width - 32,
-    height: 200,
-    backgroundColor: Colors.LIGHT_GRAY,
-    borderRadius: 8,
+  errorContainer: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 8,
+    padding: 32,
   },
-  featuredEmoji: {
-    fontSize: 80,
-  },
-  featuredPrice: {
+  errorText: {
+    marginTop: 16,
     fontSize: 18,
     fontWeight: 'bold',
-    color: Colors.BLACK,
+    color: Colors.ERROR,
   },
-  sectionTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: Colors.BLACK,
-  },
-  newTag: {
-    backgroundColor: Colors.SUCCESS,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  newTagText: {
-    fontSize: 12,
-    color: Colors.WHITE,
-    fontWeight: 'bold',
-  },
-  sectionSubtitle: {
+  errorSubtext: {
+    marginTop: 8,
     fontSize: 14,
     color: Colors.TEXT_SECONDARY,
-    marginTop: 4,
-  },
-  productsList: {
-    paddingHorizontal: 16,
-  },
-  productCard: {
-    width: 120,
-    marginRight: 12,
-  },
-  productImage: {
-    width: 120,
-    height: 150,
-    backgroundColor: Colors.LIGHT_GRAY,
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 8,
-    position: 'relative',
-  },
-  productEmoji: {
-    fontSize: 50,
-  },
-  discountTag: {
-    position: 'absolute',
-    top: 8,
-    left: 8,
-    backgroundColor: Colors.FLASH_SALE_RED,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  discountText: {
-    fontSize: 12,
-    color: Colors.WHITE,
-    fontWeight: 'bold',
-  },
-  productPrice: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: Colors.BLACK,
     textAlign: 'center',
   },
-  userReview: {
-    paddingHorizontal: 16,
-    marginTop: 8,
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 32,
   },
-  reviewText: {
+  emptyText: {
+    marginTop: 16,
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: Colors.TEXT_PRIMARY,
+  },
+  emptySubtext: {
+    marginTop: 8,
     fontSize: 14,
     color: Colors.TEXT_SECONDARY,
-    fontStyle: 'italic',
+    textAlign: 'center',
+  },
+  resultsList: {
+    padding: Spacing.PADDING_MD,
+  },
+  resultsRow: {
+    justifyContent: 'space-between',
+    marginBottom: Spacing.MARGIN_SM,
+  },
+  productCard: {
+    flex: 1,
+    maxWidth: '48%',
+  },
+  filterContainer: {
+    paddingHorizontal: Spacing.PADDING_MD,
+    paddingVertical: Spacing.PADDING_SM,
+    backgroundColor: Colors.WHITE,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.BORDER,
   },
 });
 

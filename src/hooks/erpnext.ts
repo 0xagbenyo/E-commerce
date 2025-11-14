@@ -17,6 +17,7 @@ import {
   mapERPSalesInvoiceToSalesInvoice,
 } from '../services/mappers';
 import { Product, Order, Category, User, WishlistItem, ProductReview, SalesInvoice } from '../types';
+import { getProductDiscount } from '../utils/pricingRules';
 
 // Types
 interface UseAsyncState<T> {
@@ -26,60 +27,100 @@ interface UseAsyncState<T> {
 }
 
 /**
- * Hook for fetching new arrivals (latest Website Items)
+ * Hook for fetching new arrivals (latest Website Items) with infinite scroll
  */
-export const useNewArrivals = (limit: number = 20) => {
-  const [state, setState] = useState<UseAsyncState<Product[]>>({
-    data: null,
-    loading: true,
-    error: null,
-  });
-  const [refreshKey, setRefreshKey] = useState(0);
+export const useNewArrivals = (pageSize: number = 20, sortByPrice?: 'asc' | 'desc') => {
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+  const [hasMore, setHasMore] = useState(true);
+  const [offset, setOffset] = useState(0);
+  const [initialLoad, setInitialLoad] = useState(true);
 
+  // Load initial products
   useEffect(() => {
-    let isMounted = true;
+    const loadInitialProducts = async () => {
+      if (!initialLoad) return;
 
-    const fetchNewArrivals = async () => {
+      setLoading(true);
+      setError(null);
+      
       try {
-        if (isMounted) {
-          setState((prev) => ({ ...prev, loading: true, error: null }));
-        }
         const client = getERPNextClient();
-        const websiteItems = await client.getNewArrivals(limit);
-        // Use Website Item mapper for better eCommerce support
-        const products = websiteItems.map((item) => mapERPWebsiteItemToProduct(item));
-        if (isMounted) {
-          setState({ data: products, loading: false, error: null });
-        }
-      } catch (error) {
-        if (isMounted) {
-          setState({
-            data: null,
-            loading: false,
-            error: error instanceof Error ? error : new Error('Unknown error'),
-          });
-        }
+        // Fetch first batch of new arrivals
+        const websiteItems = await client.getNewArrivals(pageSize, sortByPrice);
+        const mappedProducts = websiteItems.map((item) => mapERPWebsiteItemToProduct(item));
+        
+        setProducts(mappedProducts);
+        setOffset(pageSize);
+        setHasMore(websiteItems.length === pageSize);
+        setInitialLoad(false);
+      } catch (err) {
+        setError(err instanceof Error ? err : new Error('Unknown error'));
+      } finally {
+        setLoading(false);
       }
     };
 
-    fetchNewArrivals();
+    loadInitialProducts();
+  }, [initialLoad, pageSize, sortByPrice]);
 
-    return () => {
-      isMounted = false;
-    };
-  }, [limit, refreshKey]);
+  // Load more products (for infinite scroll)
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !hasMore || initialLoad) return;
 
+    setLoadingMore(true);
+    setError(null);
+
+    try {
+      const client = getERPNextClient();
+      // For new arrivals, we need to fetch more items with offset
+      // Since getNewArrivals doesn't support offset, we'll use getWebsiteItems 
+      // with creation date sorting (newest first) to maintain the "new arrivals" order
+      const filters = [['Website Item', 'published', '=', 1]];
+      const websiteItems = await client.getWebsiteItems(
+        filters,
+        pageSize,
+        offset,
+        sortByPrice
+      );
+      const mappedProducts = websiteItems.map((item) => mapERPWebsiteItemToProduct(item));
+      
+      setProducts((prev) => [...prev, ...mappedProducts]);
+      setOffset((prev) => prev + pageSize);
+      setHasMore(websiteItems.length === pageSize);
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error('Unknown error'));
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, hasMore, offset, pageSize, initialLoad, sortByPrice]);
+
+  // Refresh function to reload from start
   const refresh = useCallback(() => {
-    setRefreshKey((prev) => prev + 1);
+    setProducts([]);
+    setOffset(0);
+    setHasMore(true);
+    setInitialLoad(true);
+    setError(null);
   }, []);
 
-  return { ...state, refresh };
+  return {
+    products,
+    loading,
+    loadingMore,
+    error,
+    hasMore,
+    loadMore,
+    refresh,
+  };
 };
 
 /**
  * Hook for fetching products by category
  */
-export const useProductsByCategory = (categoryId: string, limit: number = 50) => {
+export const useProductsByCategory = (categoryId: string, limit: number = 50, sortByPrice?: 'asc' | 'desc') => {
   const [state, setState] = useState<UseAsyncState<Product[]>>({
     data: null,
     loading: false,
@@ -102,8 +143,8 @@ export const useProductsByCategory = (categoryId: string, limit: number = 50) =>
           setState((prev) => ({ ...prev, loading: true, error: null }));
         }
         const client = getERPNextClient();
-        // getItemsByGroup now uses Website Item internally
-        const websiteItems = await client.getItemsByGroup(categoryId, limit);
+        // Use getWebsiteItemsByGroup with price sorting if provided
+        const websiteItems = await client.getWebsiteItemsByGroup(categoryId, limit, sortByPrice);
         // Use Website Item mapper for better eCommerce support
         const products = websiteItems.map((item) => mapERPWebsiteItemToProduct(item));
         if (isMounted) {
@@ -125,7 +166,7 @@ export const useProductsByCategory = (categoryId: string, limit: number = 50) =>
     return () => {
       isMounted = false;
     };
-  }, [categoryId, limit, refreshKey]);
+  }, [categoryId, limit, sortByPrice, refreshKey]);
 
   const refresh = useCallback(() => {
     setRefreshKey((prev) => prev + 1);
@@ -187,24 +228,40 @@ export const useSearchProducts = (query: string) => {
       return;
     }
 
+    let isMounted = true;
+    let debounceTimer: NodeJS.Timeout;
+
     const searchProducts = async () => {
+      if (!isMounted) return;
+      
       try {
-        setState((prev) => ({ ...prev, loading: true, error: null }));
+        if (isMounted) {
+          setState((prev) => ({ ...prev, loading: true, error: null }));
+        }
         const client = getERPNextClient();
         const websiteItems = await client.searchItems(query);
-        const products = websiteItems.map((item) => mapERPWebsiteItemToProduct(item));
-        setState({ data: products, loading: false, error: null });
+        
+        if (isMounted) {
+          const products = websiteItems.map((item) => mapERPWebsiteItemToProduct(item));
+          setState({ data: products, loading: false, error: null });
+        }
       } catch (error) {
-        setState({
-          data: null,
-          loading: false,
-          error: error instanceof Error ? error : new Error('Unknown error'),
-        });
+        if (isMounted) {
+          setState({
+            data: null,
+            loading: false,
+            error: error instanceof Error ? error : new Error('Unknown error'),
+          });
+        }
       }
     };
 
-    const debounceTimer = setTimeout(searchProducts, 500);
-    return () => clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(searchProducts, 500);
+    
+    return () => {
+      isMounted = false;
+      clearTimeout(debounceTimer);
+    };
   }, [query]);
 
   return state;
@@ -354,22 +411,34 @@ export const usePricingRules = () => {
   });
 
   useEffect(() => {
+    let isMounted = true;
+
     const fetchPricingRules = async () => {
       try {
-        setState((prev) => ({ ...prev, loading: true, error: null }));
+        if (isMounted) {
+          setState((prev) => ({ ...prev, loading: true, error: null }));
+        }
         const client = getERPNextClient();
         const rules = await client.getPricingRules();
-        setState({ data: rules, loading: false, error: null });
+        if (isMounted) {
+          setState({ data: rules, loading: false, error: null });
+        }
       } catch (error) {
-        setState({
-          data: null,
-          loading: false,
-          error: error instanceof Error ? error : new Error('Unknown error'),
-        });
+        if (isMounted) {
+          setState({
+            data: null,
+            loading: false,
+            error: error instanceof Error ? error : new Error('Unknown error'),
+          });
+        }
       }
     };
 
     fetchPricingRules();
+    
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   return state;
@@ -761,6 +830,177 @@ export const useForYouProducts = (pageSize: number = 20) => {
     setHasMore(true);
     setInitialLoad(true);
     setError(null);
+  }, []);
+
+  return {
+    products,
+    loading,
+    loadingMore,
+    error,
+    hasMore,
+    loadMore,
+    refresh,
+  };
+};
+
+/**
+ * Hook for fetching deal products (products with pricing rules) with infinite scroll
+ * Mixes products from different pricing rules randomly
+ */
+export const useDealProducts = (pageSize: number = 20, pricingRules: any[] | null = null) => {
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+  const [hasMore, setHasMore] = useState(true);
+  const [offset, setOffset] = useState(0);
+  const [initialLoad, setInitialLoad] = useState(true);
+  const [allDealProductsCache, setAllDealProductsCache] = useState<Product[]>([]);
+
+  // Shuffle array function for randomizing items
+  const shuffleArray = <T,>(array: T[]): T[] => {
+    const shuffled = [...array];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    return shuffled;
+  };
+
+  // Fetch all deal products from pricing rules
+  useEffect(() => {
+    const fetchAllDealProducts = async () => {
+      if (!pricingRules || pricingRules.length === 0) {
+        setAllDealProductsCache([]);
+        return;
+      }
+
+      try {
+        const client = getERPNextClient();
+        const allProducts: Product[] = [];
+
+        // Extract item codes and item groups from pricing rules
+        for (const rule of pricingRules) {
+          const ruleAny = rule as any;
+          const ruleName = rule.name || ruleAny.name || 'Unknown';
+          
+          // Fetch products by item codes
+          if (ruleAny.items && Array.isArray(ruleAny.items)) {
+            for (const item of ruleAny.items) {
+              if (item && item.item_code) {
+                try {
+                  const websiteItem = await client.getItem(item.item_code);
+                  if (websiteItem) {
+                    const product = mapERPWebsiteItemToProduct(websiteItem);
+                    const calculatedDiscount = getProductDiscount(product, pricingRules);
+                    const ruleDiscount = ruleAny.discount_percentage || 0;
+                    const discount = calculatedDiscount > 0 ? calculatedDiscount : ruleDiscount;
+                    
+                    if (discount > 0 || ruleDiscount > 0) {
+                      const productWithDiscount = {
+                        ...product,
+                        discount: discount > 0 ? discount : ruleDiscount,
+                        ruleName
+                      };
+                      allProducts.push(productWithDiscount);
+                    }
+                  }
+                } catch (error: any) {
+                  if (error?.message && !error.message.includes('not found') && !error.message.includes('DoesNotExistError')) {
+                    console.warn(`Failed to fetch product ${item.item_code}:`, error.message);
+                  }
+                }
+              }
+            }
+          }
+
+          // Fetch products by item groups
+          if (ruleAny.item_groups && Array.isArray(ruleAny.item_groups)) {
+            for (const itemGroup of ruleAny.item_groups) {
+              if (itemGroup && itemGroup.item_group) {
+                try {
+                  const websiteItems = await client.getItemsByGroup(itemGroup.item_group, 100);
+                  const groupProducts = websiteItems.map((item: any) => {
+                    const product = mapERPWebsiteItemToProduct(item);
+                    const discount = getProductDiscount(product, pricingRules);
+                    return {
+                      ...product,
+                      discount,
+                      ruleName
+                    };
+                  }).filter((p: any) => p.discount > 0);
+                  allProducts.push(...groupProducts);
+                } catch (error) {
+                  console.warn(`Failed to fetch products for group ${itemGroup.item_group}:`, error);
+                }
+              }
+            }
+          }
+        }
+
+        // Remove duplicates and shuffle to mix products from different rules
+        const uniqueProducts = Array.from(
+          new Map(allProducts.map((p: any) => [p.id, p])).values()
+        );
+        const shuffledProducts = shuffleArray(uniqueProducts);
+        
+        setAllDealProductsCache(shuffledProducts);
+      } catch (error) {
+        console.error('Error fetching deal products:', error);
+        setAllDealProductsCache([]);
+      }
+    };
+
+    fetchAllDealProducts();
+  }, [pricingRules]);
+
+  // Load initial products from cache
+  useEffect(() => {
+    if (initialLoad && allDealProductsCache.length > 0) {
+      const initialProducts = allDealProductsCache.slice(0, pageSize);
+      setProducts(initialProducts);
+      setOffset(pageSize);
+      setHasMore(allDealProductsCache.length > pageSize);
+      setInitialLoad(false);
+      setLoading(false);
+    } else if (initialLoad && allDealProductsCache.length === 0 && pricingRules && pricingRules.length > 0) {
+      setLoading(true);
+    } else if (initialLoad && (!pricingRules || pricingRules.length === 0)) {
+      setProducts([]);
+      setHasMore(false);
+      setInitialLoad(false);
+      setLoading(false);
+    }
+  }, [initialLoad, allDealProductsCache, pageSize, pricingRules]);
+
+  // Load more products (for infinite scroll)
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !hasMore || initialLoad) return;
+
+    setLoadingMore(true);
+    setError(null);
+
+    try {
+      const nextProducts = allDealProductsCache.slice(offset, offset + pageSize);
+      
+      setProducts((prev) => [...prev, ...nextProducts]);
+      setOffset((prev) => prev + pageSize);
+      setHasMore(offset + pageSize < allDealProductsCache.length);
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error('Unknown error'));
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, hasMore, offset, pageSize, initialLoad, allDealProductsCache]);
+
+  // Refresh function to reload from start
+  const refresh = useCallback(() => {
+    setProducts([]);
+    setOffset(0);
+    setHasMore(true);
+    setInitialLoad(true);
+    setError(null);
+    setAllDealProductsCache([]);
   }, []);
 
   return {
@@ -1241,4 +1481,116 @@ export const useCartActions = (onSuccess?: () => void) => {
     isLoading,
     error,
   };
+};
+
+/**
+ * Hook for fetching top customers of the month
+ */
+export const useTopCustomers = (year?: number, month?: number) => {
+  const [state, setState] = useState<UseAsyncState<{
+    month: string;
+    year: string;
+    top_customers: Array<{
+      rank?: number;
+      customer: string;
+      total_sales: number;
+      invoice_count?: number;
+    }>;
+    top_items: Array<{
+      rank?: number;
+      item_name: string;
+      total_qty: number;
+      image: string | null;
+    }>;
+  }>>({
+    data: null,
+    loading: false,
+    error: null,
+  });
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const fetchTopCustomers = async () => {
+      if (isMounted) {
+        setState(prev => ({ ...prev, loading: true, error: null }));
+      }
+      try {
+        const client = getERPNextClient();
+        const data = await client.getTopCustomers(year, month);
+        if (isMounted) {
+          setState({ data, loading: false, error: null });
+        }
+      } catch (err) {
+        if (isMounted) {
+          setState({
+            data: null,
+            loading: false,
+            error: err instanceof Error ? err : new Error('Failed to fetch top customers'),
+          });
+        }
+      }
+    };
+
+    fetchTopCustomers();
+    
+    return () => {
+      isMounted = false;
+    };
+  }, [year, month]);
+
+  return state;
+};
+
+/**
+ * Hook for fetching Product Bundles
+ */
+export const useProductBundles = (limit: number = 10) => {
+  const [state, setState] = useState<UseAsyncState<Array<{
+    bundleName: string;
+    newItemCode: string;
+    customCustomer?: string;
+    items: Array<{
+      itemCode: string;
+      itemName?: string;
+      image?: string | null;
+    }>;
+  }>>>({
+    data: null,
+    loading: true,
+    error: null,
+  });
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const fetchBundles = async () => {
+      if (isMounted) {
+        setState(prev => ({ ...prev, loading: true, error: null }));
+      }
+      try {
+        const client = getERPNextClient();
+        const bundles = await client.getProductBundles(limit);
+        if (isMounted) {
+          setState({ data: bundles, loading: false, error: null });
+        }
+      } catch (err) {
+        if (isMounted) {
+          setState({
+            data: null,
+            loading: false,
+            error: err instanceof Error ? err : new Error('Failed to fetch product bundles'),
+          });
+        }
+      }
+    };
+
+    fetchBundles();
+    
+    return () => {
+      isMounted = false;
+    };
+  }, [limit]);
+
+  return state;
 };

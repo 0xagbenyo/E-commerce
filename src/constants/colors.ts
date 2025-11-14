@@ -24,6 +24,7 @@ export const Colors = {
   MINT: '#98D8C8',
   LAVENDER: '#E6E6FA',
   PEACH: '#FFDAB9',
+  LIGHT_PINK: '#FFF0F5',
   
   // Additional UI Colors
   BACKGROUND: '#FFFFFF',
@@ -44,6 +45,8 @@ export const Colors = {
   PROMO_ORANGE: '#FF6B35',
   FLASH_SALE_RED: '#FF3B30',
   FREE_SHIPPING_GREEN: '#34C759',
+  GOLD: '#FFD700',
+  ROYAL_BLUE: '#6B8CE8',
 } as const;
 
 export type ColorKeys = keyof typeof Colors;

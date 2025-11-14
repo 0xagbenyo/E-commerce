@@ -13,8 +13,10 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../constants/colors';
+import { Spacing } from '../constants/spacing';
 import { useWishlist, useWishlistActions } from '../hooks/erpnext';
 import { ProductCard } from '../components/ProductCard';
+import { PriceFilter, SortOption } from '../components/PriceFilter';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { WishlistItem } from '../types';
 import { useUserSession } from '../context/UserContext';
@@ -25,6 +27,7 @@ export const WishlistScreen: React.FC = () => {
   const navigation = useNavigation();
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [sortOption, setSortOption] = useState<SortOption>('default');
   
   // Get user email from session
   const { user } = useUserSession();
@@ -33,6 +36,29 @@ export const WishlistScreen: React.FC = () => {
   // Fetch wishlist from ERPNext
   const { wishlistItems, loading, error, refresh } = useWishlist(userEmail);
   const { removeFromWishlist } = useWishlistActions(refresh);
+  
+  // Sort wishlist items by price
+  const sortedWishlistItems = React.useMemo(() => {
+    if (!wishlistItems || wishlistItems.length === 0) return [];
+    
+    const sorted = [...wishlistItems];
+    switch (sortOption) {
+      case 'lowToHigh':
+        return sorted.sort((a, b) => {
+          const priceA = a.product?.price || 0;
+          const priceB = b.product?.price || 0;
+          return priceA - priceB;
+        });
+      case 'highToLow':
+        return sorted.sort((a, b) => {
+          const priceA = a.product?.price || 0;
+          const priceB = b.product?.price || 0;
+          return priceB - priceA;
+        });
+      default:
+        return sorted;
+    }
+  }, [wishlistItems, sortOption]);
   
   // Pull-to-refresh state
   const [refreshing, setRefreshing] = useState(false);
@@ -101,7 +127,15 @@ export const WishlistScreen: React.FC = () => {
   const renderHeader = () => (
     <View style={styles.header}>
       <View style={styles.headerTop}>
-        <Text style={styles.headerTitle}>Wishlist</Text>
+        <View style={styles.headerLeft}>
+          <TouchableOpacity 
+            style={styles.backButton}
+            onPress={() => (navigation as any).goBack()}
+          >
+            <Ionicons name="arrow-back" size={20} color={Colors.BLACK} />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Wishlist</Text>
+        </View>
         <View style={styles.headerActions}>
           <TouchableOpacity 
             style={styles.viewModeButton}
@@ -109,12 +143,12 @@ export const WishlistScreen: React.FC = () => {
           >
             <Ionicons 
               name={viewMode === 'grid' ? 'list' : 'grid'} 
-              size={20} 
+              size={16} 
               color={Colors.BLACK} 
             />
           </TouchableOpacity>
           <TouchableOpacity style={styles.searchButton}>
-            <Ionicons name="search" size={20} color={Colors.BLACK} />
+            <Ionicons name="search" size={16} color={Colors.BLACK} />
           </TouchableOpacity>
         </View>
       </View>
@@ -165,7 +199,7 @@ export const WishlistScreen: React.FC = () => {
         >
           <Ionicons 
             name={isSelected ? 'checkmark-circle' : 'ellipse-outline'} 
-            size={24} 
+            size={18} 
             color={isSelected ? Colors.SHEIN_PINK : Colors.TEXT_SECONDARY} 
           />
         </TouchableOpacity>
@@ -187,7 +221,7 @@ export const WishlistScreen: React.FC = () => {
 
   const renderEmptyState = () => (
     <View style={styles.emptyContainer}>
-      <Ionicons name="heart-outline" size={64} color={Colors.LIGHT_GRAY} />
+      <Ionicons name="heart-outline" size={48} color={Colors.LIGHT_GRAY} />
       <Text style={styles.emptyText}>Your wishlist is empty</Text>
       <Text style={styles.emptySubtext}>Start adding items you love!</Text>
     </View>
@@ -202,7 +236,7 @@ export const WishlistScreen: React.FC = () => {
 
   const renderErrorState = () => (
     <View style={styles.errorContainer}>
-      <Ionicons name="alert-circle-outline" size={64} color={Colors.ERROR} />
+      <Ionicons name="alert-circle-outline" size={48} color={Colors.ERROR} />
       <Text style={styles.errorText}>Failed to load wishlist</Text>
       <TouchableOpacity style={styles.retryButton} onPress={refresh}>
         <Text style={styles.retryButtonText}>Retry</Text>
@@ -211,14 +245,18 @@ export const WishlistScreen: React.FC = () => {
   );
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['bottom', 'left', 'right']}>
       {renderHeader()}
       {loading && renderLoadingState()}
       {error && !loading && renderErrorState()}
       {!loading && !error && wishlistItems.length === 0 && renderEmptyState()}
       {!loading && !error && wishlistItems.length > 0 && (
-        <FlatList
-          data={wishlistItems}
+        <>
+          <View style={styles.filterContainer}>
+            <PriceFilter onSortChange={setSortOption} currentSort={sortOption} />
+          </View>
+          <FlatList
+            data={sortedWishlistItems}
           renderItem={renderWishlistItem}
           keyExtractor={(item) => item.id}
           numColumns={viewMode === 'grid' ? 2 : 1}
@@ -234,6 +272,7 @@ export const WishlistScreen: React.FC = () => {
             />
           }
         />
+        </>
       )}
     </SafeAreaView>
   );
@@ -241,6 +280,7 @@ export const WishlistScreen: React.FC = () => {
 
 const styles = StyleSheet.create({
   container: {
+    paddingTop: Spacing.PADDING_XL,
     flex: 1,
     backgroundColor: Colors.BACKGROUND,
   },
@@ -252,48 +292,56 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  backButton: {
+    padding: 2,
   },
   headerTitle: {
-    fontSize: 20,
+    fontSize: 16,
     fontWeight: 'bold',
     color: Colors.BLACK,
   },
   headerActions: {
     flexDirection: 'row',
-    gap: 12,
+    gap: 8,
   },
   viewModeButton: {
-    padding: 4,
+    padding: 2,
   },
   searchButton: {
-    padding: 4,
+    padding: 2,
   },
   selectionBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     backgroundColor: Colors.LIGHT_GRAY,
   },
   selectionInfo: {
     flex: 1,
   },
   selectionText: {
-    fontSize: 14,
+    fontSize: 12,
     color: Colors.BLACK,
     fontWeight: '500',
   },
   selectionActions: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 6,
   },
   selectionButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 4,
     borderWidth: 1,
     borderColor: Colors.SHEIN_PINK,
   },
@@ -301,7 +349,7 @@ const styles = StyleSheet.create({
     borderColor: Colors.ERROR,
   },
   selectionButtonText: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '500',
     color: Colors.SHEIN_PINK,
   },
@@ -309,11 +357,11 @@ const styles = StyleSheet.create({
     color: Colors.ERROR,
   },
   wishlistContainer: {
-    padding: 16,
+    padding: 12,
   },
   wishlistItemWrapper: {
     position: 'relative',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   row: {
     justifyContent: 'space-between',
@@ -322,52 +370,52 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 100,
+    paddingVertical: 80,
   },
   emptyText: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '600',
     color: Colors.BLACK,
-    marginTop: 16,
+    marginTop: 12,
   },
   emptySubtext: {
-    fontSize: 14,
+    fontSize: 12,
     color: Colors.TEXT_SECONDARY,
-    marginTop: 8,
+    marginTop: 6,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 100,
+    paddingVertical: 80,
   },
   loadingText: {
-    fontSize: 14,
+    fontSize: 12,
     color: Colors.TEXT_SECONDARY,
-    marginTop: 16,
+    marginTop: 12,
   },
   errorContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 100,
+    paddingVertical: 80,
   },
   errorText: {
-    fontSize: 16,
+    fontSize: 14,
     color: Colors.ERROR,
-    marginTop: 16,
+    marginTop: 12,
     textAlign: 'center',
   },
   retryButton: {
-    marginTop: 24,
-    paddingHorizontal: 24,
-    paddingVertical: 12,
+    marginTop: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
     backgroundColor: Colors.SHEIN_PINK,
-    borderRadius: 8,
+    borderRadius: 6,
   },
   retryButtonText: {
     color: Colors.WHITE,
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
   },
   wishlistItem: {
@@ -390,8 +438,8 @@ const styles = StyleSheet.create({
   },
   selectButton: {
     position: 'absolute',
-    top: 8,
-    left: 8,
+    top: 6,
+    left: 6,
     zIndex: 1,
   },
   itemImage: {
@@ -535,6 +583,13 @@ const styles = StyleSheet.create({
   },
   removeButton: {
     padding: 8,
+  },
+  filterContainer: {
+    paddingHorizontal: Spacing.PADDING_MD,
+    paddingVertical: Spacing.PADDING_SM,
+    backgroundColor: Colors.WHITE,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.BORDER,
   },
 });
 

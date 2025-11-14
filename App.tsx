@@ -16,7 +16,7 @@ import { UserProvider } from './src/context/UserContext';
 initializeERPNext({
   baseUrl: process.env.EXPO_PUBLIC_ERPNEXT_URL || 'https://glamora.rxcue.net',
   apiKey: process.env.EXPO_PUBLIC_API_KEY || 'f6e6e23e37250f0',
-  apiSecret: process.env.EXPO_PUBLIC_API_SECRET || '8380b3258029d0e',
+  apiSecret: process.env.EXPO_PUBLIC_API_SECRET || '9f57370ca63d06c',
 });
 
 // Initialize network-aware timeout system

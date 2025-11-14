@@ -13,6 +13,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../constants/colors';
+import { Spacing } from '../constants/spacing';
 import { useShoppingCart, useCartActions } from '../hooks/erpnext';
 import { useUserSession } from '../context/UserContext';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
@@ -141,14 +142,20 @@ export const CartScreen: React.FC = () => {
     <View style={styles.header}>
       <View style={styles.headerTop}>
         <View style={styles.headerLeft}>
+          <TouchableOpacity 
+            style={styles.backButton}
+            onPress={() => (navigation as any).goBack()}
+          >
+            <Ionicons name="arrow-back" size={20} color={Colors.BLACK} />
+          </TouchableOpacity>
           <TouchableOpacity style={styles.radioButton}>
-            <Ionicons name="radio-button-off" size={20} color={Colors.BLACK} />
+            <Ionicons name="radio-button-off" size={16} color={Colors.BLACK} />
           </TouchableOpacity>
           <Text style={styles.radioLabel}>All</Text>
         </View>
         <Text style={styles.cartTitle}>Cart ({cartItems.length})</Text>
         <TouchableOpacity style={styles.moreButton}>
-          <Ionicons name="ellipsis-vertical" size={20} color={Colors.BLACK} />
+          <Ionicons name="ellipsis-vertical" size={16} color={Colors.BLACK} />
         </TouchableOpacity>
       </View>
       <TouchableOpacity style={styles.shippingInfo}>
@@ -222,7 +229,7 @@ export const CartScreen: React.FC = () => {
       >
         <View style={styles.itemHeader}>
           <Text style={styles.brandName}>{product.brand || product.company || 'SIAMAE'}</Text>
-          <Ionicons name="chevron-forward" size={16} color={Colors.BLACK} />
+          <Ionicons name="chevron-forward" size={14} color={Colors.BLACK} />
         </View>
         
         <View style={styles.itemContent}>
@@ -237,9 +244,9 @@ export const CartScreen: React.FC = () => {
               }
             }}
           >
-            <Ionicons 
+              <Ionicons 
               name={selectedItems.includes(item.id) ? "radio-button-on" : "radio-button-off"} 
-              size={20} 
+              size={16} 
               color={selectedItems.includes(item.id) ? Colors.SHEIN_PINK : Colors.BLACK} 
             />
           </TouchableOpacity>
@@ -252,14 +259,14 @@ export const CartScreen: React.FC = () => {
                 resizeMode="cover"
               />
             ) : (
-              <Ionicons name="image-outline" size={40} color={Colors.TEXT_SECONDARY} />
+              <Ionicons name="image-outline" size={30} color={Colors.TEXT_SECONDARY} />
             )}
           </View>
           
           <View style={styles.itemDetails}>
             <Text style={styles.itemName} numberOfLines={2}>{product.name}</Text>
-            
-            <View style={styles.priceContainer}>
+          
+          <View style={styles.priceContainer}>
               {isUpdating ? (
                 <ActivityIndicator size="small" color={Colors.SHEIN_PINK} style={styles.priceLoading} />
               ) : (
@@ -269,10 +276,10 @@ export const CartScreen: React.FC = () => {
                     <Text style={styles.originalPrice}>{formatPrice(itemTotalOriginalPrice)}</Text>
                   )}
                 </>
-              )}
-            </View>
-            
-            <View style={styles.quantityContainer}>
+            )}
+          </View>
+          
+          <View style={styles.quantityContainer}>
               <TouchableOpacity 
                 style={[styles.quantityButton, styles.quantityButtonMinus, isUpdating && styles.quantityButtonDisabled]}
                 onPress={(e) => {
@@ -284,10 +291,10 @@ export const CartScreen: React.FC = () => {
                 {isUpdating ? (
                   <ActivityIndicator size="small" color={Colors.ERROR} />
                 ) : (
-                  <Ionicons name="remove" size={20} color={Colors.ERROR} />
+                  <Ionicons name="remove" size={16} color={Colors.ERROR} />
                 )}
-              </TouchableOpacity>
-              <View style={styles.quantityBox}>
+            </TouchableOpacity>
+            <View style={styles.quantityBox}>
                 {isUpdating ? (
                   <ActivityIndicator size="small" color={Colors.SHEIN_PINK} />
                 ) : (
@@ -305,7 +312,7 @@ export const CartScreen: React.FC = () => {
                 {isUpdating ? (
                   <ActivityIndicator size="small" color={Colors.SUCCESS} />
                 ) : (
-                  <Ionicons name="add" size={20} color={Colors.SUCCESS} />
+                  <Ionicons name="add" size={16} color={Colors.SUCCESS} />
                 )}
               </TouchableOpacity>
               <TouchableOpacity 
@@ -319,20 +326,20 @@ export const CartScreen: React.FC = () => {
                 {isUpdating ? (
                   <ActivityIndicator size="small" color={Colors.TEXT_SECONDARY} />
                 ) : (
-                  <Ionicons name="trash-outline" size={18} color={Colors.TEXT_SECONDARY} />
+                  <Ionicons name="trash-outline" size={14} color={Colors.TEXT_SECONDARY} />
                 )}
               </TouchableOpacity>
             </View>
           </View>
         </View>
       </TouchableOpacity>
-    );
+  );
   };
 
   const renderPromotionsBanner = () => (
     <View style={styles.promotionsBanner}>
       <View style={styles.promotionsContent}>
-        <Ionicons name="pricetag" size={20} color={Colors.SHEIN_PINK} />
+        <Ionicons name="pricetag" size={16} color={Colors.SHEIN_PINK} />
         <Text style={styles.promotionsText}>
           2 Promotions in your cart! Click to view exclusive deals and save more!
         </Text>
@@ -370,9 +377,9 @@ export const CartScreen: React.FC = () => {
   };
   
   const total = calculateTotal();
-  
+
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['bottom', 'left', 'right']}>
       {renderHeader()}
       {renderFilterTabs()}
       {error && (
@@ -398,12 +405,12 @@ export const CartScreen: React.FC = () => {
             />
           }
         >
-          {cartItems.map((item) => (
-            <View key={item.id}>
-              {renderCartItem({ item })}
-            </View>
-          ))}
-        </ScrollView>
+        {cartItems.map((item) => (
+          <View key={item.id}>
+            {renderCartItem({ item })}
+          </View>
+        ))}
+      </ScrollView>
       )}
       {cartItems.length > 0 && (
         <View style={styles.checkoutBar}>
@@ -423,10 +430,11 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.BACKGROUND,
+    paddingTop: Spacing.PADDING_XL
   },
   header: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     borderBottomWidth: 1,
     borderBottomColor: Colors.BORDER,
   },
@@ -434,23 +442,27 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 8,
+    marginBottom: 6,
   },
   headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
+  },
+  backButton: {
+    padding: 2,
+    marginRight: 4,
   },
   radioButton: {
-    padding: 4,
+    padding: 2,
   },
   radioLabel: {
-    fontSize: 16,
+    fontSize: 14,
     color: Colors.BLACK,
     fontWeight: '500',
   },
   cartTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 'bold',
     color: Colors.BLACK,
   },
@@ -461,30 +473,30 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
   },
   shippingText: {
-    fontSize: 14,
+    fontSize: 12,
     color: Colors.TEXT_SECONDARY,
   },
   filterTabs: {
     flexDirection: 'row',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     borderBottomWidth: 1,
     borderBottomColor: Colors.BORDER,
   },
   filterTab: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    marginRight: 12,
-    borderRadius: 20,
-    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginRight: 8,
+    borderRadius: 16,
+    gap: 3,
   },
   filterTabActive: {
     backgroundColor: Colors.DARK_GRAY,
   },
   filterTabText: {
-    fontSize: 14,
+    fontSize: 12,
     color: Colors.BLACK,
     fontWeight: '500',
   },
@@ -492,54 +504,54 @@ const styles = StyleSheet.create({
     color: Colors.WHITE,
   },
   cartItem: {
-    paddingHorizontal: 16,
-    paddingVertical: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: Colors.BORDER,
   },
   itemHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 8,
   },
   brandName: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: 'bold',
     color: Colors.BLACK,
     flex: 1,
   },
   trendsTag: {
     backgroundColor: Colors.SHEIN_PINK,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
-    marginRight: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 3,
+    marginRight: 6,
   },
   trendsText: {
-    fontSize: 12,
+    fontSize: 10,
     color: Colors.WHITE,
     fontWeight: 'bold',
   },
   itemContent: {
     flexDirection: 'row',
-    gap: 12,
+    gap: 8,
   },
   itemImage: {
-    width: 80,
-    height: 100,
+    width: 60,
+    height: 75,
     backgroundColor: Colors.LIGHT_GRAY,
-    borderRadius: 8,
+    borderRadius: 6,
     justifyContent: 'center',
     alignItems: 'center',
     position: 'relative',
   },
   itemEmoji: {
-    fontSize: 40,
+    fontSize: 30,
   },
   itemImageContent: {
     width: '100%',
     height: '100%',
-    borderRadius: 8,
+    borderRadius: 6,
   },
   errorContainer: {
     padding: 16,
@@ -587,10 +599,10 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   itemName: {
-    fontSize: 14,
+    fontSize: 12,
     color: Colors.BLACK,
-    marginBottom: 8,
-    lineHeight: 18,
+    marginBottom: 6,
+    lineHeight: 16,
   },
   heartButton: {
     position: 'absolute',
@@ -604,53 +616,53 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   variantText: {
-    fontSize: 14,
+    fontSize: 12,
     color: Colors.BLACK,
-    marginRight: 4,
+    marginRight: 3,
   },
   reviewsContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 4,
+    marginBottom: 3,
   },
   reviewsText: {
-    fontSize: 12,
+    fontSize: 10,
     color: Colors.SUCCESS,
-    marginLeft: 4,
+    marginLeft: 3,
   },
   salesContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 4,
+    marginBottom: 3,
   },
   salesText: {
-    fontSize: 12,
+    fontSize: 10,
     color: Colors.SHEIN_PINK,
-    marginLeft: 4,
+    marginLeft: 3,
   },
   priceContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
-    minHeight: 24,
+    marginBottom: 8,
+    minHeight: 20,
   },
   priceLoading: {
-    marginRight: 8,
+    marginRight: 6,
   },
   itemPrice: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: 'bold',
     color: Colors.BLACK,
-    marginRight: 8,
+    marginRight: 6,
   },
   originalPrice: {
-    fontSize: 14,
+    fontSize: 12,
     color: Colors.TEXT_SECONDARY,
     textDecorationLine: 'line-through',
-    marginRight: 8,
+    marginRight: 6,
   },
   priceChange: {
-    fontSize: 12,
+    fontSize: 10,
     color: Colors.FLASH_SALE_RED,
   },
   quantityContainer: {
@@ -659,9 +671,9 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   quantityButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     backgroundColor: Colors.LIGHT_GRAY,
     justifyContent: 'center',
     alignItems: 'center',
@@ -676,25 +688,25 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   deleteButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     backgroundColor: Colors.LIGHT_GRAY,
     justifyContent: 'center',
     alignItems: 'center',
-    marginLeft: 4,
+    marginLeft: 3,
   },
   quantityBox: {
-    width: 40,
-    height: 32,
+    width: 36,
+    height: 28,
     borderWidth: 1,
     borderColor: Colors.BORDER,
-    borderRadius: 4,
+    borderRadius: 3,
     justifyContent: 'center',
     alignItems: 'center',
   },
   quantityText: {
-    fontSize: 14,
+    fontSize: 12,
     color: Colors.BLACK,
   },
   promotionsBanner: {
@@ -714,27 +726,27 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   promotionsText: {
-    fontSize: 14,
+    fontSize: 12,
     color: Colors.BLACK,
     flex: 1,
   },
   viewMoreButton: {
     borderWidth: 1,
     borderColor: Colors.SHEIN_PINK,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 3,
   },
   viewMoreText: {
-    fontSize: 14,
+    fontSize: 12,
     color: Colors.SHEIN_PINK,
     fontWeight: '500',
   },
   checkoutBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
     borderTopWidth: 1,
     borderTopColor: Colors.BORDER,
     backgroundColor: Colors.WHITE,
@@ -743,18 +755,18 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   totalLabel: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 'bold',
     color: Colors.BLACK,
   },
   checkoutButton: {
     backgroundColor: Colors.DARK_GRAY,
-    paddingHorizontal: 32,
-    paddingVertical: 12,
-    borderRadius: 8,
+    paddingHorizontal: 24,
+    paddingVertical: 10,
+    borderRadius: 6,
   },
   checkoutButtonText: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: 'bold',
     color: Colors.WHITE,
   },

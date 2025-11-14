@@ -23,6 +23,7 @@ export const RegisterScreen: React.FC = () => {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [middleName, setMiddleName] = useState('');
+  const [phone, setPhone] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState<{[key: string]: string}>({});
   const navigation = useNavigation();
@@ -30,6 +31,14 @@ export const RegisterScreen: React.FC = () => {
   const validateEmail = (email: string) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     return emailRegex.test(email);
+  };
+
+  const validatePhone = (phone: string) => {
+    // Remove spaces and common formatting characters
+    const cleaned = phone.replace(/[\s\-\(\)]/g, '');
+    // Check if it's a valid phone number (at least 9 digits, can start with + or country code)
+    const phoneRegex = /^(\+?233|0)?[0-9]{9}$/;
+    return phoneRegex.test(cleaned);
   };
 
   const validateForm = () => {
@@ -47,6 +56,12 @@ export const RegisterScreen: React.FC = () => {
 
     if (!lastName.trim()) {
       newErrors.lastName = 'Last name is required';
+    }
+
+    if (!phone.trim()) {
+      newErrors.phone = 'Phone number is required';
+    } else if (!validatePhone(phone.trim())) {
+      newErrors.phone = 'Please enter a valid phone number';
     }
 
     setErrors(newErrors);
@@ -69,6 +84,7 @@ export const RegisterScreen: React.FC = () => {
         first_name: firstName.trim(),
         last_name: lastName.trim(),
         middle_name: middleName.trim() || undefined,
+        phone: phone.trim(),
         send_welcome_email: true, // Send welcome email with verification link
       };
       
@@ -161,6 +177,20 @@ export const RegisterScreen: React.FC = () => {
                 autoCorrect={false}
               />
               {errors.lastName && <Text style={styles.errorText}>{errors.lastName}</Text>}
+            </View>
+
+            <View style={styles.inputContainer}>
+              <Text style={styles.label}>Phone Number</Text>
+              <TextInput
+                style={[styles.input, errors.phone && styles.inputError]}
+                placeholder="Enter your phone number"
+                value={phone}
+                onChangeText={setPhone}
+                keyboardType="phone-pad"
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              {errors.phone && <Text style={styles.errorText}>{errors.phone}</Text>}
             </View>
 
             {/* Send Verification Link Button */}

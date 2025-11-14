@@ -11,8 +11,11 @@ import {
   Image,
   RefreshControl,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRoute, useNavigation } from '@react-navigation/native';
+import { RootStackParamList } from '../types';
+import type { NavigationProp } from '@react-navigation/native';
 import { Colors } from '../constants/colors';
 import { Spacing } from '../constants/spacing';
 import { Typography } from '../constants/typography';
@@ -20,6 +23,7 @@ import { useProductsByCategory, useCategories, usePricingRules, useWishlistActio
 import { useUserSession } from '../context/UserContext';
 import { LoadingScreen } from '../components/LoadingScreen';
 import { ProductCard } from '../components/ProductCard';
+import { PriceFilter, SortOption } from '../components/PriceFilter';
 import { getProductDiscount } from '../utils/pricingRules';
 import { getERPNextClient } from '../services/erpnext';
 import { mapERPWebsiteItemToProduct } from '../services/mappers';
@@ -33,7 +37,8 @@ interface RouteParams {
 
 export const CategoryProductsScreen: React.FC = () => {
   const route = useRoute();
-  const navigation = useNavigation();
+  const navigation = useNavigation<NavigationProp<RootStackParamList>>();
+  const insets = useSafeAreaInsets();
   const { user } = useUserSession();
   const { wishlistItems, refresh: refreshWishlist } = useWishlist(user?.email || null);
   const { toggleWishlist } = useWishlistActions(refreshWishlist);
@@ -77,10 +82,12 @@ export const CategoryProductsScreen: React.FC = () => {
   const [siblingCategories, setSiblingCategories] = useState<any[]>([]);
   const [siblingImages, setSiblingImages] = useState<Record<string, string>>({});
   const [selectedCategory, setSelectedCategory] = useState(initialCategoryName);
-  const [sortBy, setSortBy] = useState('relevant');
+  const [sortOption, setSortOption] = useState<SortOption>('default');
   
   // Use selectedCategory state instead of route params for fetching products
-  const { data: products, loading: productsLoading, refresh: refreshProducts } = useProductsByCategory(selectedCategory, 50);
+  // Convert sortOption to server-side sorting parameter
+  const sortByPrice = sortOption === 'lowToHigh' ? 'asc' : sortOption === 'highToLow' ? 'desc' : undefined;
+  const { data: products, loading: productsLoading, refresh: refreshProducts } = useProductsByCategory(selectedCategory, 50, sortByPrice);
   const { data: pricingRules = [], loading: pricingRulesLoading } = usePricingRules();
   
   // Pull-to-refresh state
@@ -195,28 +202,13 @@ export const CategoryProductsScreen: React.FC = () => {
     }
   }, [initialCategoryName]);
 
+  // No client-side sorting needed - server-side sorting is already applied
   const sortedProducts = useMemo(() => {
-    if (!products) return [];
-
-    const sorted = [...products];
-    switch (sortBy) {
-      case 'popular':
-        // Could sort by rating or popularity metrics
-        return sorted;
-      case 'price-low':
-        return sorted.sort((a, b) => (a.price || 0) - (b.price || 0));
-      case 'price-high':
-        return sorted.sort((a, b) => (b.price || 0) - (a.price || 0));
-      case 'newest':
-        // Could sort by date added
-        return sorted;
-      default:
-        return sorted;
-    }
-  }, [products, sortBy]);
+    return products || [];
+  }, [products]);
 
   const renderHeader = () => (
-    <View style={styles.header}>
+    <View style={[styles.header, { paddingTop: insets.top + Spacing.PADDING_SM }]}>
       <TouchableOpacity onPress={() => navigation.goBack()}>
         <Ionicons name="chevron-back" size={24} color={Colors.BLACK} />
       </TouchableOpacity>
@@ -269,7 +261,7 @@ export const CategoryProductsScreen: React.FC = () => {
                 </View>
               ) : (
                 <View style={styles.siblingTabPlaceholder}>
-                  <Ionicons name="image" size={24} color={Colors.TEXT_SECONDARY} />
+                  <Ionicons name="image" size={18} color={Colors.TEXT_SECONDARY} />
                 </View>
               )}
               <Text
@@ -295,10 +287,7 @@ export const CategoryProductsScreen: React.FC = () => {
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.filtersScroll}
       >
-        <TouchableOpacity style={styles.filterChip}>
-          <Text style={styles.filterChipText}>Sort</Text>
-          <Ionicons name="chevron-down" size={16} color={Colors.SHEIN_PINK} />
-        </TouchableOpacity>
+        <PriceFilter onSortChange={setSortOption} currentSort={sortOption} />
 
         <TouchableOpacity style={styles.filterChip}>
           <Text style={styles.filterChipText}>Category</Text>
@@ -312,11 +301,6 @@ export const CategoryProductsScreen: React.FC = () => {
 
         <TouchableOpacity style={styles.filterChip}>
           <Text style={styles.filterChipText}>Color</Text>
-          <Ionicons name="chevron-down" size={16} color={Colors.SHEIN_PINK} />
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.filterChip}>
-          <Text style={styles.filterChipText}>Price</Text>
           <Ionicons name="chevron-down" size={16} color={Colors.SHEIN_PINK} />
         </TouchableOpacity>
       </ScrollView>
@@ -343,7 +327,7 @@ export const CategoryProductsScreen: React.FC = () => {
       <ProductCard
         product={item}
         onPress={(productId) => {
-          navigation.navigate('ProductDetails' as never, { productId } as never);
+          navigation.navigate('ProductDetails', { productId });
         }}
         onWishlistPress={async (productId) => {
           // Prevent multiple simultaneous operations on the same item
@@ -412,14 +396,13 @@ export const CategoryProductsScreen: React.FC = () => {
 
     if (!sortedProducts || sortedProducts.length === 0) {
       return (
-        <View style={styles.container}>
-          {renderHeader()}
+        <>
           <ListHeader />
           <View style={styles.emptyContainer}>
             <Ionicons name="search" size={48} color={Colors.LIGHT_GRAY} />
             <Text style={styles.emptyText}>No products found</Text>
           </View>
-        </View>
+        </>
       );
     }
 
@@ -456,7 +439,7 @@ export const CategoryProductsScreen: React.FC = () => {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['bottom', 'left', 'right']}>
       {renderHeader()}
       {renderProducts()}
     </SafeAreaView>
@@ -472,25 +455,25 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: Spacing.PADDING_MD,
-    paddingVertical: Spacing.PADDING_MD,
+    paddingHorizontal: Spacing.PADDING_SM,
+    paddingBottom: Spacing.PADDING_SM,
     borderBottomWidth: 1,
     borderBottomColor: Colors.LIGHT_GRAY,
   },
   headerTitle: {
-    fontSize: Typography.FONT_SIZE_LG,
+    fontSize: Typography.FONT_SIZE_MD,
     fontWeight: '600',
     color: Colors.BLACK,
     flex: 1,
-    marginHorizontal: Spacing.MARGIN_SM,
+    marginHorizontal: Spacing.MARGIN_XS,
   },
   headerIcons: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.MARGIN_SM,
+    gap: Spacing.MARGIN_XS,
   },
   iconButton: {
-    padding: Spacing.PADDING_SM,
+    padding: Spacing.PADDING_XS,
   },
   siblingContainer: {
     borderBottomWidth: 1,
@@ -498,24 +481,24 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.WHITE,
   },
   siblingScroll: {
-    paddingHorizontal: Spacing.PADDING_MD,
-    paddingVertical: Spacing.PADDING_SM,
+    paddingHorizontal: Spacing.PADDING_SM,
+    paddingVertical: Spacing.PADDING_XS,
     gap: Spacing.MARGIN_XS,
   },
   siblingTab: {
     alignItems: 'center',
-    paddingVertical: Spacing.PADDING_SM,
-    marginRight: Spacing.MARGIN_SM,
-    maxWidth: width * 0.28,
+    paddingVertical: Spacing.PADDING_XS,
+    marginRight: Spacing.MARGIN_XS,
+    maxWidth: width * 0.25,
   },
   siblingTabActive: {
     opacity: 0.8,
   },
   siblingTabImageContainer: {
-    width: 70,
-    height: 70,
-    borderRadius: 10,
-    marginBottom: Spacing.MARGIN_XS,
+    width: 50,
+    height: 50,
+    borderRadius: 8,
+    marginBottom: Spacing.MARGIN_XS / 2,
     backgroundColor: Colors.LIGHT_GRAY,
     overflow: 'hidden',
   },
@@ -524,16 +507,16 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   siblingTabPlaceholder: {
-    width: 70,
-    height: 70,
-    borderRadius: 10,
+    width: 50,
+    height: 50,
+    borderRadius: 8,
     backgroundColor: Colors.LIGHT_GRAY,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: Spacing.MARGIN_XS,
+    marginBottom: Spacing.MARGIN_XS / 2,
   },
   siblingTabText: {
-    fontSize: Typography.FONT_SIZE_XS,
+    fontSize: Typography.FONT_SIZE_XS - 1,
     color: Colors.DARK_GRAY,
     fontWeight: '500',
     textAlign: 'center',
@@ -551,40 +534,40 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.WHITE,
   },
   filtersScroll: {
-    paddingHorizontal: Spacing.PADDING_MD,
-    paddingVertical: Spacing.PADDING_SM,
+    paddingHorizontal: Spacing.PADDING_SM,
+    paddingVertical: Spacing.PADDING_XS,
     gap: Spacing.MARGIN_XS,
   },
   filterChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: Spacing.PADDING_MD,
-    paddingVertical: Spacing.PADDING_SM,
-    borderRadius: 6,
+    paddingHorizontal: Spacing.PADDING_SM,
+    paddingVertical: Spacing.PADDING_XS,
+    borderRadius: 4,
     borderWidth: 1,
     borderColor: Colors.LIGHT_GRAY,
-    marginRight: Spacing.MARGIN_SM,
+    marginRight: Spacing.MARGIN_XS,
   },
   filterChipText: {
-    fontSize: Typography.FONT_SIZE_SM,
+    fontSize: Typography.FONT_SIZE_XS,
     color: Colors.BLACK,
     fontWeight: '500',
-    marginRight: 4,
+    marginRight: 3,
   },
   listHeader: {
     backgroundColor: Colors.WHITE,
   },
   productsList: {
-    paddingHorizontal: Spacing.SCREEN_PADDING,
-    paddingTop: Spacing.PADDING_MD,
-    paddingBottom: Spacing.PADDING_XL,
+    paddingHorizontal: Spacing.PADDING_SM,
+    paddingTop: Spacing.PADDING_SM,
+    paddingBottom: Spacing.PADDING_MD,
   },
   productRow: {
     justifyContent: 'space-between',
-    marginBottom: Spacing.MARGIN_SM,
+    marginBottom: Spacing.MARGIN_XS,
   },
   productCard: {
-    width: (width - Spacing.SCREEN_PADDING * 2 - Spacing.MARGIN_SM) / 2,
+    width: (width - Spacing.PADDING_SM * 2 - Spacing.MARGIN_XS) / 2,
     marginBottom: 0, // Row spacing handled by columnWrapperStyle
   },
   emptyContainer: {

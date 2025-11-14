@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,42 +8,66 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Button } from '../components/Button';
 import { Colors } from '../constants/colors';
 import { Typography } from '../constants/typography';
 import { Spacing } from '../constants/spacing';
+import { getERPNextClient } from '../services/erpnext';
+
+interface RouteParams {
+  email?: string;
+}
 
 export const ForgotPasswordScreen: React.FC = () => {
-  const [email, setEmail] = useState('');
+  const route = useRoute();
+  const navigation = useNavigation();
+  const { email: initialEmail } = (route.params || {}) as RouteParams;
+  const [email, setEmail] = useState(initialEmail || '');
   const [isLoading, setIsLoading] = useState(false);
   const [isEmailSent, setIsEmailSent] = useState(false);
-  const navigation = useNavigation();
+  
+  // Update email if route params change
+  useEffect(() => {
+    if (initialEmail) {
+      setEmail(initialEmail);
+    }
+  }, [initialEmail]);
 
   const handleResetPassword = async () => {
-    if (!email) {
-      alert('Please enter your email address');
+    const trimmedEmail = email.trim();
+    
+    if (!trimmedEmail) {
+      Alert.alert('Email Required', 'Please enter your email address');
       return;
     }
 
     // Basic email validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      alert('Please enter a valid email address');
+    if (!emailRegex.test(trimmedEmail)) {
+      Alert.alert('Invalid Email', 'Please enter a valid email address');
       return;
     }
 
     setIsLoading(true);
     
-    // Simulate API call
-    setTimeout(() => {
+    try {
+      const client = getERPNextClient();
+      await client.resetPassword(trimmedEmail);
+      
       setIsLoading(false);
       setIsEmailSent(true);
-    }, 2000);
+    } catch (error: any) {
+      setIsLoading(false);
+      const errorMessage = error?.message || 'Failed to send password reset link. Please try again.';
+      Alert.alert('Error', errorMessage);
+      console.error('Password reset error:', error);
+    }
   };
 
   const handleBackToLogin = () => {
@@ -144,34 +168,51 @@ export const ForgotPasswordScreen: React.FC = () => {
           </LinearGradient>
 
           <View style={styles.formContainer}>
+            <View style={styles.titleContainer}>
             <Text style={styles.title}>Forgot Password?</Text>
             <Text style={styles.subtitle}>
-              No worries! Enter your email and we'll send you reset instructions.
+                Enter your email address and we'll send you a password reset link.
             </Text>
+            </View>
 
             <View style={styles.inputContainer}>
               <Text style={styles.label}>Email Address</Text>
-              <View style={styles.inputWrapper}>
-                <Ionicons name="mail-outline" size={20} color={Colors.TEXT_SECONDARY} />
+              <View style={[styles.inputWrapper, email && styles.inputWrapperFilled]}>
+                <Ionicons 
+                  name="mail-outline" 
+                  size={20} 
+                  color={email ? Colors.FLASH_SALE_RED : Colors.TEXT_SECONDARY} 
+                />
                 <TextInput
                   style={styles.input}
                   placeholder="Enter your email address"
+                  placeholderTextColor={Colors.TEXT_SECONDARY}
                   value={email}
                   onChangeText={setEmail}
                   keyboardType="email-address"
                   autoCapitalize="none"
                   autoCorrect={false}
+                  editable={!isLoading}
                 />
+                {email.length > 0 && (
+                  <TouchableOpacity
+                    onPress={() => setEmail('')}
+                    style={styles.clearButton}
+                  >
+                    <Ionicons name="close-circle" size={20} color={Colors.TEXT_SECONDARY} />
+                  </TouchableOpacity>
+                )}
               </View>
             </View>
 
             <Button
-              title="Send Reset Link"
+              title={isLoading ? "Sending..." : "Send Password Reset Link"}
               onPress={handleResetPassword}
               variant="primary"
               size="large"
               loading={isLoading}
               fullWidth
+              disabled={isLoading || !email.trim()}
               style={styles.resetButton}
             />
 
@@ -242,43 +283,48 @@ const styles = StyleSheet.create({
   formContainer: {
     flex: 1,
     paddingHorizontal: Spacing.PADDING_XL,
-    paddingTop: Spacing.PADDING_XL,
+    paddingTop: Spacing.PADDING_XL * 1.5,
   },
   content: {
     flex: 1,
     paddingHorizontal: Spacing.PADDING_XL,
     paddingTop: Spacing.PADDING_XL,
   },
+  titleContainer: {
+    marginBottom: Spacing.MARGIN_XL * 1.5,
+  },
   title: {
-    fontSize: Typography.FONT_SIZE_2XL,
+    fontSize: Typography.FONT_SIZE_3XL,
     fontWeight: Typography.FONT_WEIGHT_BOLD,
     color: Colors.TEXT_PRIMARY,
-    marginBottom: Spacing.MARGIN_SM,
+    marginBottom: Spacing.MARGIN_MD,
   },
   subtitle: {
     fontSize: Typography.FONT_SIZE_MD,
     color: Colors.TEXT_SECONDARY,
-    marginBottom: Spacing.MARGIN_XL,
-    lineHeight: Typography.FONT_SIZE_MD * 1.5,
+    lineHeight: Typography.FONT_SIZE_MD * 1.6,
   },
   inputContainer: {
-    marginBottom: Spacing.MARGIN_XL,
+    marginBottom: Spacing.MARGIN_XL * 1.5,
   },
   label: {
     fontSize: Typography.FONT_SIZE_MD,
-    fontWeight: Typography.FONT_WEIGHT_MEDIUM,
+    fontWeight: Typography.FONT_WEIGHT_SEMIBOLD,
     color: Colors.TEXT_PRIMARY,
-    marginBottom: Spacing.MARGIN_SM,
+    marginBottom: Spacing.MARGIN_MD,
   },
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.SURFACE,
-    borderRadius: Spacing.BORDER_RADIUS_MD,
+    backgroundColor: Colors.WHITE,
+    borderRadius: Spacing.BORDER_RADIUS_LG,
     paddingHorizontal: Spacing.PADDING_MD,
-    borderWidth: 1,
+    borderWidth: 2,
     borderColor: Colors.BORDER,
-    ...Spacing.SHADOW_SM,
+    minHeight: 56,
+  },
+  inputWrapperFilled: {
+    borderColor: Colors.FLASH_SALE_RED,
   },
   input: {
     flex: 1,
@@ -286,6 +332,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.PADDING_SM,
     fontSize: Typography.FONT_SIZE_MD,
     color: Colors.TEXT_PRIMARY,
+  },
+  clearButton: {
+    padding: Spacing.PADDING_XS,
+    marginLeft: Spacing.MARGIN_XS,
   },
   resetButton: {
     marginBottom: Spacing.MARGIN_XL,

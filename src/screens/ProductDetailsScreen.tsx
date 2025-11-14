@@ -27,6 +27,7 @@ import { mapERPWebsiteItemToProduct } from '../services/mappers';
 import { getProductDiscount } from '../utils/pricingRules';
 import { useUserSession } from '../context/UserContext';
 import { Toast } from '../components/Toast';
+import { LoadingScreen } from '../components/LoadingScreen';
 
 const { width, height } = Dimensions.get('window');
 
@@ -100,6 +101,7 @@ export const ProductDetailsScreen: React.FC = () => {
   const [stockQuantity, setStockQuantity] = useState<number | null>(null);
   const [stockLoading, setStockLoading] = useState(false);
   const [showFullProductName, setShowFullProductName] = useState(false);
+  const [displayedReviewsCount, setDisplayedReviewsCount] = useState(5);
 
   // Fetch recommended items and stock quantity
   // IMPORTANT: This runs separately from useProduct to get recommended_items
@@ -140,26 +142,29 @@ export const ProductDetailsScreen: React.FC = () => {
           setStockLoading(false);
         }
         
-        // Extract recommended_items from the child table
+        // Extract recommended_items from the child table - limit to prevent too many API calls
+        const MAX_RECOMMENDED_ITEMS = 5;
         if (websiteItem.recommended_items && Array.isArray(websiteItem.recommended_items) && websiteItem.recommended_items.length > 0) {
           // Extract website_item names from the child table rows
           const recommendedItemNames = websiteItem.recommended_items
             .map((row: any) => row.website_item || row.item_code || row.item || row.name)
-            .filter((name: string) => name && typeof name === 'string');
+            .filter((name: string) => name && typeof name === 'string')
+            .slice(0, MAX_RECOMMENDED_ITEMS); // Limit to prevent too many API calls
           
           if (recommendedItemNames.length > 0) {
-            // Fetch each recommended product (these will also fetch their own stock)
-            const recommendedProductsData = await Promise.all(
-              recommendedItemNames.map(async (itemName: string) => {
-                try {
-                  const recommendedItem = await client.getWebsiteItem(itemName);
-                  return mapERPWebsiteItemToProduct(recommendedItem);
-                } catch (error) {
-                  console.warn(`Failed to fetch recommended item "${itemName}":`, error);
-                  return null;
-                }
-              })
-            );
+            // Fetch each recommended product sequentially to prevent freezing
+            // Sequential fetching is slower but prevents overwhelming the API
+            const recommendedProductsData: (Product | null)[] = [];
+            for (const itemName of recommendedItemNames.slice(0, MAX_RECOMMENDED_ITEMS)) {
+              if (!isMounted) break;
+              try {
+                const recommendedItem = await client.getWebsiteItem(itemName);
+                recommendedProductsData.push(mapERPWebsiteItemToProduct(recommendedItem));
+              } catch (error) {
+                console.warn(`Failed to fetch recommended item "${itemName}":`, error);
+                recommendedProductsData.push(null);
+              }
+            }
             
             if (!isMounted) return;
             
@@ -530,7 +535,7 @@ export const ProductDetailsScreen: React.FC = () => {
           {stockLoading ? (
             <View style={styles.stockStatusRow}>
               <ActivityIndicator size="small" color={Colors.TEXT_SECONDARY} />
-              <Text style={[styles.stockStatusText, { color: Colors.TEXT_SECONDARY, marginLeft: Spacing.MARGIN_XS }]}>Loading stock...</Text>
+              <Text style={[styles.stockStatusText, { color: Colors.TEXT_SECONDARY, marginLeft: Spacing.MARGIN_XS, fontSize: Typography.FONT_SIZE_XS }]}>Loading stock...</Text>
             </View>
           ) : (
             <View style={styles.stockStatusRow}>
@@ -568,7 +573,7 @@ export const ProductDetailsScreen: React.FC = () => {
                   ]}>
                     <Ionicons
                       name={statusIcon as any}
-                      size={20}
+                      size={12}
                       color={Colors.WHITE}
                     />
                     <Text style={[
@@ -606,7 +611,7 @@ export const ProductDetailsScreen: React.FC = () => {
                   </Text>
         <Ionicons
                     name={showFullProductName ? 'chevron-up' : 'chevron-down'}
-                    size={16}
+                    size={12}
                     color={Colors.VIBRANT_PINK}
         />
       </TouchableOpacity>
@@ -645,7 +650,7 @@ export const ProductDetailsScreen: React.FC = () => {
             disabled={!color.inStock}
           >
             {selectedColor && selectedColor.id === color.id && (
-              <Ionicons name="checkmark" size={14} color={Colors.WHITE} />
+              <Ionicons name="checkmark" size={10} color={Colors.WHITE} />
             )}
             {!color.inStock && (
               <View style={styles.outOfStockOverlay} />
@@ -699,14 +704,14 @@ export const ProductDetailsScreen: React.FC = () => {
           style={styles.quantityButton}
           onPress={() => quantity > 1 && setQuantity(quantity - 1)}
         >
-          <Ionicons name="remove" size={20} color={Colors.TEXT_PRIMARY} />
+          <Ionicons name="remove" size={14} color={Colors.TEXT_PRIMARY} />
         </TouchableOpacity>
         <Text style={styles.quantityText}>{quantity}</Text>
         <TouchableOpacity
           style={styles.quantityButton}
           onPress={() => setQuantity(quantity + 1)}
         >
-          <Ionicons name="add" size={20} color={Colors.TEXT_PRIMARY} />
+          <Ionicons name="add" size={14} color={Colors.TEXT_PRIMARY} />
         </TouchableOpacity>
       </View>
     </View>
@@ -844,7 +849,7 @@ export const ProductDetailsScreen: React.FC = () => {
               >
                 <Ionicons
                   name={star <= reviewRating ? 'star' : 'star-outline'}
-                  size={32}
+                  size={24}
                   color={star <= reviewRating ? Colors.WARNING : Colors.TEXT_SECONDARY}
                 />
               </TouchableOpacity>
@@ -997,9 +1002,12 @@ export const ProductDetailsScreen: React.FC = () => {
       );
     }
 
+    const displayedReviews = reviews.slice(0, displayedReviewsCount);
+    const hasMoreReviews = reviews.length > displayedReviewsCount;
+
     return (
       <View style={styles.individualReviewsContainer}>
-        {reviews.map((review) => (
+        {displayedReviews.map((review) => (
           <View key={review.id} style={styles.reviewItem}>
             <View style={styles.reviewHeader}>
               <View style={styles.reviewUserInfo}>
@@ -1034,7 +1042,7 @@ export const ProductDetailsScreen: React.FC = () => {
                     <Ionicons
                       key={star}
                       name="star"
-                      size={14}
+                      size={8}
                       color={isFilled ? Colors.WARNING : Colors.LIGHT_GRAY}
                     />
                   );
@@ -1049,6 +1057,14 @@ export const ProductDetailsScreen: React.FC = () => {
             )}
           </View>
         ))}
+        {hasMoreReviews && (
+          <TouchableOpacity
+            style={styles.viewMoreButton}
+            onPress={() => setDisplayedReviewsCount(reviews.length)}
+          >
+            <Text style={styles.viewMoreButtonText}>View More Reviews ({reviews.length - displayedReviewsCount} more)</Text>
+          </TouchableOpacity>
+        )}
       </View>
     );
   };
@@ -1101,7 +1117,7 @@ export const ProductDetailsScreen: React.FC = () => {
               <Ionicons
                 key={star}
                 name="star"
-                size={20}
+                size={10}
                 color={star <= Math.round(product.rating) ? Colors.WARNING : Colors.LIGHT_GRAY}
               />
             ))}
@@ -1123,7 +1139,7 @@ export const ProductDetailsScreen: React.FC = () => {
                     <Ionicons
                       key={star}
                       name="star"
-                      size={16}
+                      size={10}
                       color={star <= Math.round(product.rating) ? Colors.WARNING : Colors.LIGHT_GRAY}
                     />
                   ))}
@@ -1144,14 +1160,7 @@ export const ProductDetailsScreen: React.FC = () => {
 
   // Loading state
   if (loading) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={Colors.SHEIN_PINK} />
-          <Text style={styles.loadingText}>Loading product details...</Text>
-        </View>
-      </SafeAreaView>
-    );
+    return <LoadingScreen />;
   }
 
   // Error state
@@ -1254,19 +1263,19 @@ export const ProductDetailsScreen: React.FC = () => {
           <View style={styles.metaInfoSection}>
             {product.company ? (
               <View style={styles.metaInfoItem}>
-                <Ionicons name="business-outline" size={14} color={Colors.TEXT_SECONDARY} />
+                <Ionicons name="business-outline" size={10} color={Colors.TEXT_SECONDARY} />
                 <Text style={styles.metaInfoText}>{product.company}</Text>
               </View>
             ) : null}
             {product.category ? (
               <View style={styles.metaInfoItem}>
-                <Ionicons name="grid-outline" size={14} color={Colors.TEXT_SECONDARY} />
+                <Ionicons name="grid-outline" size={10} color={Colors.TEXT_SECONDARY} />
                 <Text style={styles.metaInfoText}>{product.category}</Text>
               </View>
             ) : null}
             {rawWebsiteItem?.ranking ? (
               <View style={styles.metaInfoItem}>
-                <Ionicons name="trending-up-outline" size={14} color={Colors.TEXT_SECONDARY} />
+                <Ionicons name="trending-up-outline" size={10} color={Colors.TEXT_SECONDARY} />
                 <Text style={styles.metaInfoText}>Ranking: {rawWebsiteItem.ranking}</Text>
               </View>
             ) : null}
@@ -1562,7 +1571,7 @@ const styles = StyleSheet.create({
   },
   tab: {
     flex: 1,
-    paddingVertical: Spacing.PADDING_SM,
+    paddingVertical: Spacing.PADDING_XS,
     alignItems: 'center',
     borderBottomWidth: 2,
     borderBottomColor: 'transparent',
@@ -1571,7 +1580,7 @@ const styles = StyleSheet.create({
     borderBottomColor: Colors.VIBRANT_PINK,
   },
   tabText: {
-    fontSize: Typography.FONT_SIZE_SM,
+    fontSize: Typography.FONT_SIZE_XS,
     color: Colors.TEXT_SECONDARY,
     fontWeight: Typography.FONT_WEIGHT_MEDIUM,
   },
@@ -1640,12 +1649,12 @@ const styles = StyleSheet.create({
     gap: Spacing.MARGIN_XS,
   },
   priceFrom: {
-    fontSize: Typography.FONT_SIZE_MD,
+    fontSize: Typography.FONT_SIZE_SM,
     fontWeight: Typography.FONT_WEIGHT_BOLD,
     color: Colors.TEXT_PRIMARY,
   },
   originalPrice: {
-    fontSize: Typography.FONT_SIZE_SM,
+    fontSize: Typography.FONT_SIZE_XS,
     color: Colors.TEXT_SECONDARY,
     textDecorationLine: 'line-through',
   },
@@ -1709,52 +1718,52 @@ const styles = StyleSheet.create({
     fontWeight: Typography.FONT_WEIGHT_MEDIUM,
   },
   description: {
-    fontSize: Typography.FONT_SIZE_MD,
+    fontSize: Typography.FONT_SIZE_SM,
     color: Colors.TEXT_SECONDARY,
-    lineHeight: Typography.FONT_SIZE_MD * 1.5,
-    marginBottom: Spacing.MARGIN_XL,
+    lineHeight: Typography.FONT_SIZE_SM * 1.5,
+    marginBottom: Spacing.MARGIN_LG,
   },
   // Color Section
   colorSection: {
-    marginBottom: Spacing.MARGIN_SM,
+    marginBottom: Spacing.MARGIN_XS,
   },
   colorHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: Spacing.MARGIN_SM,
+    marginBottom: Spacing.MARGIN_XS,
   },
   colorLabel: {
-    fontSize: Typography.FONT_SIZE_SM,
+    fontSize: Typography.FONT_SIZE_XS,
     fontWeight: Typography.FONT_WEIGHT_MEDIUM,
     color: Colors.TEXT_PRIMARY,
   },
   colorOptions: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: Spacing.MARGIN_SM,
+    gap: Spacing.MARGIN_XS,
   },
   optionSection: {
     marginBottom: Spacing.MARGIN_LG,
   },
   optionTitle: {
-    fontSize: Typography.FONT_SIZE_MD,
+    fontSize: Typography.FONT_SIZE_XS,
     fontWeight: Typography.FONT_WEIGHT_SEMIBOLD,
     color: Colors.TEXT_PRIMARY,
-    marginBottom: Spacing.MARGIN_MD,
+    marginBottom: Spacing.MARGIN_XS,
   },
   colorOption: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 2,
+    borderWidth: 1.5,
     borderColor: Colors.BORDER,
   },
   colorOptionSelected: {
     borderColor: Colors.VIBRANT_PINK,
-    borderWidth: 3,
+    borderWidth: 2,
   },
   colorOptionDisabled: {
     opacity: 0.5,
@@ -1771,12 +1780,12 @@ const styles = StyleSheet.create({
   sizeOptions: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: Spacing.MARGIN_SM,
+    gap: Spacing.MARGIN_XS,
   },
   sizeOption: {
-    width: 50,
-    height: 50,
-    borderRadius: Spacing.BORDER_RADIUS_MD,
+    width: 36,
+    height: 36,
+    borderRadius: Spacing.BORDER_RADIUS_SM,
     borderWidth: 1,
     borderColor: Colors.BORDER,
     justifyContent: 'center',
@@ -1792,7 +1801,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.LIGHT_GRAY,
   },
   sizeText: {
-    fontSize: Typography.FONT_SIZE_SM,
+    fontSize: Typography.FONT_SIZE_XS,
     fontWeight: Typography.FONT_WEIGHT_MEDIUM,
     color: Colors.TEXT_PRIMARY,
   },
@@ -1806,22 +1815,22 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: Colors.SURFACE,
-    borderRadius: Spacing.BORDER_RADIUS_MD,
+    borderRadius: Spacing.BORDER_RADIUS_SM,
     borderWidth: 1,
     borderColor: Colors.BORDER,
     alignSelf: 'flex-start',
   },
   quantityButton: {
-    width: 40,
-    height: 40,
+    width: 28,
+    height: 28,
     justifyContent: 'center',
     alignItems: 'center',
   },
   quantityText: {
-    fontSize: Typography.FONT_SIZE_MD,
+    fontSize: Typography.FONT_SIZE_SM,
     fontWeight: Typography.FONT_WEIGHT_SEMIBOLD,
     color: Colors.TEXT_PRIMARY,
-    paddingHorizontal: Spacing.PADDING_MD,
+    paddingHorizontal: Spacing.PADDING_SM,
   },
   actionButtons: {
     marginBottom: Spacing.MARGIN_XL,
@@ -1834,16 +1843,16 @@ const styles = StyleSheet.create({
   },
   // Reviews Section
   reviewsSection: {
-    paddingBottom: Spacing.PADDING_MD,
+    paddingBottom: Spacing.PADDING_SM,
   },
   reviewsHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: Spacing.MARGIN_MD,
+    marginBottom: Spacing.MARGIN_SM,
   },
   reviewsTitle: {
-    fontSize: Typography.FONT_SIZE_XL,
+    fontSize: Typography.FONT_SIZE_SM,
     fontWeight: Typography.FONT_WEIGHT_BOLD,
     color: Colors.TEXT_PRIMARY,
   },
@@ -1865,10 +1874,10 @@ const styles = StyleSheet.create({
   overallRatingContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: Spacing.MARGIN_SM,
+    marginBottom: Spacing.MARGIN_XS,
   },
   overallRating: {
-    fontSize: Typography.FONT_SIZE_LG,
+    fontSize: Typography.FONT_SIZE_SM,
     fontWeight: Typography.FONT_WEIGHT_BOLD,
     color: Colors.TEXT_PRIMARY,
     marginRight: Spacing.MARGIN_XS,
@@ -1877,33 +1886,33 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
   },
   fitFeedbackSection: {
-    marginBottom: Spacing.MARGIN_SM,
-    paddingBottom: Spacing.PADDING_SM,
+    marginBottom: Spacing.MARGIN_XS,
+    paddingBottom: Spacing.PADDING_XS,
     borderBottomWidth: 1,
     borderBottomColor: Colors.BORDER,
   },
   fitFeedbackQuestion: {
-    fontSize: Typography.FONT_SIZE_SM,
+    fontSize: Typography.FONT_SIZE_XS,
     fontWeight: Typography.FONT_WEIGHT_MEDIUM,
     color: Colors.TEXT_PRIMARY,
-    marginBottom: Spacing.MARGIN_SM,
+    marginBottom: Spacing.MARGIN_XS,
   },
   fitFeedbackBars: {
-    gap: Spacing.MARGIN_SM,
+    gap: Spacing.MARGIN_XS,
   },
   fitBarItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.MARGIN_SM,
+    gap: Spacing.MARGIN_XS,
   },
   fitBarLabel: {
-    fontSize: Typography.FONT_SIZE_SM,
+    fontSize: Typography.FONT_SIZE_XS,
     color: Colors.TEXT_SECONDARY,
-    width: 80,
+    width: 60,
   },
   fitBarContainer: {
     flex: 1,
-    height: 20,
+    height: 14,
     backgroundColor: Colors.LIGHT_GRAY,
     borderRadius: Spacing.BORDER_RADIUS_SM,
     overflow: 'hidden',
@@ -1916,14 +1925,14 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.TEXT_PRIMARY,
   },
   fitBarPercentage: {
-    fontSize: Typography.FONT_SIZE_SM,
+    fontSize: Typography.FONT_SIZE_XS,
     color: Colors.TEXT_SECONDARY,
-    width: 40,
+    width: 30,
     textAlign: 'right',
   },
   localReviewsContainer: {
-    marginBottom: Spacing.MARGIN_SM,
-    paddingBottom: Spacing.PADDING_SM,
+    marginBottom: Spacing.MARGIN_XS,
+    paddingBottom: Spacing.PADDING_XS,
     borderBottomWidth: 1,
     borderBottomColor: Colors.BORDER,
   },
@@ -1972,22 +1981,22 @@ const styles = StyleSheet.create({
     color: Colors.TEXT_PRIMARY,
   },
   individualReviewsContainer: {
-    paddingVertical: Spacing.PADDING_MD,
+    paddingVertical: Spacing.PADDING_XS,
   },
   loadingReviewsText: {
+    fontSize: Typography.FONT_SIZE_XS,
+    color: Colors.TEXT_SECONDARY,
+    textAlign: 'center',
+    marginTop: Spacing.MARGIN_XS,
+  },
+  noReviewsText: {
     fontSize: Typography.FONT_SIZE_SM,
     color: Colors.TEXT_SECONDARY,
     textAlign: 'center',
-    marginTop: Spacing.MARGIN_SM,
-  },
-  noReviewsText: {
-    fontSize: Typography.FONT_SIZE_MD,
-    color: Colors.TEXT_SECONDARY,
-    textAlign: 'center',
-    paddingVertical: Spacing.PADDING_LG,
+    paddingVertical: Spacing.PADDING_MD,
   },
   reviewItem: {
-    paddingVertical: Spacing.PADDING_MD,
+    paddingVertical: Spacing.PADDING_XS,
     borderBottomWidth: 1,
     borderBottomColor: Colors.BORDER,
   },
@@ -1995,7 +2004,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: Spacing.MARGIN_SM,
+    marginBottom: 2,
   },
   reviewUserInfo: {
     flexDirection: 'row',
@@ -2003,16 +2012,16 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   reviewAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
     backgroundColor: Colors.SHEIN_PINK,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: Spacing.MARGIN_SM,
+    marginRight: Spacing.MARGIN_XS,
   },
   reviewAvatarText: {
-    fontSize: Typography.FONT_SIZE_MD,
+    fontSize: Typography.FONT_SIZE_XS,
     fontWeight: Typography.FONT_WEIGHT_BOLD,
     color: Colors.WHITE,
   },
@@ -2020,29 +2029,42 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   reviewUserName: {
-    fontSize: Typography.FONT_SIZE_MD,
+    fontSize: Typography.FONT_SIZE_XS,
     fontWeight: Typography.FONT_WEIGHT_MEDIUM,
     color: Colors.TEXT_PRIMARY,
-    marginBottom: 2,
+    marginBottom: 1,
   },
   reviewDate: {
-    fontSize: Typography.FONT_SIZE_SM,
+    fontSize: Typography.FONT_SIZE_XS,
     color: Colors.TEXT_SECONDARY,
   },
   reviewRating: {
     flexDirection: 'row',
-    gap: 2,
+    gap: 1,
   },
   reviewTitle: {
-    fontSize: Typography.FONT_SIZE_MD,
+    fontSize: Typography.FONT_SIZE_XS,
     fontWeight: Typography.FONT_WEIGHT_MEDIUM,
     color: Colors.TEXT_PRIMARY,
-    marginBottom: Spacing.MARGIN_XS,
+    marginBottom: 2,
   },
   reviewComment: {
-    fontSize: Typography.FONT_SIZE_SM,
+    fontSize: 10,
     color: Colors.TEXT_SECONDARY,
-    lineHeight: 20,
+    lineHeight: 14,
+  },
+  viewMoreButton: {
+    marginTop: Spacing.MARGIN_XS,
+    paddingVertical: Spacing.PADDING_XS,
+    paddingHorizontal: Spacing.PADDING_SM,
+    backgroundColor: Colors.LIGHT_GRAY,
+    borderRadius: Spacing.BORDER_RADIUS_SM,
+    alignItems: 'center',
+  },
+  viewMoreButtonText: {
+    fontSize: Typography.FONT_SIZE_XS,
+    color: Colors.SHEIN_RED,
+    fontWeight: Typography.FONT_WEIGHT_MEDIUM,
   },
   reviewFooter: {
     flexDirection: 'row',
@@ -2114,34 +2136,34 @@ const styles = StyleSheet.create({
     fontWeight: Typography.FONT_WEIGHT_SEMIBOLD,
   },
   specificationsSection: {
-    marginTop: Spacing.MARGIN_MD,
-    marginBottom: Spacing.MARGIN_SM,
-    paddingTop: Spacing.PADDING_MD,
+    marginTop: Spacing.MARGIN_SM,
+    marginBottom: Spacing.MARGIN_XS,
+    paddingTop: Spacing.PADDING_SM,
     borderTopWidth: 1,
     borderTopColor: Colors.LIGHT_GRAY,
   },
   specificationsTitle: {
-    fontSize: Typography.FONT_SIZE_LG,
+    fontSize: Typography.FONT_SIZE_XS,
     fontWeight: Typography.FONT_WEIGHT_BOLD,
     color: Colors.TEXT_PRIMARY,
-    marginBottom: Spacing.MARGIN_SM,
+    marginBottom: 2,
   },
   specificationItem: {
-    marginBottom: Spacing.MARGIN_SM,
-    paddingBottom: Spacing.PADDING_SM,
+    marginBottom: Spacing.MARGIN_XS,
+    paddingBottom: Spacing.PADDING_XS,
     borderBottomWidth: 1,
     borderBottomColor: Colors.LIGHT_GRAY,
   },
   specificationLabel: {
-    fontSize: Typography.FONT_SIZE_MD,
+    fontSize: Typography.FONT_SIZE_XS,
     fontWeight: Typography.FONT_WEIGHT_SEMIBOLD,
     color: Colors.TEXT_PRIMARY,
-    marginBottom: 2,
+    marginBottom: 1,
   },
   specificationDescription: {
-    fontSize: Typography.FONT_SIZE_SM,
+    fontSize: Typography.FONT_SIZE_XS,
     color: Colors.TEXT_SECONDARY,
-    lineHeight: Typography.FONT_SIZE_SM * 1.5,
+    lineHeight: Typography.FONT_SIZE_XS * 1.4,
   },
   writeReviewButton: {
     flexDirection: 'row',
@@ -2161,18 +2183,18 @@ const styles = StyleSheet.create({
     marginLeft: Spacing.MARGIN_SM,
   },
   reviewFormContainer: {
-    marginTop: Spacing.MARGIN_LG,
-    padding: Spacing.PADDING_LG,
+    marginTop: Spacing.MARGIN_MD,
+    padding: Spacing.PADDING_MD,
     backgroundColor: Colors.SURFACE,
     borderRadius: Spacing.BORDER_RADIUS_MD,
     borderWidth: 1,
     borderColor: Colors.BORDER,
   },
   reviewFormTitle: {
-    fontSize: Typography.FONT_SIZE_LG,
+    fontSize: Typography.FONT_SIZE_MD,
     fontWeight: Typography.FONT_WEIGHT_BOLD,
     color: Colors.TEXT_PRIMARY,
-    marginBottom: Spacing.MARGIN_LG,
+    marginBottom: Spacing.MARGIN_MD,
   },
   ratingInputContainer: {
     marginBottom: Spacing.MARGIN_LG,
@@ -2194,17 +2216,17 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.MARGIN_LG,
   },
   reviewInputLabel: {
-    fontSize: Typography.FONT_SIZE_MD,
+    fontSize: Typography.FONT_SIZE_SM,
     fontWeight: Typography.FONT_WEIGHT_SEMIBOLD,
     color: Colors.TEXT_PRIMARY,
-    marginBottom: Spacing.MARGIN_SM,
+    marginBottom: Spacing.MARGIN_XS,
   },
   reviewInput: {
     borderWidth: 1,
     borderColor: Colors.BORDER,
     borderRadius: Spacing.BORDER_RADIUS_MD,
-    padding: Spacing.PADDING_MD,
-    fontSize: Typography.FONT_SIZE_MD,
+    padding: Spacing.PADDING_SM,
+    fontSize: Typography.FONT_SIZE_SM,
     color: Colors.TEXT_PRIMARY,
     backgroundColor: Colors.WHITE,
   },
@@ -2237,16 +2259,16 @@ const styles = StyleSheet.create({
   },
   reviewFormButtonTextCancel: {
     color: Colors.TEXT_PRIMARY,
-    fontSize: Typography.FONT_SIZE_MD,
+    fontSize: Typography.FONT_SIZE_SM,
     fontWeight: Typography.FONT_WEIGHT_SEMIBOLD,
   },
   reviewFormButtonTextSubmit: {
     color: Colors.WHITE,
-    fontSize: Typography.FONT_SIZE_MD,
+    fontSize: Typography.FONT_SIZE_SM,
     fontWeight: Typography.FONT_WEIGHT_SEMIBOLD,
   },
   company: {
-    fontSize: Typography.FONT_SIZE_SM,
+    fontSize: Typography.FONT_SIZE_XS,
     color: Colors.TEXT_SECONDARY,
     fontStyle: 'italic',
     marginBottom: Spacing.MARGIN_XS,
@@ -2275,10 +2297,10 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing.PADDING_MD,
   },
   sectionTitle: {
-    fontSize: Typography.FONT_SIZE_MD,
+    fontSize: Typography.FONT_SIZE_XS,
     fontWeight: Typography.FONT_WEIGHT_BOLD,
     color: Colors.TEXT_PRIMARY,
-    marginBottom: Spacing.MARGIN_SM,
+    marginBottom: 2,
   },
   comingSoonText: {
     fontSize: Typography.FONT_SIZE_MD,
@@ -2357,15 +2379,15 @@ const styles = StyleSheet.create({
     borderBottomColor: Colors.BORDER,
   },
   descriptionTitle: {
-    fontSize: Typography.FONT_SIZE_SM,
+    fontSize: Typography.FONT_SIZE_XS,
     fontWeight: Typography.FONT_WEIGHT_BOLD,
     color: Colors.TEXT_PRIMARY,
-    marginBottom: Spacing.MARGIN_XS,
+    marginBottom: 2,
   },
   descriptionText: {
-    fontSize: Typography.FONT_SIZE_SM,
+    fontSize: Typography.FONT_SIZE_XS,
     color: Colors.TEXT_SECONDARY,
-    lineHeight: Typography.FONT_SIZE_SM * 1.5,
+    lineHeight: Typography.FONT_SIZE_XS * 1.4,
   },
   readMoreButton: {
     flexDirection: 'row',
@@ -2400,11 +2422,11 @@ const styles = StyleSheet.create({
   productNameInCarousel: {
     width: width,
     backgroundColor: Colors.WHITE,
-    paddingHorizontal: Spacing.PADDING_MD,
-    paddingBottom: Spacing.PADDING_MD,
+    paddingHorizontal: Spacing.PADDING_SM,
+    paddingBottom: Spacing.PADDING_SM,
   },
   productNameText: {
-    fontSize: Typography.FONT_SIZE_MD,
+    fontSize: Typography.FONT_SIZE_XS,
     fontWeight: Typography.FONT_WEIGHT_BOLD,
     color: Colors.TEXT_PRIMARY,
     textAlign: 'left',
@@ -2416,7 +2438,7 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
   },
   productNameReadMoreText: {
-    fontSize: Typography.FONT_SIZE_SM,
+    fontSize: Typography.FONT_SIZE_XS,
     color: Colors.VIBRANT_PINK,
     fontWeight: Typography.FONT_WEIGHT_MEDIUM,
     marginRight: Spacing.MARGIN_XS,
@@ -2437,14 +2459,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     alignSelf: 'center',
-    width: 450,
-    paddingHorizontal: Spacing.PADDING_MD,
-    paddingVertical: Spacing.PADDING_SM,
-    borderRadius: Spacing.BORDER_RADIUS_MD,
-    gap: Spacing.MARGIN_XS,
+    width: 250,
+    paddingVertical: Spacing.PADDING_XS,
+    paddingHorizontal: Spacing.PADDING_SM,
+    borderRadius: Spacing.BORDER_RADIUS_SM,
+    gap: 4,
   },
   stockStatusText: {
-    fontSize: Typography.FONT_SIZE_MD,
+    fontSize: Typography.FONT_SIZE_XS,
     fontWeight: Typography.FONT_WEIGHT_BOLD,
   },
   // Short Description

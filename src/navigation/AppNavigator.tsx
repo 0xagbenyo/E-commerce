@@ -15,6 +15,8 @@ import { HomeScreen } from '../screens/HomeScreen';
 import { CategoriesScreen } from '../screens/CategoriesScreen';
 import { CategoryProductsScreen } from '../screens/CategoryProductsScreen';
 import { AllDealsScreen } from '../screens/AllDealsScreen';
+import { PricingRulesScreen } from '../screens/PricingRulesScreen';
+import { ProductBundlesScreen } from '../screens/ProductBundlesScreen';
 import { SearchScreen } from '../screens/SearchScreen';
 import { NewScreen } from '../screens/NewScreen';
 import { CartScreen } from '../screens/CartScreen';
@@ -26,6 +28,7 @@ import { OrderHistoryScreen } from '../screens/OrderHistoryScreen';
 import { InvoiceDetailsScreen } from '../screens/InvoiceDetailsScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
 import { WishlistScreen } from '../screens/WishlistScreen';
+import { EditProfileScreen } from '../screens/EditProfileScreen';
 
 // Types
 import { RootStackParamList, AuthStackParamList, MainTabParamList } from '../types';
@@ -144,6 +147,25 @@ export const AppNavigator = () => {
           options={{ presentation: 'card' }}
         />
         <Stack.Screen 
+          name="PricingRules" 
+          component={PricingRulesScreen}
+          options={{ presentation: 'card' }}
+        />
+        <Stack.Screen 
+          name="ProductBundles" 
+          component={ProductBundlesScreen}
+          options={{ presentation: 'card' }}
+        />
+        <Stack.Screen 
+          name="Search" 
+          component={SearchScreen}
+          options={{ 
+            presentation: 'card',
+            headerShown: false,
+            gestureEnabled: true,
+          }}
+        />
+        <Stack.Screen 
           name="Wishlist" 
           component={WishlistScreen}
           options={{ presentation: 'card' }}
@@ -161,6 +183,11 @@ export const AppNavigator = () => {
         <Stack.Screen 
           name="InvoiceDetails" 
           component={InvoiceDetailsScreen}
+          options={{ presentation: 'card' }}
+        />
+        <Stack.Screen 
+          name="EditProfile" 
+          component={EditProfileScreen}
           options={{ presentation: 'card' }}
         />
         <Stack.Screen name="Splash" component={SplashScreen} />
