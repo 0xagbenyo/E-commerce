@@ -17,6 +17,7 @@ interface HeaderProps {
   onSearchChange?: (text: string) => void;
   showBackButton?: boolean;
   onBackPress?: () => void;
+  customPaddingTop?: number;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -31,6 +32,7 @@ export const Header: React.FC<HeaderProps> = ({
   onSearchChange,
   showBackButton = false,
   onBackPress,
+  customPaddingTop,
 }) => {
   const navigation = useNavigation();
   const [localSearchValue, setLocalSearchValue] = useState('');
@@ -173,7 +175,7 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <View style={styles.header}>
+    <View style={[styles.header, customPaddingTop !== undefined && { paddingTop: customPaddingTop }]}>
       {/* Search and Icons Row */}
       <View style={styles.headerTop}>
         {/* Left side icons */}
@@ -271,7 +273,7 @@ export const Header: React.FC<HeaderProps> = ({
 const styles = StyleSheet.create({
   header: {
     paddingHorizontal: Spacing.SCREEN_PADDING,
-    paddingTop: Spacing.PADDING_LG,
+    paddingTop: Spacing.PADDING_LG + 30,
     paddingBottom: Spacing.PADDING_SM,
     backgroundColor: '#DC143C',
   },

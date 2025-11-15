@@ -236,23 +236,23 @@ export const useSearchProducts = (query: string) => {
       
       try {
         if (isMounted) {
-          setState((prev) => ({ ...prev, loading: true, error: null }));
+        setState((prev) => ({ ...prev, loading: true, error: null }));
         }
         const client = getERPNextClient();
         const websiteItems = await client.searchItems(query);
         
         if (isMounted) {
-          const products = websiteItems.map((item) => mapERPWebsiteItemToProduct(item));
-          setState({ data: products, loading: false, error: null });
+        const products = websiteItems.map((item) => mapERPWebsiteItemToProduct(item));
+        setState({ data: products, loading: false, error: null });
         }
       } catch (error) {
         if (isMounted) {
-          setState({
-            data: null,
-            loading: false,
-            error: error instanceof Error ? error : new Error('Unknown error'),
-          });
-        }
+        setState({
+          data: null,
+          loading: false,
+          error: error instanceof Error ? error : new Error('Unknown error'),
+        });
+      }
       }
     };
 

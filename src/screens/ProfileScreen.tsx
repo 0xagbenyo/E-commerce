@@ -8,6 +8,7 @@ import {
   FlatList,
   ActivityIndicator,
   RefreshControl,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -30,7 +31,7 @@ export const ProfileScreen: React.FC = () => {
   const [loadingUser, setLoadingUser] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const navigation = useNavigation();
-  const { user } = useUserSession();
+  const { user, clearUser } = useUserSession();
   
   // Fetch user details
   useEffect(() => {
@@ -237,18 +238,18 @@ export const ProfileScreen: React.FC = () => {
               onPress={() => (navigation as any).navigate('EditProfile')}
             >
             <Text style={styles.profileLabel}>My Profile</Text>
-            <Ionicons name="pencil" size={16} color={Colors.BLACK} />
+            <Ionicons name="pencil" size={14} color={Colors.BLACK} />
             </TouchableOpacity>
         </View>
         <View style={styles.headerActions}>
           <TouchableOpacity style={styles.headerIcon}>
-            <Ionicons name="grid" size={20} color={Colors.BLACK} />
+            <Ionicons name="grid" size={16} color={Colors.BLACK} />
           </TouchableOpacity>
           <TouchableOpacity 
             style={styles.headerIcon}
               onPress={() => (navigation as any).navigate('Settings')}
           >
-            <Ionicons name="settings-outline" size={20} color={Colors.BLACK} />
+            <Ionicons name="settings-outline" size={16} color={Colors.BLACK} />
           </TouchableOpacity>
         </View>
       </View>
@@ -276,11 +277,11 @@ export const ProfileScreen: React.FC = () => {
         onPress={handleBannerPress}
         activeOpacity={0.8}
         >
-        <Ionicons name="pricetag" size={20} color={Colors.SHEIN_PINK} />
+        <Ionicons name="pricetag" size={16} color={Colors.SHEIN_PINK} />
         <Text style={styles.pricingRuleBannerText}>
           Get {discountPercent}% Off - Tap to view deals!
         </Text>
-        <Ionicons name="chevron-forward" size={16} color={Colors.SHEIN_PINK} />
+        <Ionicons name="chevron-forward" size={14} color={Colors.SHEIN_PINK} />
         </TouchableOpacity>
   );
   };
@@ -295,23 +296,23 @@ export const ProfileScreen: React.FC = () => {
       </View>
       <View style={styles.orderStatuses}>
         <View style={styles.orderStatus}>
-          <Ionicons name="document-outline" size={24} color={Colors.BLACK} />
+          <Ionicons name="document-outline" size={18} color={Colors.BLACK} />
           <Text style={styles.orderStatusLabel}>Unpaid ({unpaidCount})</Text>
         </View>
         <View style={styles.orderStatus}>
-          <Ionicons name="cube-outline" size={24} color={Colors.BLACK} />
+          <Ionicons name="cube-outline" size={18} color={Colors.BLACK} />
           <Text style={styles.orderStatusLabel}>Processing ({processingCount})</Text>
         </View>
         <View style={styles.orderStatus}>
-          <Ionicons name="car-outline" size={24} color={Colors.BLACK} />
+          <Ionicons name="car-outline" size={18} color={Colors.BLACK} />
           <Text style={styles.orderStatusLabel}>Shipped ({shippedCount})</Text>
         </View>
         <View style={styles.orderStatus}>
-          <Ionicons name="chatbubble-outline" size={24} color={Colors.BLACK} />
+          <Ionicons name="chatbubble-outline" size={18} color={Colors.BLACK} />
           <Text style={styles.orderStatusLabel}>Review</Text>
         </View>
         <View style={styles.orderStatus}>
-          <Ionicons name="arrow-undo-outline" size={24} color={Colors.BLACK} />
+          <Ionicons name="arrow-undo-outline" size={18} color={Colors.BLACK} />
           <Text style={styles.orderStatusLabel}>Returns</Text>
           </View>
       </View>
@@ -327,11 +328,11 @@ export const ProfileScreen: React.FC = () => {
           activeOpacity={0.7}
         >
             <View style={styles.activityContent}>
-            <Ionicons name="heart-outline" size={20} color={Colors.BLACK} />
+            <Ionicons name="heart-outline" size={16} color={Colors.BLACK} />
             <Text style={styles.activityLabel}>Wishlist</Text>
             <Text style={styles.activityValue}>{wishlistCount} item{wishlistCount !== 1 ? 's' : ''}</Text>
             </View>
-              <Ionicons name="chevron-forward" size={16} color={Colors.TEXT_SECONDARY} />
+              <Ionicons name="chevron-forward" size={14} color={Colors.TEXT_SECONDARY} />
         </TouchableOpacity>
       </View>
     </View>
@@ -342,13 +343,60 @@ export const ProfileScreen: React.FC = () => {
       <View style={styles.servicesContainer}>
         {services.map((service) => (
           <TouchableOpacity key={service.id} style={styles.serviceItem}>
-            <Ionicons name={service.icon as any} size={24} color={Colors.BLACK} />
+            <Ionicons name={service.icon as any} size={18} color={Colors.BLACK} />
             <Text style={styles.serviceLabel}>{service.label}</Text>
           </TouchableOpacity>
         ))}
       </View>
     </View>
   );
+
+  const handleLogout = () => {
+    Alert.alert(
+      'Log Out',
+      'Are you sure you want to log out?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Log Out',
+          style: 'destructive',
+          onPress: () => {
+            clearUser();
+            // Navigate to Auth stack (Login screen)
+            (navigation as any).reset({
+              index: 0,
+              routes: [{ name: 'Auth' }],
+            });
+          },
+        },
+      ],
+      { cancelable: true }
+    );
+  };
+
+  const renderLogoutSection = () => {
+    if (!user?.email) {
+      return null;
+    }
+
+    return (
+    <View style={styles.section}>
+        <View style={styles.logoutContainer}>
+          <TouchableOpacity 
+            style={styles.logoutButton}
+            onPress={handleLogout}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="log-out-outline" size={18} color={Colors.ERROR} />
+            <Text style={styles.logoutText}>Log Out</Text>
+              </TouchableOpacity>
+      </View>
+    </View>
+  );
+  };
 
 
   return (
@@ -369,6 +417,7 @@ export const ProfileScreen: React.FC = () => {
         {renderOrdersSection()}
         {renderActivitiesSection()}
         {renderServicesSection()}
+        {renderLogoutSection()}
       </ScrollView>
     </SafeAreaView>
   );
@@ -381,7 +430,7 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingHorizontal: 16,
-    paddingVertical: 16,
+    paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: Colors.BORDER,
   },
@@ -390,16 +439,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   avatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: Colors.LIGHT_GRAY,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
+    marginRight: 10,
   },
   avatarText: {
-    fontSize: 24,
+    fontSize: 18,
     fontWeight: 'bold',
     color: Colors.BLACK,
   },
@@ -409,13 +458,13 @@ const styles = StyleSheet.create({
   usernameRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 4,
+    marginBottom: 3,
   },
   username: {
-    fontSize: 18,
+    fontSize: 14,
     fontWeight: 'bold',
     color: Colors.BLACK,
-    marginRight: 8,
+    marginRight: 6,
   },
   googleBadge: {
     width: 20,
@@ -433,31 +482,31 @@ const styles = StyleSheet.create({
   },
   membershipBadge: {
     backgroundColor: Colors.SHEIN_PINK,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 3,
   },
   membershipText: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: 'bold',
     color: Colors.WHITE,
   },
   profileEditRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 3,
   },
   profileLabel: {
-    fontSize: 14,
+    fontSize: 12,
     color: Colors.TEXT_SECONDARY,
   },
   headerActions: {
     flexDirection: 'row',
-    gap: 12,
+    gap: 8,
   },
   headerIcon: {
-    width: 40,
-    height: 40,
+    width: 32,
+    height: 32,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -466,15 +515,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#FFF0F5',
     marginHorizontal: 16,
-    marginVertical: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 8,
-    gap: 8,
+    marginVertical: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 6,
+    gap: 6,
   },
   pricingRuleBannerText: {
     flex: 1,
-    fontSize: 14,
+    fontSize: 12,
     color: Colors.SHEIN_PINK,
     fontWeight: '500',
   },
@@ -485,7 +534,7 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
   },
   section: {
-    paddingVertical: 16,
+    paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: Colors.BORDER,
   },
@@ -494,15 +543,15 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 16,
-    marginBottom: 16,
+    marginBottom: 12,
   },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: 14,
     fontWeight: 'bold',
     color: Colors.BLACK,
   },
   viewAllText: {
-    fontSize: 14,
+    fontSize: 12,
     color: Colors.SHEIN_PINK,
     fontWeight: '500',
   },
@@ -515,9 +564,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   orderStatusLabel: {
-    fontSize: 12,
+    fontSize: 10,
     color: Colors.TEXT_SECONDARY,
-    marginTop: 4,
+    marginTop: 3,
   },
   activitiesContainer: {
     paddingHorizontal: 16,
@@ -525,21 +574,21 @@ const styles = StyleSheet.create({
   activityItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: 6,
   },
   activityContent: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
   },
   activityLabel: {
-    fontSize: 14,
+    fontSize: 12,
     color: Colors.BLACK,
     flex: 1,
   },
   activityValue: {
-    fontSize: 14,
+    fontSize: 12,
     color: Colors.TEXT_SECONDARY,
   },
   servicesContainer: {
@@ -551,9 +600,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   serviceLabel: {
-    fontSize: 12,
+    fontSize: 10,
     color: Colors.TEXT_SECONDARY,
-    marginTop: 8,
+    marginTop: 6,
     textAlign: 'center',
   },
   productsContainer: {
@@ -696,6 +745,26 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: Colors.WHITE,
     fontWeight: 'bold',
+  },
+  logoutContainer: {
+    paddingHorizontal: 16,
+  },
+  logoutButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.WHITE,
+    borderWidth: 1,
+    borderColor: Colors.ERROR,
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    gap: 6,
+  },
+  logoutText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.ERROR,
   },
 });
 

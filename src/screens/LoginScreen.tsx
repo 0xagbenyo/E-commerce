@@ -109,13 +109,36 @@ export const LoginScreen: React.FC = () => {
       // Store user session
       // Use loginIdentifier as fallback if user field is not available
       const userEmail = loginResult.user || loginIdentifier;
+      
+      // Fetch customer by email to get the customer name (ERPNext Customer 'name' field for API calls)
+      // and customer_name (display name for profile)
+      let customerId = userEmail; // Fallback to email if customer not found
+      let customerDisplayName = loginResult.full_name || undefined; // Fallback to login full_name
+      try {
+        const customer = await client.getCustomerByEmail(userEmail);
+        if (customer) {
+          // customer.name is the ERPNext Customer ID (e.g., "CUST-00001") - used for API calls
+          if (customer.name) {
+            customerId = customer.name;
+          }
+          // customer.customer_name is the display name (e.g., "John Doe") - used for profile display
+          if (customer.customer_name) {
+            customerDisplayName = customer.customer_name;
+          }
+          console.log('Customer found:', { id: customer.name, name: customer.customer_name });
+        }
+      } catch (error) {
+        console.warn('Could not fetch customer by email:', error);
+        // Continue with email as fallback
+      }
+      
       setUser({
         email: userEmail,
-        fullName: loginResult.full_name || undefined,
-        user: userEmail,
+        fullName: customerDisplayName, // Store customer display name for profile
+        user: customerId, // Store customer ID (name field) for API calls like Sales Order
       });
       
-      console.log('User session stored:', { email: userEmail, fullName: loginResult.full_name });
+      console.log('User session stored:', { email: userEmail, customerId: customerId, customerDisplayName: customerDisplayName });
       
       // Reset navigation stack to prevent going back to login
       navigation.dispatch(
@@ -154,23 +177,14 @@ export const LoginScreen: React.FC = () => {
         <ScrollView contentContainerStyle={styles.scrollContent}>
           {/* Header */}
           <View style={styles.header}>
-            <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-              <Ionicons name="arrow-back" size={24} color={Colors.BLACK} />
-            </TouchableOpacity>
             <View style={styles.logoContainer}>
               <Text style={styles.logo}>SIAMAE</Text>
               <Text style={styles.logoSuffix}>GH</Text>
             </View>
             <View style={styles.securityInfo}>
-              <Ionicons name="shield-checkmark" size={16} color={Colors.SUCCESS} />
+              <Ionicons name="shield-checkmark" size={14} color={Colors.SUCCESS} />
               <Text style={styles.securityText}>Your data is protected.</Text>
             </View>
-          </View>
-
-          {/* Promo Banner */}
-          <View style={styles.promoBanner}>
-            <Ionicons name="pricetag" size={20} color={Colors.SHEIN_ORANGE} />
-                          <Text style={styles.promoText}>Get GH₵3 off your first order</Text>
           </View>
 
           {/* Form */}
@@ -215,7 +229,7 @@ export const LoginScreen: React.FC = () => {
                   >
                     <Ionicons 
                       name={showPassword ? "eye-off" : "eye"} 
-                      size={20} 
+                      size={18} 
                       color={Colors.BLACK} 
                     />
                   </TouchableOpacity>
@@ -255,36 +269,6 @@ export const LoginScreen: React.FC = () => {
                 <Text style={styles.signupLink}>Sign up</Text>
               </TouchableOpacity>
             </View>
-
-            <View style={styles.divider}>
-              <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>Or join with</Text>
-              <View style={styles.dividerLine} />
-            </View>
-
-            <View style={styles.socialButtons}>
-              <TouchableOpacity 
-                style={styles.socialButton}
-                onPress={() => handleSocialLogin('google')}
-              >
-                <Text style={styles.googleLogo}>G</Text>
-                <Text style={styles.socialButtonText}>Continue with Google</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity 
-                style={styles.socialButton}
-                onPress={() => handleSocialLogin('facebook')}
-              >
-                <Text style={styles.facebookLogo}>f</Text>
-                <Text style={styles.socialButtonText}>Continue with Facebook</Text>
-              </TouchableOpacity>
-            </View>
-
-            <TouchableOpacity style={styles.locationButton}>
-              <Ionicons name="location" size={16} color={Colors.BLACK} />
-              <Text style={styles.locationText}>Ghana</Text>
-              <Ionicons name="chevron-down" size={16} color={Colors.BLACK} />
-            </TouchableOpacity>
           </View>
 
           {/* Legal Text */}
@@ -311,14 +295,12 @@ const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
     paddingBottom: 20,
+    paddingTop: 100,
   },
   header: {
     paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 30,
-  },
-  backButton: {
-    marginBottom: 20,
+    paddingTop: 40,
+    paddingBottom: 24,
   },
   logoContainer: {
     flexDirection: 'row',
@@ -327,12 +309,12 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   logo: {
-    fontSize: 32,
+    fontSize: 28,
     fontWeight: 'bold',
     color: Colors.BLACK,
   },
   logoSuffix: {
-    fontSize: 16,
+    fontSize: 14,
     color: Colors.TEXT_SECONDARY,
     marginLeft: 4,
   },
@@ -342,47 +324,47 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   securityText: {
-    marginLeft: 8,
-    fontSize: 14,
+    marginLeft: 6,
+    fontSize: 12,
     color: Colors.SUCCESS,
   },
   promoBanner: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#FFF3E0',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     marginHorizontal: 20,
     borderRadius: 8,
-    marginBottom: 30,
+    marginBottom: 24,
   },
   promoText: {
-    marginLeft: 8,
-    fontSize: 14,
+    marginLeft: 6,
+    fontSize: 12,
     color: Colors.SHEIN_ORANGE,
     fontWeight: '500',
   },
   formContainer: {
     paddingHorizontal: 20,
-    marginBottom: 30,
-  },
-  inputContainer: {
     marginBottom: 24,
   },
+  inputContainer: {
+    marginBottom: 20,
+  },
   label: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '500',
     color: Colors.TEXT_SECONDARY,
-    marginBottom: 8,
+    marginBottom: 6,
   },
   input: {
     backgroundColor: Colors.WHITE,
     borderWidth: 1,
     borderColor: Colors.BORDER,
     borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    fontSize: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    fontSize: 14,
     color: Colors.BLACK,
   },
   passwordInputWrapper: {
@@ -392,12 +374,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.BORDER,
     borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
   },
   passwordInput: {
     flex: 1,
-    fontSize: 16,
+    fontSize: 14,
     color: Colors.BLACK,
   },
   eyeButton: {
@@ -416,25 +398,25 @@ const styles = StyleSheet.create({
   continueButton: {
     backgroundColor: Colors.BLACK,
     borderRadius: 8,
-    paddingVertical: 16,
+    paddingVertical: 14,
     alignItems: 'center',
-    marginBottom: 30,
+    marginBottom: 24,
   },
   continueButtonDisabled: {
     opacity: 0.6,
   },
   continueButtonText: {
     color: Colors.WHITE,
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: 'bold',
   },
   forgotPasswordButton: {
     alignItems: 'center',
-    marginTop: 12,
-    marginBottom: 8,
+    marginTop: 10,
+    marginBottom: 6,
   },
   forgotPasswordText: {
-    fontSize: 14,
+    fontSize: 12,
     color: Colors.ELECTRIC_BLUE,
     fontWeight: '500',
   },
@@ -516,23 +498,23 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 20,
+    marginTop: 16,
   },
   signupText: {
-    fontSize: 16,
+    fontSize: 14,
     color: Colors.TEXT_SECONDARY,
   },
   signupLink: {
-    fontSize: 16,
+    fontSize: 14,
     color: Colors.SHEIN_PINK,
     fontWeight: '500',
   },
   legalText: {
-    fontSize: 12,
+    fontSize: 11,
     color: Colors.TEXT_SECONDARY,
     textAlign: 'center',
     paddingHorizontal: 20,
-    lineHeight: 18,
+    lineHeight: 16,
   },
   linkText: {
     color: Colors.ELECTRIC_BLUE,

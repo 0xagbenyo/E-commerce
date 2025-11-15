@@ -176,6 +176,11 @@ export const AppNavigator = () => {
           options={{ presentation: 'card' }}
         />
         <Stack.Screen 
+          name="Checkout" 
+          component={CheckoutScreen}
+          options={{ presentation: 'card' }}
+        />
+        <Stack.Screen 
           name="OrderHistory" 
           component={OrderHistoryScreen}
           options={{ presentation: 'card' }}

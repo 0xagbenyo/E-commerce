@@ -12,6 +12,7 @@ import {
   ActivityIndicator,
   TextInput,
   RefreshControl,
+  Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -102,6 +103,10 @@ export const ProductDetailsScreen: React.FC = () => {
   const [stockLoading, setStockLoading] = useState(false);
   const [showFullProductName, setShowFullProductName] = useState(false);
   const [displayedReviewsCount, setDisplayedReviewsCount] = useState(5);
+  const [expandedReviews, setExpandedReviews] = useState<Set<string>>(new Set());
+  const [showAllReviewsModal, setShowAllReviewsModal] = useState(false);
+  const [modalDisplayedCount, setModalDisplayedCount] = useState(10);
+  const modalScrollRef = useRef<ScrollView>(null);
 
   // Fetch recommended items and stock quantity
   // IMPORTANT: This runs separately from useProduct to get recommended_items
@@ -157,13 +162,13 @@ export const ProductDetailsScreen: React.FC = () => {
             const recommendedProductsData: (Product | null)[] = [];
             for (const itemName of recommendedItemNames.slice(0, MAX_RECOMMENDED_ITEMS)) {
               if (!isMounted) break;
-              try {
-                const recommendedItem = await client.getWebsiteItem(itemName);
+                try {
+                  const recommendedItem = await client.getWebsiteItem(itemName);
                 recommendedProductsData.push(mapERPWebsiteItemToProduct(recommendedItem));
-              } catch (error) {
-                console.warn(`Failed to fetch recommended item "${itemName}":`, error);
+                } catch (error) {
+                  console.warn(`Failed to fetch recommended item "${itemName}":`, error);
                 recommendedProductsData.push(null);
-              }
+                }
             }
             
             if (!isMounted) return;
@@ -514,13 +519,13 @@ export const ProductDetailsScreen: React.FC = () => {
         {/* Discount Banner - On top of image */}
         {getPricingRuleDiscount() > 0 && (
           <View style={styles.discountBannerOnImage}>
-            <Ionicons name="pricetag" size={16} color={Colors.WHITE} />
+            <Ionicons name="pricetag" size={12} color={Colors.WHITE} />
             <Text style={styles.discountBannerTextOnImage}>
               {getPricingRuleDiscount()}% OFF
             </Text>
           </View>
         )}
-
+      
         {/* Image counter (e.g., "7/9") */}
         {images.length > 1 && (
           <View style={styles.imageCounter}>
@@ -529,96 +534,100 @@ export const ProductDetailsScreen: React.FC = () => {
             </Text>
           </View>
         )}
-        
-        {/* Stock Information - Inside carousel container, no spacing from carousel */}
+      </View>
+    );
+  };
+
+  const renderStockBanner = () => {
+    if (stockLoading) {
+      return (
         <View style={styles.stockSectionInCarousel}>
-          {stockLoading ? (
-            <View style={styles.stockStatusRow}>
-              <ActivityIndicator size="small" color={Colors.TEXT_SECONDARY} />
-              <Text style={[styles.stockStatusText, { color: Colors.TEXT_SECONDARY, marginLeft: Spacing.MARGIN_XS, fontSize: Typography.FONT_SIZE_XS }]}>Loading stock...</Text>
-            </View>
-          ) : (
-            <View style={styles.stockStatusRow}>
-              {(() => {
-                // Handle stockQuantity: if null, it means loading or unknown, show "Out of Stock"
-                // If it's a number (including 0), use that value
-                const stockQty = stockQuantity !== null && stockQuantity !== undefined ? stockQuantity : 0;
-                let stockStatus: 'inStock' | 'limitedStock' | 'outOfStock';
-                let statusText: string;
-                let statusColor: string;
-                let statusIcon: string;
-
-                if (stockQty === 0) {
-                  stockStatus = 'outOfStock';
-                  statusText = 'OUT OF STOCK';
-                  statusColor = '#FF1A1A'; // brighter red
-                  statusIcon = 'close-circle';
-                } else if (stockQty > 0 && stockQty <= 20) {
-                  stockStatus = 'limitedStock';
-                  statusText = 'LIMITED STOCK';
-                  statusColor = '#FFD500'; // bright yellow
-                  statusIcon = 'alert-circle';
-                } else {
-                  // stockQty > 20
-                  stockStatus = 'inStock';
-                  statusText = 'IN STOCK';
-                  statusColor = '#00CC44'; // bright green
-                  statusIcon = 'checkmark-circle';
-                }
-
-                return (
-                  <View style={[
-                    styles.stockStatusBadge,
-                    { backgroundColor: statusColor }
-                  ]}>
-                    <Ionicons
-                      name={statusIcon as any}
-                      size={12}
-                      color={Colors.WHITE}
-                    />
-                    <Text style={[
-                      styles.stockStatusText,
-                      { color: Colors.WHITE }
-                    ]}>
-                      {statusText}
-                    </Text>
-                  </View>
-                );
-              })()}
-            </View>
-          )}
+          <View style={styles.stockStatusRow}>
+            <ActivityIndicator size="small" color={Colors.TEXT_SECONDARY} />
+            <Text style={[styles.stockStatusText, { color: Colors.TEXT_SECONDARY, marginLeft: Spacing.MARGIN_XS, fontSize: Typography.FONT_SIZE_XS }]}>Loading stock...</Text>
+          </View>
         </View>
-        
-        {/* Product Name - Under stock badge */}
-        {product && (() => {
-          const words = product.name.split(' ');
-          const wordCount = words.length;
-          const shouldTruncate = wordCount > 13;
-          const displayText = shouldTruncate && !showFullProductName
-            ? words.slice(0, 13).join(' ') + '...'
-            : product.name;
+      );
+    }
 
-          return (
-            <View style={styles.productNameInCarousel}>
-              <Text style={styles.productNameText}>{displayText}</Text>
-              {shouldTruncate && (
-      <TouchableOpacity
-                  style={styles.productNameReadMoreButton}
-                  onPress={() => setShowFullProductName(!showFullProductName)}
-      >
-                  <Text style={styles.productNameReadMoreText}>
-                    {showFullProductName ? 'Read less' : 'Read more'}
-                  </Text>
-        <Ionicons
-                    name={showFullProductName ? 'chevron-up' : 'chevron-down'}
-                    size={12}
-                    color={Colors.VIBRANT_PINK}
-        />
-      </TouchableOpacity>
-              )}
+    // Handle stockQuantity: if null, it means loading or unknown, show "Out of Stock"
+    // If it's a number (including 0), use that value
+    const stockQty = stockQuantity !== null && stockQuantity !== undefined ? stockQuantity : 0;
+    
+    // Only show banner for limited stock or out of stock, not for in stock
+    if (stockQty > 20) {
+      return null; // Don't show banner for in stock
+    }
+    
+    let statusText: string;
+    let statusColor: string;
+    let statusIcon: string;
+
+    if (stockQty === 0) {
+      statusText = 'OUT OF STOCK';
+      statusColor = '#FF1A1A'; // brighter red
+      statusIcon = 'close-circle';
+    } else {
+      // stockQty > 0 && stockQty <= 20 (limited stock)
+      statusText = `Limited in stock - ${stockQty}`;
+      statusColor = '#F5F5DC'; // cream color (beige)
+      statusIcon = 'alert-circle';
+    }
+
+    const textColor = stockQty === 0 ? Colors.WHITE : Colors.BLACK;
+    
+    return (
+      <View style={styles.stockSectionInCarousel}>
+        <View style={styles.stockStatusRow}>
+          <View style={[
+            styles.stockStatusBadge,
+            { backgroundColor: statusColor }
+          ]}>
+            <Ionicons
+              name={statusIcon as any}
+              size={12}
+              color={textColor}
+            />
+            <Text style={[
+              styles.stockStatusText,
+              { color: textColor }
+            ]}>
+              {statusText}
+            </Text>
+          </View>
         </View>
-          );
-        })()}
+      </View>
+    );
+  };
+
+  const renderProductName = () => {
+    if (!product) return null;
+    
+    const words = product.name.split(' ');
+    const wordCount = words.length;
+    const shouldTruncate = wordCount > 13;
+    const displayText = shouldTruncate && !showFullProductName
+      ? words.slice(0, 13).join(' ') + '...'
+      : product.name;
+
+    return (
+      <View style={styles.productNameInCarousel}>
+        <Text style={styles.productNameText}>{displayText}</Text>
+        {shouldTruncate && (
+          <TouchableOpacity
+            style={styles.productNameReadMoreButton}
+            onPress={() => setShowFullProductName(!showFullProductName)}
+          >
+            <Text style={styles.productNameReadMoreText}>
+              {showFullProductName ? 'Read less' : 'Read more'}
+            </Text>
+            <Ionicons
+              name={showFullProductName ? 'chevron-up' : 'chevron-down'}
+              size={12}
+              color={Colors.VIBRANT_PINK}
+            />
+          </TouchableOpacity>
+        )}
       </View>
     );
   };
@@ -802,23 +811,23 @@ export const ProductDetailsScreen: React.FC = () => {
       });
 
       // Success - refresh reviews and reset form
-      Alert.alert(
-        'Review Submitted',
+    Alert.alert(
+      'Review Submitted',
         'Thank you for your review! It has been published.',
-        [
-          {
-            text: 'OK',
-            onPress: () => {
-              setShowReviewForm(false);
-              setReviewRating(0);
-              setReviewTitle('');
-              setReviewComment('');
+      [
+        {
+          text: 'OK',
+          onPress: () => {
+            setShowReviewForm(false);
+            setReviewRating(0);
+            setReviewTitle('');
+            setReviewComment('');
               // Refresh reviews list
               refreshReviews();
-            },
           },
-        ]
-      );
+        },
+      ]
+    );
     } catch (error: any) {
       console.error('Error submitting review:', error);
       Alert.alert(
@@ -850,7 +859,7 @@ export const ProductDetailsScreen: React.FC = () => {
                 <Ionicons
                   name={star <= reviewRating ? 'star' : 'star-outline'}
                   size={24}
-                  color={star <= reviewRating ? Colors.WARNING : Colors.TEXT_SECONDARY}
+                  color={star <= reviewRating ? '#FFD700' : Colors.TEXT_SECONDARY}
                 />
               </TouchableOpacity>
             ))}
@@ -902,7 +911,7 @@ export const ProductDetailsScreen: React.FC = () => {
             {submittingReview ? (
               <ActivityIndicator size="small" color={Colors.WHITE} />
             ) : (
-              <Text style={styles.reviewFormButtonTextSubmit}>Submit Review</Text>
+            <Text style={styles.reviewFormButtonTextSubmit}>Submit Review</Text>
             )}
           </TouchableOpacity>
         </View>
@@ -1002,70 +1011,277 @@ export const ProductDetailsScreen: React.FC = () => {
       );
     }
 
-    const displayedReviews = reviews.slice(0, displayedReviewsCount);
-    const hasMoreReviews = reviews.length > displayedReviewsCount;
-
+    // Sort reviews by date (latest first) and take only 5 initially
+    const sortedReviews = [...reviews].sort((a, b) => {
+      const dateA = new Date(a.createdAt).getTime();
+      const dateB = new Date(b.createdAt).getTime();
+      return dateB - dateA;
+    });
+    
+    const displayedReviews = sortedReviews.slice(0, displayedReviewsCount);
+    const hasMoreReviews = displayedReviewsCount < sortedReviews.length;
+    const MAX_COMMENT_LENGTH = 100; // Characters to show before truncating
+    
+    const toggleReviewExpansion = (reviewId: string) => {
+      setExpandedReviews(prev => {
+        const newSet = new Set(prev);
+        if (newSet.has(reviewId)) {
+          newSet.delete(reviewId);
+        } else {
+          newSet.add(reviewId);
+        }
+        return newSet;
+      });
+    };
+    
     return (
       <View style={styles.individualReviewsContainer}>
-        {displayedReviews.map((review) => (
-          <View key={review.id} style={styles.reviewItem}>
-            <View style={styles.reviewHeader}>
-              <View style={styles.reviewUserInfo}>
-                <View style={styles.reviewAvatar}>
-                  <Text style={styles.reviewAvatarText}>
-                    {review.userName.charAt(0).toUpperCase()}
-                  </Text>
-                </View>
-                <View style={styles.reviewUserDetails}>
-                  <Text style={styles.reviewUserName}>{review.userName}</Text>
-                  <Text style={styles.reviewDate}>
-                    {new Date(review.createdAt).toLocaleDateString('en-US', {
-                      year: 'numeric',
-                      month: 'short',
-                      day: 'numeric',
+        {displayedReviews.map((review) => {
+          const isExpanded = expandedReviews.has(review.id);
+          const comment = review.comment || '';
+          const isLongComment = comment.length > MAX_COMMENT_LENGTH;
+          const displayComment = isLongComment && !isExpanded 
+            ? comment.substring(0, MAX_COMMENT_LENGTH) + '...' 
+            : comment;
+          
+          return (
+            <View key={review.id} style={styles.reviewItem}>
+              <View style={styles.reviewCard}>
+                <View style={styles.reviewHeader}>
+                  <View style={styles.reviewUserInfo}>
+                    <View style={styles.reviewAvatar}>
+                      <Text style={styles.reviewAvatarText}>
+                        {review.userName.charAt(0).toUpperCase()}
+                      </Text>
+                    </View>
+                    <View style={styles.reviewUserDetails}>
+                      <Text style={styles.reviewUserName}>{review.userName}</Text>
+                      <Text style={styles.reviewDate}>
+                        {new Date(review.createdAt).toLocaleDateString('en-US', {
+                          year: 'numeric',
+                          month: 'short',
+                          day: 'numeric',
+                        })}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={styles.reviewRating}>
+                    {[1, 2, 3, 4, 5].map((star) => {
+                      // Get rating as float - ensure it's a number
+                      const ratingValue = typeof review.rating === 'number' 
+                        ? review.rating 
+                        : (typeof review.rating === 'string' ? parseFloat(review.rating) : 0) || 0;
+                      
+                      // Fill star if current star number is less than or equal to the rating
+                      // For example: rating 4.5 fills stars 1, 2, 3, 4 (and half of 5 if we had half stars)
+                      const isFilled = star <= ratingValue;
+                      
+                      return (
+                        <Ionicons
+                          key={star}
+                          name="star"
+                          size={8}
+                          color={isFilled ? '#FFD700' : Colors.LIGHT_GRAY}
+                        />
+                      );
                     })}
-                  </Text>
+                  </View>
                 </View>
-              </View>
-              <View style={styles.reviewRating}>
-                {[1, 2, 3, 4, 5].map((star) => {
-                  // Get rating as float - ensure it's a number
-                  const ratingValue = typeof review.rating === 'number' 
-                    ? review.rating 
-                    : (typeof review.rating === 'string' ? parseFloat(review.rating) : 0) || 0;
-                  
-                  // Fill star if current star number is less than or equal to the rating
-                  // For example: rating 4.5 fills stars 1, 2, 3, 4 (and half of 5 if we had half stars)
-                  const isFilled = star <= ratingValue;
-                  
-                  return (
-                    <Ionicons
-                      key={star}
-                      name="star"
-                      size={8}
-                      color={isFilled ? Colors.WARNING : Colors.LIGHT_GRAY}
-                    />
-                  );
-                })}
+                {review.title && (
+                  <Text style={styles.reviewTitle}>{review.title}</Text>
+                )}
+                {review.comment && (
+                  <View style={styles.reviewCommentContainer}>
+                    <Text style={styles.reviewComment}>{displayComment}</Text>
+                    {isLongComment && (
+                      <TouchableOpacity
+                        style={styles.expandReviewButton}
+                        activeOpacity={0.7}
+                        onPress={() => toggleReviewExpansion(review.id)}
+                      >
+                        <Ionicons 
+                          name={isExpanded ? 'chevron-up' : 'chevron-down'} 
+                          size={12} 
+                          color={Colors.SHEIN_PINK} 
+                        />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                )}
               </View>
             </View>
-            {review.title && (
-              <Text style={styles.reviewTitle}>{review.title}</Text>
-            )}
-            {review.comment && (
-              <Text style={styles.reviewComment}>{review.comment}</Text>
-            )}
-          </View>
-        ))}
-        {hasMoreReviews && (
+          );
+        })}
+        {sortedReviews.length > 5 && (
           <TouchableOpacity
             style={styles.viewMoreButton}
-            onPress={() => setDisplayedReviewsCount(reviews.length)}
+            activeOpacity={0.8}
+            onPress={() => {
+              setShowAllReviewsModal(true);
+              setModalDisplayedCount(10);
+            }}
           >
-            <Text style={styles.viewMoreButtonText}>View More Reviews ({reviews.length - displayedReviewsCount} more)</Text>
+            <Text style={styles.viewMoreButtonText}>View All</Text>
+            <Ionicons 
+              name="chevron-forward" 
+              size={14} 
+              color={Colors.SHEIN_RED} 
+            />
           </TouchableOpacity>
         )}
       </View>
+    );
+  };
+
+  const renderAllReviewsModal = () => {
+    if (!product || !showAllReviewsModal) return null;
+
+    const sortedReviews = [...reviews].sort((a, b) => {
+      const dateA = new Date(a.createdAt).getTime();
+      const dateB = new Date(b.createdAt).getTime();
+      return dateB - dateA;
+    });
+
+    const displayedReviews = sortedReviews.slice(0, modalDisplayedCount);
+    const hasMore = modalDisplayedCount < sortedReviews.length;
+    const MAX_COMMENT_LENGTH = 100;
+
+    const handleScroll = (event: any) => {
+      const { layoutMeasurement, contentOffset, contentSize } = event.nativeEvent;
+      const paddingToBottom = 200; // Load more when 200px from bottom
+      const isCloseToBottom = layoutMeasurement.height + contentOffset.y >= contentSize.height - paddingToBottom;
+
+      if (isCloseToBottom && hasMore) {
+        // Load 10 more reviews
+        setModalDisplayedCount(prev => Math.min(prev + 10, sortedReviews.length));
+      }
+    };
+
+    const toggleReviewExpansion = (reviewId: string) => {
+      setExpandedReviews(prev => {
+        const newSet = new Set(prev);
+        if (newSet.has(reviewId)) {
+          newSet.delete(reviewId);
+        } else {
+          newSet.add(reviewId);
+        }
+        return newSet;
+      });
+    };
+
+    return (
+      <Modal
+        visible={showAllReviewsModal}
+        animationType="slide"
+        transparent={false}
+        onRequestClose={() => setShowAllReviewsModal(false)}
+      >
+        <SafeAreaView style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>All Reviews ({sortedReviews.length})</Text>
+            <TouchableOpacity
+              style={styles.modalCloseButton}
+              onPress={() => {
+                setShowAllReviewsModal(false);
+                setModalDisplayedCount(10);
+              }}
+            >
+              <Ionicons name="close" size={24} color={Colors.TEXT_PRIMARY} />
+            </TouchableOpacity>
+          </View>
+          <ScrollView
+            ref={modalScrollRef}
+            style={styles.modalScrollView}
+            onScroll={handleScroll}
+            scrollEventThrottle={400}
+            showsVerticalScrollIndicator={true}
+          >
+            {displayedReviews.map((review) => {
+              const isExpanded = expandedReviews.has(review.id);
+              const comment = review.comment || '';
+              const isLongComment = comment.length > MAX_COMMENT_LENGTH;
+              const displayComment = isLongComment && !isExpanded 
+                ? comment.substring(0, MAX_COMMENT_LENGTH) + '...' 
+                : comment;
+
+              return (
+                <View key={review.id} style={styles.reviewItem}>
+                  <View style={styles.reviewCard}>
+                    <View style={styles.reviewHeader}>
+                      <View style={styles.reviewUserInfo}>
+                        <View style={styles.reviewAvatar}>
+                          <Text style={styles.reviewAvatarText}>
+                            {review.userName.charAt(0).toUpperCase()}
+                          </Text>
+                        </View>
+                        <View style={styles.reviewUserDetails}>
+                          <Text style={styles.reviewUserName}>{review.userName}</Text>
+                          <Text style={styles.reviewDate}>
+                            {new Date(review.createdAt).toLocaleDateString('en-US', {
+                              year: 'numeric',
+                              month: 'short',
+                              day: 'numeric',
+                            })}
+                          </Text>
+                        </View>
+                      </View>
+                      <View style={styles.reviewRating}>
+                        {[1, 2, 3, 4, 5].map((star) => {
+                          const ratingValue = typeof review.rating === 'number' 
+                            ? review.rating 
+                            : (typeof review.rating === 'string' ? parseFloat(review.rating) : 0) || 0;
+                          const isFilled = star <= ratingValue;
+                          
+                          return (
+                            <Ionicons
+                              key={star}
+                              name="star"
+                              size={8}
+                              color={isFilled ? '#FFD700' : Colors.LIGHT_GRAY}
+                            />
+                          );
+                        })}
+                      </View>
+                    </View>
+                    {review.title && (
+                      <Text style={styles.reviewTitle}>{review.title}</Text>
+                    )}
+                    {review.comment && (
+                      <View style={styles.reviewCommentContainer}>
+                        <Text style={styles.reviewComment}>{displayComment}</Text>
+                        {isLongComment && (
+                          <TouchableOpacity
+                            style={styles.expandReviewButton}
+                            activeOpacity={0.7}
+                            onPress={() => toggleReviewExpansion(review.id)}
+                          >
+                            <Ionicons 
+                              name={isExpanded ? 'chevron-up' : 'chevron-down'} 
+                              size={12} 
+                              color={Colors.SHEIN_PINK} 
+                            />
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    )}
+                  </View>
+                </View>
+              );
+            })}
+            {hasMore && (
+              <View style={styles.modalLoadingMore}>
+                <ActivityIndicator size="small" color={Colors.SHEIN_PINK} />
+                <Text style={styles.modalLoadingText}>Loading more reviews...</Text>
+              </View>
+            )}
+            {!hasMore && displayedReviews.length > 0 && (
+              <View style={styles.modalEndMessage}>
+                <Text style={styles.modalEndText}>All reviews loaded</Text>
+              </View>
+            )}
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
     );
   };
 
@@ -1078,6 +1294,7 @@ export const ProductDetailsScreen: React.FC = () => {
           <Text style={styles.reviewsTitle}>Reviews ({reviews && reviews.length > 0 ? `${reviews.length}` : '0'})</Text>
           <TouchableOpacity
             style={styles.addReviewButton}
+            activeOpacity={0.8}
             onPress={() => {
               if (!user?.email) {
                 Alert.alert(
@@ -1101,26 +1318,33 @@ export const ProductDetailsScreen: React.FC = () => {
               }
             }}
           >
-            <Ionicons name="add-circle-outline" size={20} color={Colors.SHEIN_PINK} />
+            <Ionicons name="add-circle" size={12} color={Colors.WHITE} />
             <Text style={styles.addReviewButtonText}>Write Review</Text>
           </TouchableOpacity>
-        </View>
+            </View>
         
         {/* Review Form */}
         {renderReviewForm()}
         
         {/* Overall Rating */}
         <View style={styles.overallRatingContainer}>
-          <Text style={styles.overallRating}>{product.rating.toFixed(2) || '4.92'}</Text>
-          <View style={styles.overallRatingStars}>
-            {[1, 2, 3, 4, 5].map((star) => (
-              <Ionicons
-                key={star}
-                name="star"
-                size={10}
-                color={star <= Math.round(product.rating) ? Colors.WARNING : Colors.LIGHT_GRAY}
-              />
-            ))}
+          <View style={styles.overallRatingCard}>
+            <View style={styles.overallRatingContent}>
+              <Text style={styles.overallRatingNumber}>{product.rating.toFixed(1) || '4.9'}</Text>
+              <View style={styles.overallRatingStars}>
+                {[1, 2, 3, 4, 5].map((star) => (
+                  <Ionicons
+                    key={star}
+                    name="star"
+                    size={10}
+                    color={star <= Math.round(product.rating) ? '#FFD700' : Colors.LIGHT_GRAY}
+                  />
+                ))}
+              </View>
+              <Text style={styles.overallRatingCount}>
+                {reviews && reviews.length > 0 ? `${reviews.length} Reviews` : 'No Reviews'}
+              </Text>
+            </View>
           </View>
         </View>
         
@@ -1140,7 +1364,7 @@ export const ProductDetailsScreen: React.FC = () => {
                       key={star}
                       name="star"
                       size={10}
-                      color={star <= Math.round(product.rating) ? Colors.WARNING : Colors.LIGHT_GRAY}
+                      color={star <= Math.round(product.rating) ? '#FFD700' : Colors.LIGHT_GRAY}
                     />
                   ))}
                 </View>
@@ -1178,7 +1402,7 @@ export const ProductDetailsScreen: React.FC = () => {
             >
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                 <Ionicons name="refresh" size={20} color={Colors.WHITE} />
-                <Text style={styles.retryButtonText}>Retry</Text>
+              <Text style={styles.retryButtonText}>Retry</Text>
               </View>
             </TouchableOpacity>
             <TouchableOpacity
@@ -1208,19 +1432,19 @@ export const ProductDetailsScreen: React.FC = () => {
               </>
             ) : (
               <>
-                <Text style={styles.priceFrom}>From {formatPrice(product.price)}</Text>
-                {product.originalPrice && product.originalPrice > product.price && (
-                  <>
-                    <Text style={styles.originalPrice}>{formatPrice(product.originalPrice)}</Text>
-                    {calculateDiscount() > 0 && (
-                      <View style={styles.discountBadge}>
-                        <Text style={styles.discountText}>-{calculateDiscount()}%</Text>
-                      </View>
+            <Text style={styles.priceFrom}>From {formatPrice(product.price)}</Text>
+              {product.originalPrice && product.originalPrice > product.price && (
+              <>
+                <Text style={styles.originalPrice}>{formatPrice(product.originalPrice)}</Text>
+              {calculateDiscount() > 0 && (
+                <View style={styles.discountBadge}>
+                  <Text style={styles.discountText}>-{calculateDiscount()}%</Text>
+                </View>
                     )}
                   </>
                 )}
               </>
-            )}
+              )}
           </View>
             </View>
 
@@ -1265,7 +1489,7 @@ export const ProductDetailsScreen: React.FC = () => {
               <View style={styles.metaInfoItem}>
                 <Ionicons name="business-outline" size={10} color={Colors.TEXT_SECONDARY} />
                 <Text style={styles.metaInfoText}>{product.company}</Text>
-              </View>
+          </View>
             ) : null}
             {product.category ? (
               <View style={styles.metaInfoItem}>
@@ -1326,7 +1550,7 @@ export const ProductDetailsScreen: React.FC = () => {
                   key={star}
                   name="star"
                   size={16}
-                  color={star <= Math.round(product.rating) ? Colors.WARNING : Colors.LIGHT_GRAY}
+                  color={star <= Math.round(product.rating) ? '#FFD700' : Colors.LIGHT_GRAY}
                 />
               ))}
             </View>
@@ -1405,7 +1629,7 @@ export const ProductDetailsScreen: React.FC = () => {
                 </View>
                 {item.rating > 0 && (
                   <View style={styles.recommendedProductRating}>
-                    <Ionicons name="star" size={12} color={Colors.WARNING} />
+                    <Ionicons name="star" size={12} color="#FFD700" />
                     <Text style={styles.recommendedProductRatingText}>
                       {item.rating.toFixed(1)} ({item.reviewCount || 0})
                     </Text>
@@ -1445,6 +1669,8 @@ export const ProductDetailsScreen: React.FC = () => {
         }
       >
         {renderImageCarousel()}
+        {renderStockBanner()}
+        {renderProductName()}
         
         <View style={styles.content}>
           {/* Goods Section */}
@@ -1505,7 +1731,7 @@ export const ProductDetailsScreen: React.FC = () => {
           {isAddingToCart ? (
             <ActivityIndicator size="small" color={Colors.WHITE} />
           ) : (
-            <Text style={styles.addToCartBottomText}>Add to Cart</Text>
+          <Text style={styles.addToCartBottomText}>Add to Cart</Text>
           )}
           {calculateDiscount() > 0 && (
             <Text style={styles.addToCartBottomDiscount}>
@@ -1514,6 +1740,9 @@ export const ProductDetailsScreen: React.FC = () => {
           )}
         </TouchableOpacity>
       </View>
+      
+      {/* All Reviews Modal */}
+      {renderAllReviewsModal()}
     </SafeAreaView>
   );
 };
@@ -1607,15 +1836,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: Colors.VIBRANT_PINK,
-    paddingHorizontal: Spacing.PADDING_MD,
-    paddingVertical: Spacing.PADDING_SM,
-    borderRadius: Spacing.BORDER_RADIUS_MD,
-    gap: Spacing.MARGIN_XS,
+    paddingHorizontal: Spacing.PADDING_SM,
+    paddingVertical: Spacing.PADDING_XS,
+    borderRadius: Spacing.BORDER_RADIUS_SM,
+    gap: 3,
     zIndex: 10,
   },
   discountBannerTextOnImage: {
     color: Colors.WHITE,
-    fontSize: Typography.FONT_SIZE_MD,
+    fontSize: Typography.FONT_SIZE_XS,
     fontWeight: Typography.FONT_WEIGHT_BOLD,
   },
   imageCounter: {
@@ -1849,41 +2078,65 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: Spacing.MARGIN_SM,
+    marginBottom: Spacing.MARGIN_XS,
   },
   reviewsTitle: {
-    fontSize: Typography.FONT_SIZE_SM,
+    fontSize: Typography.FONT_SIZE_XS,
     fontWeight: Typography.FONT_WEIGHT_BOLD,
     color: Colors.TEXT_PRIMARY,
   },
   addReviewButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.MARGIN_XS,
-    paddingHorizontal: Spacing.PADDING_MD,
-    paddingVertical: Spacing.PADDING_SM,
-    borderRadius: Spacing.BORDER_RADIUS_MD,
-    borderWidth: 1,
-    borderColor: Colors.SHEIN_PINK,
+    gap: 4,
+    paddingHorizontal: Spacing.PADDING_SM,
+    paddingVertical: Spacing.PADDING_XS,
+    borderRadius: Spacing.BORDER_RADIUS_SM,
+    backgroundColor: Colors.SHEIN_PINK,
+    shadowColor: Colors.SHEIN_PINK,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 2,
   },
   addReviewButtonText: {
-    fontSize: Typography.FONT_SIZE_SM,
-    fontWeight: Typography.FONT_WEIGHT_MEDIUM,
-    color: Colors.SHEIN_PINK,
+    fontSize: Typography.FONT_SIZE_XS,
+    fontWeight: Typography.FONT_WEIGHT_BOLD,
+    color: Colors.WHITE,
   },
   overallRatingContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: Spacing.MARGIN_XS,
+    marginBottom: Spacing.MARGIN_SM,
   },
-  overallRating: {
-    fontSize: Typography.FONT_SIZE_SM,
+  overallRatingCard: {
+    backgroundColor: '#FFF5F5',
+    borderRadius: Spacing.BORDER_RADIUS_SM,
+    padding: Spacing.PADDING_SM,
+    borderWidth: 1,
+    borderColor: '#FFE5E5',
+    shadowColor: Colors.SHADOW,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  overallRatingContent: {
+    alignItems: 'center',
+  },
+  overallRatingNumber: {
+    fontSize: 20,
     fontWeight: Typography.FONT_WEIGHT_BOLD,
-    color: Colors.TEXT_PRIMARY,
-    marginRight: Spacing.MARGIN_XS,
+    color: Colors.SHEIN_PINK,
+    marginBottom: 2,
   },
   overallRatingStars: {
     flexDirection: 'row',
+    marginBottom: 2,
+    gap: 1,
+  },
+  overallRatingCount: {
+    fontSize: 9,
+    color: Colors.TEXT_SECONDARY,
+    marginTop: 1,
   },
   fitFeedbackSection: {
     marginBottom: Spacing.MARGIN_XS,
@@ -1971,14 +2224,17 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.MARGIN_SM,
   },
   reviewTag: {
-    paddingHorizontal: Spacing.PADDING_MD,
-    paddingVertical: Spacing.PADDING_SM,
-    backgroundColor: Colors.LIGHT_GRAY,
-    borderRadius: Spacing.BORDER_RADIUS_MD,
+    paddingHorizontal: Spacing.PADDING_SM,
+    paddingVertical: Spacing.PADDING_XS,
+    backgroundColor: '#FFF5F5',
+    borderRadius: Spacing.BORDER_RADIUS_SM,
+    borderWidth: 1,
+    borderColor: Colors.SHEIN_PINK,
   },
   reviewTagText: {
-    fontSize: Typography.FONT_SIZE_SM,
-    color: Colors.TEXT_PRIMARY,
+    fontSize: 9,
+    color: Colors.SHEIN_PINK,
+    fontWeight: Typography.FONT_WEIGHT_MEDIUM,
   },
   individualReviewsContainer: {
     paddingVertical: Spacing.PADDING_XS,
@@ -1996,15 +2252,27 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.PADDING_MD,
   },
   reviewItem: {
-    paddingVertical: Spacing.PADDING_XS,
+    paddingVertical: 2,
+    marginBottom: 0,
+  },
+  reviewCard: {
+    backgroundColor: Colors.WHITE,
+    borderRadius: Spacing.BORDER_RADIUS_SM,
+    padding: Spacing.PADDING_SM,
+    borderTopWidth: 1,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.BORDER,
+    borderColor: '#FFE5E5',
+    shadowColor: Colors.SHADOW,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 2,
+    elevation: 1,
   },
   reviewHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 2,
+    marginBottom: 1,
   },
   reviewUserInfo: {
     flexDirection: 'row',
@@ -2012,16 +2280,21 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   reviewAvatar: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     backgroundColor: Colors.SHEIN_PINK,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: Spacing.MARGIN_XS,
+    shadowColor: Colors.SHADOW,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.15,
+    shadowRadius: 1,
+    elevation: 1,
   },
   reviewAvatarText: {
-    fontSize: Typography.FONT_SIZE_XS,
+    fontSize: 9,
     fontWeight: Typography.FONT_WEIGHT_BOLD,
     color: Colors.WHITE,
   },
@@ -2030,41 +2303,117 @@ const styles = StyleSheet.create({
   },
   reviewUserName: {
     fontSize: Typography.FONT_SIZE_XS,
-    fontWeight: Typography.FONT_WEIGHT_MEDIUM,
+    fontWeight: Typography.FONT_WEIGHT_BOLD,
     color: Colors.TEXT_PRIMARY,
     marginBottom: 1,
   },
   reviewDate: {
-    fontSize: Typography.FONT_SIZE_XS,
+    fontSize: 9,
     color: Colors.TEXT_SECONDARY,
   },
   reviewRating: {
     flexDirection: 'row',
     gap: 1,
+    alignItems: 'center',
+    backgroundColor: '#FFF9E6',
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: Spacing.BORDER_RADIUS_SM,
   },
   reviewTitle: {
     fontSize: Typography.FONT_SIZE_XS,
-    fontWeight: Typography.FONT_WEIGHT_MEDIUM,
+    fontWeight: Typography.FONT_WEIGHT_BOLD,
     color: Colors.TEXT_PRIMARY,
     marginBottom: 2,
+    marginTop: 2,
+  },
+  reviewCommentContainer: {
+    marginTop: 2,
   },
   reviewComment: {
-    fontSize: 10,
-    color: Colors.TEXT_SECONDARY,
+    fontSize: 9,
+    color: Colors.TEXT_PRIMARY,
     lineHeight: 14,
   },
   viewMoreButton: {
-    marginTop: Spacing.MARGIN_XS,
-    paddingVertical: Spacing.PADDING_XS,
-    paddingHorizontal: Spacing.PADDING_SM,
-    backgroundColor: Colors.LIGHT_GRAY,
+    marginTop: Spacing.MARGIN_SM,
+    paddingVertical: Spacing.PADDING_SM,
+    paddingHorizontal: Spacing.PADDING_MD,
+    backgroundColor: '#FFF5F5',
     borderRadius: Spacing.BORDER_RADIUS_SM,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    borderWidth: 1,
+    borderColor: Colors.SHEIN_PINK,
+    shadowColor: Colors.SHADOW,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 2,
+    elevation: 1,
   },
   viewMoreButtonText: {
     fontSize: Typography.FONT_SIZE_XS,
     color: Colors.SHEIN_RED,
+    fontWeight: Typography.FONT_WEIGHT_BOLD,
+  },
+  expandReviewButton: {
+    alignItems: 'center',
+    marginTop: 4,
+    padding: 2,
+  },
+  expandReviewText: {
+    fontSize: Typography.FONT_SIZE_XS,
+    color: Colors.SHEIN_PINK,
     fontWeight: Typography.FONT_WEIGHT_MEDIUM,
+  },
+  // Modal Styles
+  modalContainer: {
+    flex: 1,
+    backgroundColor: Colors.BACKGROUND,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.PADDING_MD,
+    paddingVertical: Spacing.PADDING_MD,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.BORDER,
+    backgroundColor: Colors.WHITE,
+  },
+  modalTitle: {
+    fontSize: Typography.FONT_SIZE_LG,
+    fontWeight: Typography.FONT_WEIGHT_BOLD,
+    color: Colors.TEXT_PRIMARY,
+  },
+  modalCloseButton: {
+    padding: Spacing.PADDING_XS,
+  },
+  modalScrollView: {
+    flex: 1,
+    paddingHorizontal: Spacing.PADDING_MD,
+  },
+  modalLoadingMore: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: Spacing.PADDING_MD,
+    gap: Spacing.MARGIN_XS,
+  },
+  modalLoadingText: {
+    fontSize: Typography.FONT_SIZE_SM,
+    color: Colors.TEXT_SECONDARY,
+  },
+  modalEndMessage: {
+    paddingVertical: Spacing.PADDING_MD,
+    alignItems: 'center',
+  },
+  modalEndText: {
+    fontSize: Typography.FONT_SIZE_SM,
+    color: Colors.TEXT_SECONDARY,
+    fontStyle: 'italic',
   },
   reviewFooter: {
     flexDirection: 'row',
@@ -2459,10 +2808,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     alignSelf: 'center',
-    width: 250,
+    width: width,
     paddingVertical: Spacing.PADDING_XS,
     paddingHorizontal: Spacing.PADDING_SM,
-    borderRadius: Spacing.BORDER_RADIUS_SM,
+    borderRadius: 0,
     gap: 4,
   },
   stockStatusText: {

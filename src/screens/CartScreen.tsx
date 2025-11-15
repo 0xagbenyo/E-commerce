@@ -9,6 +9,8 @@ import {
   ActivityIndicator,
   RefreshControl,
   Image,
+  TextInput,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -18,6 +20,8 @@ import { useShoppingCart, useCartActions } from '../hooks/erpnext';
 import { useUserSession } from '../context/UserContext';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { LoadingScreen } from '../components/LoadingScreen';
+import { getERPNextClient } from '../services/erpnext';
+import { ModernAlert } from '../components/ModernAlert';
 
 export const CartScreen: React.FC = () => {
   const navigation = useNavigation();
@@ -29,6 +33,10 @@ export const CartScreen: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [updatingItems, setUpdatingItems] = useState<Set<string>>(new Set()); // Track items being updated
   const [optimisticQuantities, setOptimisticQuantities] = useState<Map<string, number>>(new Map()); // Optimistic quantity updates
+  const [quantityInputs, setQuantityInputs] = useState<{ [key: string]: string }>({}); // Track quantity input values
+  const [isValidatingCheckout, setIsValidatingCheckout] = useState(false);
+  const [showStockAlert, setShowStockAlert] = useState(false);
+  const [problematicItems, setProblematicItems] = useState<Array<{ name: string; reason: string; itemCode: string }>>([]);
   
   // Sync optimistic quantities with actual cart items when cart updates
   // Only clear optimistic state when the actual cart quantity matches the optimistic one
@@ -86,6 +94,12 @@ export const CartScreen: React.FC = () => {
   
   // Handle update quantity with optimistic update
   const handleUpdateQuantity = async (itemCode: string, newQuantity: number) => {
+    // Clear the input value for this item when using +/- buttons
+    setQuantityInputs(prev => {
+      const updated = { ...prev };
+      delete updated[itemCode];
+      return updated;
+    });
     if (newQuantity <= 0) {
       await handleRemoveItem(itemCode);
       return;
@@ -136,6 +150,134 @@ export const CartScreen: React.FC = () => {
   // Get the effective quantity (optimistic or actual)
   const getEffectiveQuantity = (itemCode: string, actualQuantity: number): number => {
     return optimisticQuantities.get(itemCode) ?? actualQuantity;
+  };
+
+  const handleQuantityInputChange = (itemCode: string, value: string) => {
+    // Only allow numbers
+    const numericValue = value.replace(/[^0-9]/g, '');
+    setQuantityInputs(prev => ({
+      ...prev,
+      [itemCode]: numericValue,
+    }));
+  };
+
+  const validateCartItemsBeforeCheckout = async () => {
+    const client = getERPNextClient();
+    const problematicItems: Array<{ name: string; reason: string; itemCode: string }> = [];
+
+    // Check stock for each cart item
+    for (const item of cartItems) {
+      if (!item.product || !item.itemCode) continue;
+
+      try {
+        // Fetch current stock for the item
+        // getItem will find the Website Item by item_code and fetch stock
+        const websiteItem = await client.getItem(item.itemCode);
+        const availableStock = websiteItem?.available_stock ?? 0;
+
+        if (availableStock === 0) {
+          problematicItems.push({
+            name: item.product.name || item.itemCode,
+            reason: 'out of stock',
+            itemCode: item.itemCode,
+          });
+        } else if (availableStock < item.quantity) {
+          problematicItems.push({
+            name: item.product.name || item.itemCode,
+            reason: `only ${availableStock} available (requested ${item.quantity})`,
+            itemCode: item.itemCode,
+          });
+        }
+      } catch (error) {
+        console.error(`Error checking stock for ${item.itemCode}:`, error);
+        // If we can't check stock, assume it's problematic
+        problematicItems.push({
+          name: item.product.name || item.itemCode,
+          reason: 'unable to verify stock',
+          itemCode: item.itemCode,
+        });
+      }
+    }
+
+    return problematicItems;
+  };
+
+  const handleCheckout = async () => {
+    if (cartItems.length === 0) {
+      Alert.alert('Empty Cart', 'Your cart is empty. Add items to proceed to checkout.');
+      return;
+    }
+
+    setIsValidatingCheckout(true);
+    try {
+      const problematicItems = await validateCartItemsBeforeCheckout();
+
+      if (problematicItems.length > 0) {
+        setIsValidatingCheckout(false);
+        setProblematicItems(problematicItems);
+        setShowStockAlert(true);
+        return;
+      }
+
+      // All items are valid, proceed to checkout
+      setIsValidatingCheckout(false);
+      (navigation as any).navigate('Checkout');
+    } catch (error) {
+      setIsValidatingCheckout(false);
+      console.error('Error validating cart items:', error);
+      Alert.alert('Error', 'Unable to verify item availability. Please try again.');
+    }
+  };
+
+  const handleQuantityInputBlur = async (itemCode: string, currentQty: number) => {
+    const inputValue = quantityInputs[itemCode];
+    if (!inputValue) {
+      // Clear the input if empty
+      setQuantityInputs(prev => {
+        const updated = { ...prev };
+        delete updated[itemCode];
+        return updated;
+      });
+      return;
+    }
+
+    const newQty = parseInt(inputValue, 10);
+    if (isNaN(newQty) || newQty < 1) {
+      // Invalid input, reset to current quantity
+      setQuantityInputs(prev => {
+        const updated = { ...prev };
+        delete updated[itemCode];
+        return updated;
+      });
+      return;
+    }
+
+    if (newQty !== currentQty) {
+      try {
+        await handleUpdateQuantity(itemCode, newQty);
+        // Clear the input value after successful update
+        setQuantityInputs(prev => {
+          const updated = { ...prev };
+          delete updated[itemCode];
+          return updated;
+        });
+      } catch (error) {
+        console.error('Error updating quantity:', error);
+        // Reset to current quantity on error
+        setQuantityInputs(prev => {
+          const updated = { ...prev };
+          delete updated[itemCode];
+          return updated;
+        });
+      }
+    } else {
+      // Same quantity, just clear the input
+      setQuantityInputs(prev => {
+        const updated = { ...prev };
+        delete updated[itemCode];
+        return updated;
+      });
+    }
   };
 
   const renderHeader = () => (
@@ -213,7 +355,7 @@ export const CartScreen: React.FC = () => {
     const itemTotalPrice = product.price * effectiveQuantity;
     const itemTotalOriginalPrice = product.originalPrice ? product.originalPrice * effectiveQuantity : null;
     
-    const handleItemPress = () => {
+    const handleImagePress = () => {
       // Navigate to product details using product.id
       const productId = product.id || item.productId;
       if (productId) {
@@ -222,21 +364,15 @@ export const CartScreen: React.FC = () => {
     };
 
     return (
-      <TouchableOpacity 
-        style={styles.cartItem}
-        onPress={handleItemPress}
-        activeOpacity={0.7}
-      >
+      <View style={styles.cartItem}>
         <View style={styles.itemHeader}>
           <Text style={styles.brandName}>{product.brand || product.company || 'SIAMAE'}</Text>
-          <Ionicons name="chevron-forward" size={14} color={Colors.BLACK} />
         </View>
         
         <View style={styles.itemContent}>
           <TouchableOpacity 
             style={styles.radioButton}
-            onPress={(e) => {
-              e.stopPropagation(); // Prevent triggering parent onPress
+            onPress={() => {
               if (selectedItems.includes(item.id)) {
                 setSelectedItems(selectedItems.filter(id => id !== item.id));
               } else {
@@ -251,7 +387,11 @@ export const CartScreen: React.FC = () => {
             />
           </TouchableOpacity>
           
-          <View style={styles.itemImage}>
+          <TouchableOpacity 
+            style={styles.itemImage}
+            onPress={handleImagePress}
+            activeOpacity={0.7}
+          >
             {product.images && product.images.length > 0 ? (
               <Image
                 source={{ uri: product.images[0] }}
@@ -261,7 +401,7 @@ export const CartScreen: React.FC = () => {
             ) : (
               <Ionicons name="image-outline" size={30} color={Colors.TEXT_SECONDARY} />
             )}
-          </View>
+          </TouchableOpacity>
           
           <View style={styles.itemDetails}>
             <Text style={styles.itemName} numberOfLines={2}>{product.name}</Text>
@@ -282,8 +422,7 @@ export const CartScreen: React.FC = () => {
           <View style={styles.quantityContainer}>
               <TouchableOpacity 
                 style={[styles.quantityButton, styles.quantityButtonMinus, isUpdating && styles.quantityButtonDisabled]}
-                onPress={(e) => {
-                  e.stopPropagation(); // Prevent triggering parent onPress
+                onPress={() => {
                   handleDecreaseQuantity(item.itemCode, effectiveQuantity);
                 }}
                 disabled={isUpdating || isCartActionLoading}
@@ -298,13 +437,23 @@ export const CartScreen: React.FC = () => {
                 {isUpdating ? (
                   <ActivityIndicator size="small" color={Colors.SHEIN_PINK} />
                 ) : (
-                  <Text style={styles.quantityText}>{effectiveQuantity}</Text>
+                  <TextInput
+                    style={styles.quantityInput}
+                    value={quantityInputs[item.itemCode] !== undefined ? quantityInputs[item.itemCode] : effectiveQuantity.toString()}
+                    onChangeText={(value) => handleQuantityInputChange(item.itemCode, value)}
+                    onBlur={() => handleQuantityInputBlur(item.itemCode, effectiveQuantity)}
+                    keyboardType="numeric"
+                    selectTextOnFocus
+                    maxLength={3}
+                    editable={!isUpdating && !isCartActionLoading}
+                    placeholderTextColor={Colors.BLACK}
+                    underlineColorAndroid="transparent"
+                  />
                 )}
               </View>
               <TouchableOpacity 
                 style={[styles.quantityButton, styles.quantityButtonPlus, isUpdating && styles.quantityButtonDisabled]}
-                onPress={(e) => {
-                  e.stopPropagation(); // Prevent triggering parent onPress
+                onPress={() => {
                   handleUpdateQuantity(item.itemCode, effectiveQuantity + 1);
                 }}
                 disabled={isUpdating || isCartActionLoading}
@@ -317,8 +466,7 @@ export const CartScreen: React.FC = () => {
               </TouchableOpacity>
               <TouchableOpacity 
                 style={[styles.deleteButton, isUpdating && styles.quantityButtonDisabled]}
-                onPress={(e) => {
-                  e.stopPropagation(); // Prevent triggering parent onPress
+                onPress={() => {
                   handleRemoveItem(item.itemCode);
                 }}
                 disabled={isUpdating || isCartActionLoading}
@@ -332,7 +480,7 @@ export const CartScreen: React.FC = () => {
             </View>
           </View>
         </View>
-      </TouchableOpacity>
+      </View>
   );
   };
 
@@ -417,11 +565,32 @@ export const CartScreen: React.FC = () => {
           <View style={styles.totalContainer}>
             <Text style={styles.totalLabel}>GH₵{total.toFixed(2)}</Text>
           </View>
-          <TouchableOpacity style={styles.checkoutButton}>
-            <Text style={styles.checkoutButtonText}>Checkout</Text>
+          <TouchableOpacity 
+            style={[styles.checkoutButton, isValidatingCheckout && styles.checkoutButtonDisabled]}
+            onPress={handleCheckout}
+            disabled={isValidatingCheckout}
+          >
+            {isValidatingCheckout ? (
+              <ActivityIndicator size="small" color={Colors.WHITE} />
+            ) : (
+              <Text style={styles.checkoutButtonText}>Checkout</Text>
+            )}
           </TouchableOpacity>
         </View>
       )}
+
+      {/* Modern Alert Modal */}
+      <ModernAlert
+        visible={showStockAlert}
+        title="Items Need Attention"
+        message="The following items in your cart are out of stock or don't have enough quantity available. Please remove these items before proceeding to checkout."
+        items={problematicItems.map(item => ({
+          name: item.name,
+          reason: item.reason,
+        }))}
+        onClose={() => setShowStockAlert(false)}
+        buttonText="Got It"
+      />
     </SafeAreaView>
   );
 };
@@ -709,6 +878,20 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: Colors.BLACK,
   },
+  quantityInput: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: Colors.BLACK,
+    textAlign: 'center',
+    width: 36,
+    height: 28,
+    padding: 0,
+    margin: 0,
+    borderWidth: 0,
+    backgroundColor: 'transparent',
+    includeFontPadding: false,
+    textAlignVertical: 'center',
+  },
   promotionsBanner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -764,6 +947,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingVertical: 10,
     borderRadius: 6,
+  },
+  checkoutButtonDisabled: {
+    opacity: 0.6,
   },
   checkoutButtonText: {
     fontSize: 14,

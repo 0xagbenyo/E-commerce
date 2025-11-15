@@ -119,7 +119,7 @@ export const RegisterScreen: React.FC = () => {
           {/* Header */}
           <View style={styles.header}>
             <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-              <Ionicons name="arrow-back" size={24} color={Colors.BLACK} />
+              <Ionicons name="arrow-back" size={20} color={Colors.BLACK} />
             </TouchableOpacity>
             <Text style={styles.title}>Create your SIAMAE account</Text>
             <Text style={styles.subtitle}>It's quick and easy.</Text>
@@ -213,7 +213,7 @@ export const RegisterScreen: React.FC = () => {
 
             {/* Info Banner */}
             <View style={styles.infoBanner}>
-              <Ionicons name="information-circle-outline" size={20} color={Colors.ELECTRIC_BLUE} />
+              <Ionicons name="information-circle-outline" size={16} color={Colors.ELECTRIC_BLUE} />
               <Text style={styles.infoText}>
                 We'll send you a verification link. Click it to set your password and complete registration.
               </Text>
@@ -247,34 +247,34 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 30,
+    paddingTop: 16,
+    paddingBottom: 24,
   },
   backButton: {
-    marginBottom: 20,
+    marginBottom: 16,
   },
   title: {
-    fontSize: 28,
+    fontSize: 22,
     fontWeight: 'bold',
     color: Colors.BLACK,
-    marginBottom: 8,
+    marginBottom: 6,
   },
   subtitle: {
-    fontSize: 16,
+    fontSize: 14,
     color: Colors.TEXT_SECONDARY,
   },
   formContainer: {
     paddingHorizontal: 20,
-    marginBottom: 30,
-  },
-  inputContainer: {
     marginBottom: 24,
   },
+  inputContainer: {
+    marginBottom: 18,
+  },
   label: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '500',
     color: Colors.TEXT_SECONDARY,
-    marginBottom: 8,
+    marginBottom: 6,
   },
   emailInputWrapper: {
     flexDirection: 'row',
@@ -289,9 +289,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.BORDER,
     borderRadius: 8,
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
     paddingVertical: 12,
-    fontSize: 16,
+    fontSize: 14,
     color: Colors.BLACK,
   },
   inputError: {
@@ -299,8 +299,8 @@ const styles = StyleSheet.create({
   },
   errorText: {
     color: Colors.ERROR,
-    fontSize: 12,
-    marginTop: 4,
+    fontSize: 11,
+    marginTop: 3,
     marginLeft: 4,
   },
   emailInput: {
@@ -340,31 +340,31 @@ const styles = StyleSheet.create({
   registerButton: {
     backgroundColor: Colors.BLACK,
     borderRadius: 8,
-    paddingVertical: 16,
+    paddingVertical: 14,
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 16,
   },
   registerButtonDisabled: {
     opacity: 0.6,
   },
   registerButtonText: {
     color: Colors.WHITE,
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: 'bold',
   },
   signinSection: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 20,
-    marginBottom: 20,
+    marginTop: 16,
+    marginBottom: 16,
   },
   signinText: {
-    fontSize: 16,
+    fontSize: 14,
     color: Colors.TEXT_SECONDARY,
   },
   signinLink: {
-    fontSize: 16,
+    fontSize: 14,
     color: Colors.SHEIN_PINK,
     fontWeight: '500',
   },
@@ -372,25 +372,25 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     backgroundColor: '#E3F2FD',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     borderRadius: 8,
-    marginTop: 20,
+    marginTop: 16,
   },
   infoText: {
     flex: 1,
-    marginLeft: 8,
-    fontSize: 14,
+    marginLeft: 6,
+    fontSize: 12,
     color: Colors.ELECTRIC_BLUE,
-    lineHeight: 20,
+    lineHeight: 18,
   },
   legalText: {
-    fontSize: 12,
+    fontSize: 11,
     color: Colors.TEXT_SECONDARY,
     textAlign: 'center',
     paddingHorizontal: 20,
-    lineHeight: 18,
-    marginTop: 20,
+    lineHeight: 16,
+    marginTop: 16,
   },
   linkText: {
     color: Colors.ELECTRIC_BLUE,

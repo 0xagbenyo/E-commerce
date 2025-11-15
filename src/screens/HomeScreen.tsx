@@ -631,6 +631,7 @@ export const HomeScreen: React.FC = () => {
 						(navigation as any).navigate('ProductBundles');
 					}
 				}}
+				customPaddingTop={Spacing.PADDING_LG + 5}
 			/>
 				</View>
 	);
@@ -742,7 +743,7 @@ export const HomeScreen: React.FC = () => {
 		</View>
 				)}
 			</ScrollView>
-		);
+	);
 	};
 
 	const renderSuperDeals = () => {
@@ -1025,7 +1026,7 @@ export const HomeScreen: React.FC = () => {
 				style={styles.newInProductCard}
 				variant={variant}
 				pricingDiscount={discount}
-			/>
+						/>
 		);
 	}, [navigation, wishlistedProductIds, toggleWishlist, pricingRules, user, addItemToCart, pendingOperations]);
 
@@ -1125,7 +1126,7 @@ export const HomeScreen: React.FC = () => {
 				variant={variant}
 				pricingDiscount={discount}
 			/>
-		);
+	);
 	}, [navigation, wishlistedProductIds, toggleWishlist, pricingRules, user, addItemToCart, pendingOperations]);
 
 	const renderMainProducts = () => {

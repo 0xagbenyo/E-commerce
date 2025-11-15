@@ -13,11 +13,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
-import { Button } from '../components/Button';
 import { Colors } from '../constants/colors';
-import { Typography } from '../constants/typography';
-import { Spacing } from '../constants/spacing';
 import { getERPNextClient } from '../services/erpnext';
 
 interface RouteParams {
@@ -82,26 +78,24 @@ export const ForgotPasswordScreen: React.FC = () => {
   if (isEmailSent) {
     return (
       <SafeAreaView style={styles.container}>
-        <ScrollView contentContainerStyle={styles.scrollContent}>
-          <LinearGradient
-            colors={[Colors.VIBRANT_PINK, Colors.ELECTRIC_BLUE]}
-            style={styles.header}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.keyboardView}
           >
             <TouchableOpacity
-              style={styles.backButton}
+            style={styles.backButtonTop}
               onPress={handleBackToLogin}
             >
-              <Ionicons name="arrow-back" size={24} color={Colors.WHITE} />
+            <Ionicons name="arrow-back" size={24} color={Colors.BLACK} />
             </TouchableOpacity>
-            <View style={styles.successIcon}>
-              <Ionicons name="checkmark-circle" size={80} color={Colors.WHITE} />
+          <ScrollView contentContainerStyle={styles.scrollContent}>
+            <View style={styles.header}>
+              <View style={styles.successIconContainer}>
+                <Ionicons name="checkmark-circle" size={64} color={Colors.SUCCESS} />
+              </View>
             </View>
-            <Text style={styles.logo}>SIAMAE</Text>
-          </LinearGradient>
 
-          <View style={styles.content}>
+            <View style={styles.formContainer}>
             <Text style={styles.title}>Check Your Email</Text>
             <Text style={styles.subtitle}>
               We've sent a password reset link to:
@@ -109,28 +103,22 @@ export const ForgotPasswordScreen: React.FC = () => {
             <Text style={styles.emailText}>{email}</Text>
             
             <Text style={styles.instructions}>
-              Click the link in the email to reset your password. The link will expire in 24 hours.
+                Click the link in the email to reset your password. The link will expire in 15 minutes.
             </Text>
 
-            <View style={styles.buttonContainer}>
-              <Button
-                title="Back to Login"
+              <TouchableOpacity 
+                style={styles.primaryButton}
                 onPress={handleBackToLogin}
-                variant="primary"
-                size="large"
-                fullWidth
-                style={styles.backToLoginButton}
-              />
+              >
+                <Text style={styles.primaryButtonText}>Back to Login</Text>
+              </TouchableOpacity>
 
-              <Button
-                title="Resend Email"
+              <TouchableOpacity 
+                style={styles.secondaryButton}
                 onPress={handleResendEmail}
-                variant="outline"
-                size="large"
-                fullWidth
-                style={styles.resendButton}
-              />
-            </View>
+              >
+                <Text style={styles.secondaryButtonText}>Resend Email</Text>
+              </TouchableOpacity>
 
             <View style={styles.helpContainer}>
               <Text style={styles.helpText}>Didn't receive the email?</Text>
@@ -140,6 +128,7 @@ export const ForgotPasswordScreen: React.FC = () => {
             </View>
           </View>
         </ScrollView>
+        </KeyboardAvoidingView>
       </SafeAreaView>
     );
   }
@@ -150,71 +139,49 @@ export const ForgotPasswordScreen: React.FC = () => {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardView}
       >
+        <TouchableOpacity
+          style={styles.backButtonTop}
+          onPress={handleBackToLogin}
+        >
+          <Ionicons name="arrow-back" size={24} color={Colors.BLACK} />
+        </TouchableOpacity>
         <ScrollView contentContainerStyle={styles.scrollContent}>
-          <LinearGradient
-            colors={[Colors.VIBRANT_PINK, Colors.ELECTRIC_BLUE]}
-            style={styles.header}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-          >
-            <TouchableOpacity
-              style={styles.backButton}
-              onPress={handleBackToLogin}
-            >
-              <Ionicons name="arrow-back" size={24} color={Colors.WHITE} />
-            </TouchableOpacity>
-            <Text style={styles.logo}>SIAMAE</Text>
-            <Text style={styles.tagline}>Reset your password</Text>
-          </LinearGradient>
+          <View style={styles.header}>
+          </View>
 
           <View style={styles.formContainer}>
-            <View style={styles.titleContainer}>
             <Text style={styles.title}>Forgot Password?</Text>
             <Text style={styles.subtitle}>
-                Enter your email address and we'll send you a password reset link.
+              Enter your email address and we'll send you a password reset link.
             </Text>
-            </View>
 
             <View style={styles.inputContainer}>
               <Text style={styles.label}>Email Address</Text>
-              <View style={[styles.inputWrapper, email && styles.inputWrapperFilled]}>
-                <Ionicons 
-                  name="mail-outline" 
-                  size={20} 
-                  color={email ? Colors.FLASH_SALE_RED : Colors.TEXT_SECONDARY} 
-                />
                 <TextInput
                   style={styles.input}
                   placeholder="Enter your email address"
-                  placeholderTextColor={Colors.TEXT_SECONDARY}
+                placeholderTextColor={Colors.TEXT_SECONDARY}
                   value={email}
                   onChangeText={setEmail}
                   keyboardType="email-address"
                   autoCapitalize="none"
                   autoCorrect={false}
-                  editable={!isLoading}
+                editable={!isLoading}
                 />
-                {email.length > 0 && (
-                  <TouchableOpacity
-                    onPress={() => setEmail('')}
-                    style={styles.clearButton}
-                  >
-                    <Ionicons name="close-circle" size={20} color={Colors.TEXT_SECONDARY} />
-                  </TouchableOpacity>
-                )}
-              </View>
             </View>
 
-            <Button
-              title={isLoading ? "Sending..." : "Send Password Reset Link"}
+            <TouchableOpacity 
+              style={[
+                styles.primaryButton,
+                (isLoading || !email.trim()) && styles.primaryButtonDisabled
+              ]}
               onPress={handleResetPassword}
-              variant="primary"
-              size="large"
-              loading={isLoading}
-              fullWidth
               disabled={isLoading || !email.trim()}
-              style={styles.resetButton}
-            />
+            >
+              <Text style={styles.primaryButtonText}>
+                {isLoading ? 'SENDING...' : 'SEND RESET LINK'}
+              </Text>
+            </TouchableOpacity>
 
             <View style={styles.backToLoginContainer}>
               <Text style={styles.backToLoginText}>Remember your password? </Text>
@@ -246,152 +213,152 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
+    paddingBottom: 20,
+    paddingTop: 100,
   },
   header: {
-    height: 200,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: Spacing.PADDING_XL,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 30,
+  },
+  backButtonTop: {
+    position: 'absolute',
+    top: 16,
+    left: 20,
+    zIndex: 10,
+    padding: 8,
   },
   backButton: {
-    position: 'absolute',
-    top: Spacing.PADDING_LG,
-    left: Spacing.PADDING_LG,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    marginBottom: 20,
   },
-  successIcon: {
-    marginBottom: Spacing.MARGIN_MD,
+  logoContainer: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'center',
+    marginBottom: 16,
   },
   logo: {
-    fontSize: Typography.FONT_SIZE_3XL,
-    fontWeight: Typography.FONT_WEIGHT_BOLD,
-    color: Colors.WHITE,
-    letterSpacing: Typography.LETTER_SPACING_WIDE,
-    marginBottom: Spacing.MARGIN_SM,
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: Colors.BLACK,
   },
-  tagline: {
-    fontSize: Typography.FONT_SIZE_LG,
-    fontWeight: Typography.FONT_WEIGHT_MEDIUM,
-    color: Colors.WHITE,
-    opacity: 0.9,
+  logoSuffix: {
+    fontSize: 14,
+    color: Colors.TEXT_SECONDARY,
+    marginLeft: 4,
+  },
+  successIconContainer: {
+    alignItems: 'center',
+    marginTop: 20,
+    marginBottom: 10,
   },
   formContainer: {
-    flex: 1,
-    paddingHorizontal: Spacing.PADDING_XL,
-    paddingTop: Spacing.PADDING_XL * 1.5,
-  },
-  content: {
-    flex: 1,
-    paddingHorizontal: Spacing.PADDING_XL,
-    paddingTop: Spacing.PADDING_XL,
-  },
-  titleContainer: {
-    marginBottom: Spacing.MARGIN_XL * 1.5,
+    paddingHorizontal: 20,
+    marginBottom: 30,
   },
   title: {
-    fontSize: Typography.FONT_SIZE_3XL,
-    fontWeight: Typography.FONT_WEIGHT_BOLD,
-    color: Colors.TEXT_PRIMARY,
-    marginBottom: Spacing.MARGIN_MD,
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: Colors.BLACK,
+    marginBottom: 10,
   },
   subtitle: {
-    fontSize: Typography.FONT_SIZE_MD,
+    fontSize: 14,
     color: Colors.TEXT_SECONDARY,
-    lineHeight: Typography.FONT_SIZE_MD * 1.6,
+    marginBottom: 24,
+    lineHeight: 20,
   },
   inputContainer: {
-    marginBottom: Spacing.MARGIN_XL * 1.5,
+    marginBottom: 20,
   },
   label: {
-    fontSize: Typography.FONT_SIZE_MD,
-    fontWeight: Typography.FONT_WEIGHT_SEMIBOLD,
-    color: Colors.TEXT_PRIMARY,
-    marginBottom: Spacing.MARGIN_MD,
-  },
-  inputWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.WHITE,
-    borderRadius: Spacing.BORDER_RADIUS_LG,
-    paddingHorizontal: Spacing.PADDING_MD,
-    borderWidth: 2,
-    borderColor: Colors.BORDER,
-    minHeight: 56,
-  },
-  inputWrapperFilled: {
-    borderColor: Colors.FLASH_SALE_RED,
+    fontSize: 14,
+    fontWeight: '500',
+    color: Colors.TEXT_SECONDARY,
+    marginBottom: 6,
   },
   input: {
-    flex: 1,
-    paddingVertical: Spacing.PADDING_MD,
-    paddingHorizontal: Spacing.PADDING_SM,
-    fontSize: Typography.FONT_SIZE_MD,
-    color: Colors.TEXT_PRIMARY,
+    backgroundColor: Colors.WHITE,
+    borderWidth: 1,
+    borderColor: Colors.BORDER,
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    fontSize: 14,
+    color: Colors.BLACK,
   },
-  clearButton: {
-    padding: Spacing.PADDING_XS,
-    marginLeft: Spacing.MARGIN_XS,
+  primaryButton: {
+    backgroundColor: Colors.BLACK,
+    borderRadius: 8,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginBottom: 16,
   },
-  resetButton: {
-    marginBottom: Spacing.MARGIN_XL,
+  primaryButtonDisabled: {
+    opacity: 0.6,
+  },
+  primaryButtonText: {
+    color: Colors.WHITE,
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  secondaryButton: {
+    backgroundColor: Colors.WHITE,
+    borderWidth: 1,
+    borderColor: Colors.BORDER,
+    borderRadius: 8,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  secondaryButtonText: {
+    color: Colors.BLACK,
+    fontSize: 14,
+    fontWeight: '500',
   },
   backToLoginContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: Spacing.MARGIN_XL,
+    marginBottom: 16,
   },
   backToLoginText: {
-    fontSize: Typography.FONT_SIZE_MD,
+    fontSize: 14,
     color: Colors.TEXT_SECONDARY,
   },
   backToLoginLink: {
-    fontSize: Typography.FONT_SIZE_MD,
-    color: Colors.VIBRANT_PINK,
-    fontWeight: Typography.FONT_WEIGHT_BOLD,
+    fontSize: 14,
+    color: Colors.SHEIN_PINK,
+    fontWeight: '500',
   },
   helpContainer: {
     alignItems: 'center',
-    marginTop: Spacing.MARGIN_LG,
+    marginTop: 16,
   },
   helpText: {
-    fontSize: Typography.FONT_SIZE_MD,
-    fontWeight: Typography.FONT_WEIGHT_MEDIUM,
-    color: Colors.TEXT_PRIMARY,
-    marginBottom: Spacing.MARGIN_SM,
+    fontSize: 14,
+    fontWeight: '500',
+    color: Colors.BLACK,
+    marginBottom: 6,
   },
   helpSubtext: {
-    fontSize: Typography.FONT_SIZE_SM,
+    fontSize: 12,
     color: Colors.TEXT_SECONDARY,
     textAlign: 'center',
-    lineHeight: Typography.FONT_SIZE_SM * 1.4,
+    lineHeight: 18,
   },
   emailText: {
-    fontSize: Typography.FONT_SIZE_MD,
-    fontWeight: Typography.FONT_WEIGHT_BOLD,
-    color: Colors.VIBRANT_PINK,
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: Colors.SHEIN_PINK,
     textAlign: 'center',
-    marginBottom: Spacing.MARGIN_LG,
+    marginBottom: 16,
   },
   instructions: {
-    fontSize: Typography.FONT_SIZE_MD,
+    fontSize: 14,
     color: Colors.TEXT_SECONDARY,
     textAlign: 'center',
-    lineHeight: Typography.FONT_SIZE_MD * 1.5,
-    marginBottom: Spacing.MARGIN_XL,
-  },
-  buttonContainer: {
-    marginBottom: Spacing.MARGIN_XL,
-  },
-  backToLoginButton: {
-    marginBottom: Spacing.MARGIN_MD,
-  },
-  resendButton: {
-    marginBottom: Spacing.MARGIN_MD,
+    lineHeight: 20,
+    marginBottom: 24,
   },
 });

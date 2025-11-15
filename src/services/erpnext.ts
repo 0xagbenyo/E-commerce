@@ -293,12 +293,12 @@ class ERPNextClient {
   
   async resetPassword(email: string): Promise<{ message?: string; [key: string]: any }> {
     try {
-      // ERPNext password reset endpoint
-      // This endpoint sends a password reset email to the user
-      const response = await this.client.get('/api/method/frappe.core.doctype.user.user.reset_password', {
-        params: {
-          user: email.trim(),
-        },
+      // Use the admin reset_password endpoint with API key/secret authentication
+      // This endpoint requires admin permissions and sends a password reset email to the user
+      // The API key/secret must have admin permissions to use this endpoint
+      // Using POST method as required by ERPNext for this endpoint
+      const response = await this.client.post('/api/method/frappe.core.doctype.user.user.reset_password', {
+        user: email.trim(),
       });
       return response.data;
     } catch (error) {
@@ -1554,10 +1554,12 @@ class ERPNextClient {
   async createSalesOrder(orderData: {
     customer: string;
     company: string;
+    transaction_date?: string;
     items: Array<{
       item_code: string;
       qty: number;
       rate?: number;
+      amount?: number;
     }>;
     delivery_date?: string;
   }): Promise<any> {
@@ -1566,6 +1568,83 @@ class ERPNextClient {
       return response.data.data;
     } catch (error) {
       throw this.handleError(error);
+    }
+  }
+
+  async getCustomerByEmail(email: string): Promise<any | null> {
+    try {
+      // Customer doctype has a child table 'portal_users' with field 'user' containing the email
+      // Use API key/secret client for admin-level access to query Customer doctype
+      
+      // Approach 1: Fetch customers using REST API with API key and check portal_users child table
+      // This is the most reliable approach since child table filters don't work well in REST API
+      try {
+        const response = await this.client.get(`${API_VERSION}/Customer`, {
+          params: {
+            fields: JSON.stringify(['name', 'customer_name', 'email_id']),
+            limit_page_length: 100, // Fetch in batches to optimize
+          },
+        });
+        
+        if (response.data && response.data.data) {
+          // For each customer, fetch full details with portal_users child table
+          for (const cust of response.data.data) {
+            try {
+              const fullCustomer = await this.client.get(`${API_VERSION}/Customer/${cust.name}`, {
+                params: {
+                  fields: JSON.stringify(['name', 'customer_name', 'email_id', 'portal_users']),
+                },
+              });
+              
+              if (fullCustomer.data && fullCustomer.data.data) {
+                const customerData = fullCustomer.data.data;
+                // Check if portal_users child table contains the matching email
+                if (customerData.portal_users && Array.isArray(customerData.portal_users)) {
+                  const hasMatch = customerData.portal_users.some((pu: any) => pu.user === email);
+                  if (hasMatch) {
+                    console.log('Customer found via portal_users (API key):', customerData.name);
+                    return {
+                      name: customerData.name, // Customer ID
+                      customer_name: customerData.customer_name, // Display name
+                      email_id: customerData.email_id,
+                    };
+                  }
+                }
+              }
+            } catch (fetchError) {
+              // Skip this customer and continue
+              continue;
+            }
+          }
+        }
+      } catch (fetchError: any) {
+        console.warn('Fetch customers approach failed:', fetchError?.response?.status || fetchError.message);
+      }
+      
+      // Approach 2: Try email_id as fallback (if customer has email_id field set)
+      try {
+        const filters = [['email_id', '=', email]];
+        const response = await this.client.get(`${API_VERSION}/Customer`, {
+          params: {
+            fields: JSON.stringify(['name', 'customer_name', 'email_id']),
+            filters: JSON.stringify(filters),
+            limit_page_length: 1,
+          },
+        });
+        
+        if (response.data && response.data.data && response.data.data.length > 0) {
+          console.log('Customer found via email_id (API key):', response.data.data[0].name);
+          return response.data.data[0];
+        }
+      } catch (emailError: any) {
+        console.warn('Email ID filter failed:', emailError?.response?.status || emailError.message);
+      }
+      
+      console.warn('No customer found for email:', email);
+      return null;
+    } catch (error: any) {
+      console.error('Error fetching customer by email:', error?.response?.data || error?.message || error);
+      return null;
     }
   }
 
