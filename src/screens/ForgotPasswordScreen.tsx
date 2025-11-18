@@ -214,64 +214,7 @@ const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
     paddingBottom: 20,
-    paddingTop: 100,
-  },
-  header: {
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 30,
-  },
-  backButtonTop: {
-    position: 'absolute',
-    top: 16,
-    left: 20,
-    zIndex: 10,
-    padding: 8,
-  },
-  backButton: {
-    marginBottom: 20,
-  },
-  logoContainer: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    justifyContent: 'center',
-    marginBottom: 16,
-  },
-  logo: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: Colors.BLACK,
-  },
-  logoSuffix: {
-    fontSize: 14,
-    color: Colors.TEXT_SECONDARY,
-    marginLeft: 4,
-  },
-  successIconContainer: {
-    alignItems: 'center',
-    marginTop: 20,
-    marginBottom: 10,
-  },
-  formContainer: {
-    paddingHorizontal: 20,
-    marginBottom: 30,
-  },
-  title: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: Colors.BLACK,
-    marginBottom: 10,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: Colors.TEXT_SECONDARY,
-    marginBottom: 24,
-    lineHeight: 20,
-  },
-  inputContainer: {
-    marginBottom: 20,
-  },
-  label: {
+    
     fontSize: 14,
     fontWeight: '500',
     color: Colors.TEXT_SECONDARY,

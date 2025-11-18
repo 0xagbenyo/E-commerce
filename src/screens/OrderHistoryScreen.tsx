@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -6,22 +6,26 @@ import {
   TouchableOpacity,
   FlatList,
   ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { Colors } from '../constants/colors';
 import { useUserSession } from '../context/UserContext';
-import { useSalesInvoices } from '../hooks/erpnext';
-import { SalesInvoice } from '../types';
+import { useOrders } from '../hooks/erpnext';
+import { Order } from '../types';
 
 const statusConfig: Record<string, { color: string; icon: string; label: string }> = {
-  'Draft': { color: Colors.TEXT_SECONDARY, icon: 'document-outline', label: 'Draft' },
-  'Submitted': { color: Colors.INFO, icon: 'checkmark-circle-outline', label: 'Submitted' },
-  'Paid': { color: Colors.SUCCESS, icon: 'checkmark-circle', label: 'Paid' },
-  'Unpaid': { color: Colors.WARNING, icon: 'time-outline', label: 'Unpaid' },
-  'Overdue': { color: Colors.ERROR, icon: 'alert-circle', label: 'Overdue' },
-  'Cancelled': { color: Colors.ERROR, icon: 'close-circle', label: 'Cancelled' },
+  'pending': { color: Colors.WARNING, icon: 'time-outline', label: 'Pending' },
+  'confirmed': { color: Colors.INFO, icon: 'checkmark-circle-outline', label: 'Confirmed' },
+  'processing': { color: Colors.ELECTRIC_BLUE, icon: 'cube-outline', label: 'Processing' },
+  'to_deliver': { color: Colors.INFO, icon: 'car-outline', label: 'To Deliver' },
+  'completed': { color: Colors.SUCCESS, icon: 'checkmark-circle', label: 'Completed' },
+  'shipped': { color: Colors.INFO, icon: 'car-outline', label: 'Shipped' },
+  'delivered': { color: Colors.SUCCESS, icon: 'checkmark-circle', label: 'Delivered' },
+  'cancelled': { color: Colors.ERROR, icon: 'close-circle', label: 'Canceled' },
+  'returned': { color: Colors.ERROR, icon: 'arrow-undo-outline', label: 'Returned' },
 };
 
 export const OrderHistoryScreen: React.FC = () => {
@@ -29,21 +33,33 @@ export const OrderHistoryScreen: React.FC = () => {
   const navigation = useNavigation();
   const { user } = useUserSession();
   
-  // Fetch sales invoices for the logged-in user (session-based, no customer filter needed)
-  const { data: invoices, loading, error } = useSalesInvoices(user?.email || '');
+  // Get customer ID from user session
+  const customerId = user?.user || '';
+  
+  // Fetch sales orders for the logged-in user with pagination
+  const { data: orders, loading, loadingMore, error, hasMore, loadMore, refresh } = useOrders(customerId, undefined, 20);
   
   // Debug logging
   useEffect(() => {
-    console.log('📄 OrderHistoryScreen - Invoices state:', {
-      invoicesCount: invoices?.length || 0,
+    console.log('📦 OrderHistoryScreen - Orders state:', {
+      ordersCount: orders?.length || 0,
       loading,
+      loadingMore,
+      hasMore,
       error: error?.message,
-      userEmail: user?.email,
+      customerId: customerId,
     });
-    if (invoices && invoices.length > 0) {
-      console.log('📄 First invoice:', invoices[0]);
+    if (orders && orders.length > 0) {
+      console.log('📦 First order:', orders[0]);
     }
-  }, [invoices, loading, error, user?.email]);
+  }, [orders, loading, loadingMore, hasMore, error, customerId]);
+
+  // Handle infinite scroll
+  const handleEndReached = useCallback(() => {
+    if (hasMore && !loadingMore && !loading) {
+      loadMore();
+    }
+  }, [hasMore, loadingMore, loading, loadMore]);
 
   const renderHeader = () => (
     <View style={styles.header}>
@@ -53,13 +69,13 @@ export const OrderHistoryScreen: React.FC = () => {
       >
         <Ionicons name="arrow-back" size={24} color={Colors.BLACK} />
       </TouchableOpacity>
-      <Text style={styles.headerTitle}>My Invoices</Text>
+      <Text style={styles.headerTitle}>My Orders</Text>
       <View style={styles.placeholder} />
     </View>
   );
 
   const renderFilterTabs = () => {
-    const filters = ['All', 'Unpaid', 'Paid', 'Overdue', 'Cancelled'];
+    const filters = ['All', 'Pending', 'Processing', 'To Deliver', 'Completed', 'Canceled'];
     
     return (
       <View style={styles.filterTabs}>
@@ -98,27 +114,27 @@ export const OrderHistoryScreen: React.FC = () => {
     return `GH₵${amount.toFixed(2)}`;
   };
 
-  const renderInvoiceItem = ({ item }: { item: SalesInvoice }) => {
+  const renderOrderItem = ({ item }: { item: Order }) => {
     if (!item || !item.id) {
-      console.warn('Invalid invoice item:', item);
+      console.warn('Invalid order item:', item);
       return null;
     }
     
-    const status = statusConfig[item.status] || statusConfig['Draft'];
-    // Items count will be 0 for list queries (items only available in full document)
-    // Show "View details" to see items
+    const status = statusConfig[item.status] || statusConfig['pending'];
     const itemCount = item.items?.length || 0;
     
     return (
       <TouchableOpacity 
         style={styles.invoiceCard}
-        onPress={() => (navigation as any).navigate('InvoiceDetails', { invoiceId: item.id })}
+        onPress={() => {
+          (navigation as any).navigate('OrderDetails', { orderId: item.id });
+        }}
         activeOpacity={0.7}
       >
         <View style={styles.invoiceHeader}>
           <View style={styles.invoiceInfo}>
-            <Text style={styles.invoiceNumber}>{item.invoiceNumber || item.id}</Text>
-            <Text style={styles.invoiceDate}>{formatDate(item.date)}</Text>
+            <Text style={styles.invoiceNumber}>{item.orderNumber}</Text>
+            <Text style={styles.invoiceDate}>{formatDate(item.createdAt)}</Text>
           </View>
           <View style={styles.statusContainer}>
             <Ionicons name={status.icon as any} size={16} color={status.color} />
@@ -132,13 +148,15 @@ export const OrderHistoryScreen: React.FC = () => {
           <Text style={styles.itemCount}>
             {itemCount > 0 ? `${itemCount} item${itemCount !== 1 ? 's' : ''}` : 'View items'}
           </Text>
-          <Text style={styles.totalAmount}>{formatCurrency(item.grandTotal)}</Text>
+          <Text style={styles.totalAmount}>{formatCurrency(item.total)}</Text>
         </View>
 
         <View style={styles.invoiceFooter}>
           <TouchableOpacity 
             style={[styles.actionButton, styles.primaryButton]}
-            onPress={() => (navigation as any).navigate('InvoiceDetails', { invoiceId: item.id })}
+            onPress={() => {
+              (navigation as any).navigate('OrderDetails', { orderId: item.id });
+            }}
           >
             <Text style={[styles.actionButtonText, styles.primaryButtonText]}>
               View Details
@@ -149,16 +167,17 @@ export const OrderHistoryScreen: React.FC = () => {
     );
   };
 
-  const filteredInvoices = invoices && selectedFilter !== 'All'
-    ? invoices.filter(invoice => {
-        const status = invoice.status || 'Draft';
-        if (selectedFilter === 'Unpaid') return status === 'Unpaid';
-        if (selectedFilter === 'Paid') return status === 'Paid';
-        if (selectedFilter === 'Overdue') return status === 'Overdue';
-        if (selectedFilter === 'Cancelled') return status === 'Cancelled';
+  const filteredOrders = orders && selectedFilter !== 'All'
+    ? orders.filter(order => {
+        const status = order.status || 'pending';
+        if (selectedFilter === 'Pending') return status === 'pending';
+        if (selectedFilter === 'Processing') return status === 'processing';
+        if (selectedFilter === 'To Deliver') return status === 'to_deliver';
+        if (selectedFilter === 'Completed') return status === 'completed';
+        if (selectedFilter === 'Canceled') return status === 'cancelled';
         return true;
       })
-    : invoices || [];
+    : orders || [];
 
   if (loading) {
     return (
@@ -167,7 +186,7 @@ export const OrderHistoryScreen: React.FC = () => {
         {renderFilterTabs()}
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={Colors.SHEIN_PINK} />
-          <Text style={styles.loadingText}>Loading invoices...</Text>
+          <Text style={styles.loadingText}>Loading orders...</Text>
         </View>
       </SafeAreaView>
     );
@@ -180,37 +199,62 @@ export const OrderHistoryScreen: React.FC = () => {
         {renderFilterTabs()}
         <View style={styles.errorContainer}>
           <Ionicons name="alert-circle" size={48} color={Colors.ERROR} />
-          <Text style={styles.errorText}>Error loading invoices</Text>
+          <Text style={styles.errorText}>Error loading orders</Text>
           <Text style={styles.errorSubtext}>{error.message}</Text>
         </View>
       </SafeAreaView>
     );
   }
 
-  if (!invoices || invoices.length === 0) {
+  if (!orders || orders.length === 0) {
     return (
       <SafeAreaView style={styles.container}>
         {renderHeader()}
         {renderFilterTabs()}
         <View style={styles.emptyContainer}>
           <Ionicons name="document-outline" size={64} color={Colors.TEXT_SECONDARY} />
-          <Text style={styles.emptyText}>No invoices found</Text>
-          <Text style={styles.emptySubtext}>Your invoices will appear here</Text>
+          <Text style={styles.emptyText}>No orders found</Text>
+          <Text style={styles.emptySubtext}>Your orders will appear here</Text>
         </View>
       </SafeAreaView>
     );
   }
+
+  const renderFooter = () => {
+    if (!loadingMore) return null;
+    return (
+      <View style={styles.footerLoader}>
+        <ActivityIndicator size="small" color={Colors.SHEIN_PINK} />
+        <Text style={styles.footerLoaderText}>Loading more orders...</Text>
+      </View>
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container}>
       {renderHeader()}
       {renderFilterTabs()}
       <FlatList
-        data={filteredInvoices}
-        renderItem={renderInvoiceItem}
+        data={filteredOrders}
+        renderItem={renderOrderItem}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.invoicesList}
         showsVerticalScrollIndicator={false}
+        onEndReached={handleEndReached}
+        onEndReachedThreshold={0.5}
+        ListFooterComponent={renderFooter}
+        refreshControl={
+          <RefreshControl
+            refreshing={loading && !loadingMore}
+            onRefresh={refresh}
+            tintColor={Colors.SHEIN_PINK}
+            colors={[Colors.SHEIN_PINK]}
+          />
+        }
+        removeClippedSubviews={true}
+        initialNumToRender={10}
+        maxToRenderPerBatch={5}
+        windowSize={10}
       />
     </SafeAreaView>
   );
@@ -395,5 +439,15 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: Colors.TEXT_SECONDARY,
     textAlign: 'center',
+  },
+  footerLoader: {
+    paddingVertical: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  footerLoaderText: {
+    marginTop: 8,
+    fontSize: 14,
+    color: Colors.TEXT_SECONDARY,
   },
 });

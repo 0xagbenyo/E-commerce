@@ -9,7 +9,7 @@ import {
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Button } from '../components/Button';
@@ -66,6 +66,8 @@ const mockOrder = {
 
 export const OrderSuccessScreen: React.FC = () => {
   const navigation = useNavigation();
+  const route = useRoute();
+  const orderNumber = (route.params as any)?.orderNumber || mockOrder.orderNumber;
 
   const formatPrice = (price: number) => {
     return `GH₵${price.toFixed(2)}`;
@@ -76,8 +78,8 @@ export const OrderSuccessScreen: React.FC = () => {
   };
 
   const handleViewOrder = () => {
-    // Navigate to order details
-    Alert.alert('Order Details', 'This would navigate to order details screen');
+    // Navigate to Order History (Sales Orders)
+    (navigation as any).navigate('OrderHistory');
   };
 
   const handleTrackOrder = () => {
@@ -104,7 +106,7 @@ export const OrderSuccessScreen: React.FC = () => {
     <View style={styles.orderInfoCard}>
       <View style={styles.orderInfoRow}>
         <Text style={styles.orderInfoLabel}>Order Number:</Text>
-        <Text style={styles.orderInfoValue}>{mockOrder.orderNumber}</Text>
+        <Text style={styles.orderInfoValue}>{orderNumber}</Text>
       </View>
       <View style={styles.orderInfoRow}>
         <Text style={styles.orderInfoLabel}>Order Date:</Text>

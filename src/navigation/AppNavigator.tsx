@@ -25,6 +25,7 @@ import { ProductDetailsScreen } from '../screens/ProductDetailsScreen';
 import { CheckoutScreen } from '../screens/CheckoutScreen';
 import { OrderSuccessScreen } from '../screens/OrderSuccessScreen';
 import { OrderHistoryScreen } from '../screens/OrderHistoryScreen';
+import { OrderDetailsScreen } from '../screens/OrderDetailsScreen';
 import { InvoiceDetailsScreen } from '../screens/InvoiceDetailsScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
 import { WishlistScreen } from '../screens/WishlistScreen';
@@ -183,6 +184,11 @@ export const AppNavigator = () => {
         <Stack.Screen 
           name="OrderHistory" 
           component={OrderHistoryScreen}
+          options={{ presentation: 'card' }}
+        />
+        <Stack.Screen 
+          name="OrderDetails" 
+          component={OrderDetailsScreen}
           options={{ presentation: 'card' }}
         />
         <Stack.Screen 

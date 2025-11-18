@@ -580,7 +580,7 @@ export const mapERPSalesOrderToOrder = (erpOrder: any): Order => {
     id: erpOrder.name,
     userId: erpOrder.custom_customer_id || '',
     orderNumber: erpOrder.name,
-    status: mapERPOrderStatus(erpOrder.status),
+    status: mapERPOrderStatusFromDocstatus(erpOrder.docstatus, erpOrder.status),
     items: (erpOrder.items || []).map((item: any) => 
       mapERPSalesOrderItemToOrderItem(item)
     ),
@@ -605,19 +605,34 @@ export const mapERPSalesOrderToOrder = (erpOrder: any): Order => {
 };
 
 /**
- * Map ERPNext order status to app status
+ * Map ERPNext order status to app status based on docstatus
+ * docstatus: 0 = Draft, 1 = Submitted, 2 = Cancelled
+ * Also consider the workflow status field for more detailed status
  */
-const mapERPOrderStatus = (erpStatus: string) => {
-  const statusMap: Record<string, any> = {
-    'Draft': 'pending',
-    'Submitted': 'confirmed',
-    'Partial': 'processing',
-    'Completed': 'shipped',
-    'Delivered': 'delivered',
-    'Cancelled': 'cancelled',
-    'Returned': 'returned',
-  };
-  return statusMap[erpStatus] || 'pending';
+const mapERPOrderStatusFromDocstatus = (docstatus: number, workflowStatus?: string): string => {
+  // First check docstatus (primary indicator)
+  if (docstatus === 0) {
+    return 'pending'; // Draft
+  } else if (docstatus === 2) {
+    return 'cancelled'; // Cancelled
+  } else if (docstatus === 1) {
+    // If submitted (docstatus = 1), use workflow status for more detail
+    if (workflowStatus) {
+      const statusMap: Record<string, string> = {
+        'Submitted': 'confirmed',
+        'Partial': 'processing',
+        'To Deliver': 'to_deliver',
+        'Completed': 'completed',
+        'Delivered': 'delivered',
+        'Returned': 'returned',
+      };
+      return statusMap[workflowStatus] || 'confirmed';
+    }
+    return 'confirmed'; // Default for submitted orders
+  }
+  
+  // Fallback to pending if docstatus is unknown
+  return 'pending';
 };
 
 /**

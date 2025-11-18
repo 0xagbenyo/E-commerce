@@ -20,6 +20,11 @@ import { useUserSession } from '../context/UserContext';
 import { LoadingScreen } from '../components/LoadingScreen';
 import { getERPNextClient } from '../services/erpnext';
 import { ModernAlert } from '../components/ModernAlert';
+import { 
+  initializePaystackCharge, 
+  mapProviderToPaystack, 
+  convertToPesewas 
+} from '../services/paystack';
 
 const mtnMomoImage = require('../assets/images/mtn momo.png');
 const telecelCashImage = require('../assets/images/telecel cash.png');
@@ -28,7 +33,7 @@ export const CheckoutScreen: React.FC = () => {
   const navigation = useNavigation();
   const { user } = useUserSession();
   const { cartItems, loading, refresh } = useShoppingCart(user?.email || null);
-  const { updateQuantity } = useCartActions(refresh);
+  const { updateQuantity, clearCart } = useCartActions(refresh);
   const [selectedPayment, setSelectedPayment] = useState<'mtn' | 'telecel' | null>(null);
   const [paymentNumber, setPaymentNumber] = useState('');
   const [isPlacingOrder, setIsPlacingOrder] = useState(false);
@@ -38,6 +43,322 @@ export const CheckoutScreen: React.FC = () => {
 
   const formatPrice = (price: number) => {
     return `GH₵${price.toFixed(2)}`;
+  };
+
+  const initializePaystackPayment = async (
+    orderNumber: string, 
+    amount: number, 
+    invoiceName: string,
+    customerId: string,
+    company: string,
+    paymentType: string
+  ) => {
+    try {
+      if (!user?.email) {
+        Alert.alert('Error', 'User email is required for payment');
+        setIsPlacingOrder(false);
+        return;
+      }
+
+      if (!selectedPayment) {
+        Alert.alert('Error', 'Payment method not selected');
+        setIsPlacingOrder(false);
+        return;
+      }
+
+      if (!paymentNumber || paymentNumber.trim() === '') {
+        Alert.alert('Error', 'Payment number is required');
+        setIsPlacingOrder(false);
+        return;
+      }
+
+      // Map provider: mtn -> mtn, telecel -> vod
+      const paystackProvider = mapProviderToPaystack(selectedPayment);
+      
+      // Convert amount to pesewas (Paystack uses smallest currency unit)
+      // 1 GHS = 100 pesewas
+      const amountInPesewas = convertToPesewas(amount);
+
+      // Use Sales Invoice name as reference for Paystack
+      const paystackReference = invoiceName;
+
+      // Step 1: Call Paystack directly
+      console.log('Calling Paystack with:', {
+        email: user.email,
+        amount: amountInPesewas,
+        currency: 'GHS',
+        mobile_money: {
+          phone: paymentNumber.trim(),
+          provider: paystackProvider,
+        },
+        reference: paystackReference,
+      });
+
+      let paystackResponse: any;
+      try {
+        paystackResponse = await initializePaystackCharge({
+          email: user.email,
+          amount: amountInPesewas,
+          currency: 'GHS',
+          reference: paystackReference,
+          mobile_money: {
+            phone: paymentNumber.trim(),
+            provider: paystackProvider,
+          },
+        });
+
+        console.log('Paystack response:', JSON.stringify(paystackResponse, null, 2));
+      } catch (paystackError: any) {
+        // If Paystack returns an error, throw it to be caught by outer catch
+        console.error('Paystack charge error:', paystackError);
+        throw paystackError;
+      }
+
+      // Step 2: Create Payment Entry after Paystack response
+      const paymentStatus = paystackResponse.data?.status;
+      const displayText = paystackResponse.data?.display_text;
+      const gatewayResponse = paystackResponse.data?.gateway_response;
+      const paystackRef = paystackResponse.data?.reference || paystackReference;
+      
+      // Determine if payment is paid based on Paystack status
+      const isPaid = paymentStatus === 'success';
+      const paidAmount = isPaid ? amount : 0;
+      const receivedAmount = isPaid ? amount : 0;
+      
+      // Debug logging
+      console.log('Payment status check:', {
+        paymentStatus,
+        isPaid,
+        paystackResponseStatus: paystackResponse.status,
+        dataStatus: paystackResponse.data?.status,
+      });
+      
+      // Get reference date (use Paystack transaction date or current date)
+      const referenceDate = paystackResponse.data?.paid_at 
+        ? new Date(paystackResponse.data.paid_at).toISOString().split('T')[0]
+        : new Date().toISOString().split('T')[0];
+      
+      // Create Payment Entry
+      try {
+        const client = getERPNextClient();
+        const paymentEntryData: any = {
+          party_type: 'Customer',
+          party: customerId,
+          payment_type: 'Receive',
+          company: company,
+          paid_amount: paidAmount,
+          received_amount: receivedAmount,
+          paid_to: 'Bank Account - EJ', // Required: Account Paid To
+          paid_to_account_currency: 'GHS', // Required: Account Currency (To)
+          target_exchange_rate: 1, // Required field - 1 for same currency (GHS to GHS)
+          reference_no: paystackRef, // Required: Reference No (Paystack transaction reference)
+          reference_date: referenceDate, // Required: Reference Date (Paystack transaction date or today)
+          references: [
+            {
+              reference_doctype: 'Sales Invoice',
+              reference_name: invoiceName,
+              total_amount: amount,
+              outstanding_amount: isPaid ? 0 : amount,
+              allocated_amount: paidAmount,
+            },
+          ],
+          custom_paystack_reference: paystackRef,
+          custom_paystack_status: paymentStatus || '',
+          custom_display_text: displayText || '',
+        };
+
+        // Try to add mode_of_payment
+        // Use the payment type name: "MTN Mobile Money" or "Telecel Cash"
+        paymentEntryData.mode_of_payment = paymentType;
+
+        // If payment is successful, create and submit in one call (docstatus = 1)
+        // Otherwise, create as draft (docstatus = 0)
+        const shouldSubmit = isPaid;
+        
+        if (shouldSubmit) {
+          console.log('Creating and submitting Payment Entry (docstatus = 1) for successful payment');
+        } else {
+          console.log('Creating Payment Entry as Draft (docstatus = 0) - payment not successful yet');
+        }
+
+        console.log('Creating Payment Entry with data:', paymentEntryData);
+        console.log('Payment successful (isPaid):', isPaid, '- Will submit Payment Entry:', shouldSubmit);
+        let paymentEntry;
+        try {
+          // Create Payment Entry, and submit if payment is successful
+          paymentEntry = await client.createPaymentEntry(paymentEntryData, shouldSubmit);
+          console.log('Payment Entry created successfully:', paymentEntry);
+          console.log('Payment Entry docstatus after creation:', paymentEntry.docstatus);
+          
+          // Verify submission if payment was successful
+          if (isPaid && paymentEntry.docstatus !== 1) {
+            console.warn('Payment was successful but Payment Entry docstatus is not 1, attempting to submit now');
+            try {
+              const submittedEntry = await client.submitPaymentEntry(paymentEntry.name);
+              console.log('Payment Entry submitted successfully after verification (docstatus = 1):', paymentEntry.name);
+            } catch (submitError: any) {
+              console.error('Error submitting Payment Entry after verification:', submitError);
+            }
+          } else if (isPaid && paymentEntry.docstatus === 1) {
+            console.log('✅ Payment Entry successfully submitted (docstatus = 1) for successful payment');
+          } else if (!isPaid) {
+            console.log('Payment Entry left as Draft (docstatus = 0) - payment not successful');
+          }
+        } catch (modeError: any) {
+          // If mode_of_payment doesn't exist, try without it
+          const errorMessage = modeError?.message || modeError?.response?.data?.exc || '';
+          if (errorMessage.includes('Mode of Payment') || errorMessage.includes('Could not find')) {
+            console.warn(`Mode of Payment "${paymentType}" not found, creating Payment Entry without it`);
+            delete paymentEntryData.mode_of_payment;
+            // Create and submit if payment is successful
+            paymentEntry = await client.createPaymentEntry(paymentEntryData, isPaid);
+            console.log('Payment Entry created successfully (without mode_of_payment):', paymentEntry);
+            console.log('Payment Entry docstatus:', paymentEntry.docstatus);
+          } else if (errorMessage.includes('Target Exchange Rate')) {
+            // If target_exchange_rate is still an issue, ensure it's set
+            if (!paymentEntryData.target_exchange_rate) {
+              paymentEntryData.target_exchange_rate = 1;
+              // Create and submit if payment is successful
+              paymentEntry = await client.createPaymentEntry(paymentEntryData, isPaid);
+              console.log('Payment Entry created successfully (with target_exchange_rate):', paymentEntry);
+              console.log('Payment Entry docstatus:', paymentEntry.docstatus);
+            } else {
+              throw modeError;
+            }
+          } else {
+            // Re-throw if it's a different error
+            throw modeError;
+          }
+        }
+      } catch (paymentEntryError: any) {
+        console.error('Error creating Payment Entry:', paymentEntryError);
+        // Don't block the flow if Payment Entry creation fails
+        // User has already paid via Paystack
+      }
+
+      // Step 3: Handle payment response and show appropriate message to user
+      // Check payment status in priority order
+      if (paymentStatus === 'success') {
+        // Payment was successful immediately - clear the cart
+        try {
+          console.log('Clearing cart after successful payment');
+          await clearCart();
+          console.log('Cart cleared successfully');
+        } catch (clearError) {
+          console.error('Error clearing cart:', clearError);
+          // Don't block the flow if cart clearing fails
+        }
+        
+        // Payment was successful immediately
+        const successMessage = gatewayResponse === 'Approved' 
+          ? `Payment approved! Your payment of ${formatPrice(amount)} has been processed successfully.`
+          : 'Your payment has been processed successfully.';
+        
+        Alert.alert(
+          'Payment Successful',
+          successMessage,
+          [
+            {
+              text: 'OK',
+              onPress: () => {
+                setIsPlacingOrder(false);
+                navigation.navigate('OrderSuccess' as never, { orderNumber } as never);
+              },
+            },
+          ]
+        );
+      } else if (displayText) {
+        // Payment requires offline approval - show instructions
+        Alert.alert(
+          'Payment Instructions',
+          displayText,
+          [
+            {
+              text: 'OK',
+              onPress: () => {
+                setIsPlacingOrder(false);
+                // Navigate to success screen after payment initialization
+                navigation.navigate('OrderSuccess' as never, { orderNumber } as never);
+              },
+            },
+          ]
+        );
+      } else if (paymentStatus === 'pay_offline' || paymentStatus === 'send_otp') {
+        // Payment requires offline approval but no display_text
+        Alert.alert(
+          'Payment Initialized',
+          'Please check your phone to approve the payment.',
+          [
+            {
+              text: 'OK',
+              onPress: () => {
+                setIsPlacingOrder(false);
+                navigation.navigate('OrderSuccess' as never, { orderNumber } as never);
+              },
+            },
+          ]
+        );
+      } else if (!paystackResponse.status) {
+        // Paystack returned an error
+        throw new Error(paystackResponse.message || 'Payment initialization failed. Please try again.');
+      } else {
+        // Unknown status - show generic message
+        Alert.alert(
+          'Payment Initialized',
+          'Your payment request has been received. Please check your phone for further instructions.',
+          [
+            {
+              text: 'OK',
+              onPress: () => {
+                setIsPlacingOrder(false);
+                navigation.navigate('OrderSuccess' as never, { orderNumber } as never);
+              },
+            },
+          ]
+        );
+      }
+    } catch (error: any) {
+      console.error('Error initializing Paystack payment:', error);
+      console.error('Error details:', {
+        message: error?.message,
+        response: error?.response?.data,
+        status: error?.response?.status,
+      });
+      
+      // Extract error message
+      let errorMessage = 'Failed to initialize payment. Please try again.';
+      
+      // Check if error message is "Charge attempted" - this is actually success!
+      // This means Paystack returned success but we're treating it as error
+      if (error?.message === 'Charge attempted') {
+        console.warn('Received "Charge attempted" as error - Paystack actually succeeded');
+        // Try to continue with payment flow - show generic success message
+        Alert.alert(
+          'Payment Initialized',
+          'Please check your phone to approve the payment. Dial the USSD code shown on your phone.',
+          [
+            {
+              text: 'OK',
+              onPress: () => {
+                setIsPlacingOrder(false);
+                navigation.navigate('OrderSuccess' as never, { orderNumber } as never);
+              },
+            },
+          ]
+        );
+        return; // Exit early, don't show error alert
+      } else if (error?.message) {
+        errorMessage = error.message;
+      } else if (error?.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error?.response?.data?.data?.message) {
+        // Nested message in Paystack response
+        errorMessage = error.response.data.data.message;
+      }
+      
+      Alert.alert('Payment Error', errorMessage);
+      setIsPlacingOrder(false);
+    }
   };
 
   const calculateSubtotal = () => {
@@ -230,17 +551,33 @@ export const CheckoutScreen: React.FC = () => {
         const company = cartItems[0]?.product?.company || 'Your Company';
 
         // Build order items with required fields
+        // Use the actual Item code from the Website Item's item_code field, not the Website Item code
         const orderItems = cartItems.map((item) => {
-          if (!item.product || !item.itemCode) {
-            throw new Error(`Invalid item: ${item.itemCode}`);
+          if (!item.product) {
+            throw new Error(`Invalid item: missing product data`);
           }
+          
+          // Get the actual Item code from the product (Website Item's item_code field)
+          // item.itemCode is the Website Item code (WEB-ITM-0096)
+          // item.product.itemCode should be the actual Item code from Website Item's item_code field
+          const actualItemCode = item.product.itemCode || item.itemCode;
+          
+          if (!actualItemCode) {
+            throw new Error(`Invalid item: missing item_code for ${item.itemCode}`);
+          }
+          
+          console.log('Order item mapping:', {
+            websiteItemCode: item.itemCode,
+            actualItemCode: actualItemCode,
+            productItemCode: item.product.itemCode,
+          });
           
           const rate = item.product.price;
           const qty = item.quantity;
           const amount = rate * qty; // Calculate amount (optional, ERPNext will calculate if not provided)
           
           return {
-            item_code: item.itemCode,
+            item_code: actualItemCode, // Use actual Item code, not Website Item code
             qty: qty,
             rate: rate,
             amount: amount,
@@ -266,9 +603,60 @@ export const CheckoutScreen: React.FC = () => {
         
         console.log('Sales Order created successfully:', createdOrder);
 
-        // Navigate to success screen with order number
-        setIsPlacingOrder(false);
-        navigation.navigate('OrderSuccess' as never, { orderNumber: createdOrder.name } as never);
+        // Submit the Sales Order so we can create Sales Invoice from it
+        // Set docstatus to 1 (Submitted)
+        try {
+          const submittedOrder = await client.submitSalesOrder(createdOrder.name);
+          console.log('Sales Order submitted successfully (docstatus = 1):', createdOrder.name);
+          
+          // Verify submission before proceeding
+          const verifyOrder = await client.getSalesOrder(createdOrder.name);
+          if (verifyOrder.docstatus !== 1) {
+            console.warn('Sales Order docstatus is not 1, Sales Invoice creation may fail');
+          }
+        } catch (submitError: any) {
+          console.error('Error submitting Sales Order:', submitError);
+          // If submission fails, we can't create Sales Invoice
+          // Throw error to stop the flow
+          throw new Error('Failed to submit Sales Order. Payment cannot be processed.');
+        }
+
+        // Create Sales Invoice from Sales Order
+        let salesInvoice;
+        try {
+          console.log('Creating Sales Invoice from Sales Order:', createdOrder.name);
+          // Pass user email to set custom_user field for invoice filtering
+          salesInvoice = await client.createSalesInvoiceFromSalesOrder(createdOrder.name, user?.email);
+          console.log('Sales Invoice created successfully:', salesInvoice);
+        } catch (invoiceError: any) {
+          console.error('Error creating Sales Invoice:', invoiceError);
+          throw new Error('Failed to create Sales Invoice. Payment cannot be processed.');
+        }
+
+        // Submit the Sales Invoice so it can be referenced in Payment Entry
+        // Set docstatus to 1 (Submitted)
+        try {
+          const submittedInvoice = await client.submitSalesInvoice(salesInvoice.name);
+          console.log('Sales Invoice submitted successfully (docstatus = 1):', salesInvoice.name);
+          
+          // Verify submission before proceeding
+          const verifyInvoice = await client.getSalesInvoice(salesInvoice.name);
+          if (verifyInvoice.docstatus !== 1) {
+            console.warn('Sales Invoice docstatus is not 1, Payment Entry may fail');
+          }
+        } catch (submitError: any) {
+          console.error('Error submitting Sales Invoice:', submitError);
+          // If submission fails, we can't create Payment Entry
+          // Throw error to stop the flow
+          throw new Error('Failed to submit Sales Invoice. Payment cannot be processed.');
+        }
+
+        const orderTotal = salesInvoice.grand_total || createdOrder.grand_total || calculateTotal();
+        const paymentType = selectedPayment === 'mtn' ? 'MTN Mobile Money' : 'Telecel Cash';
+
+        // Initialize Paystack payment first
+        // We'll create Payment Entry after we get the Paystack response
+        await initializePaystackPayment(createdOrder.name, orderTotal, salesInvoice.name, customerId, company, paymentType);
       } catch (error: any) {
         setIsPlacingOrder(false);
         console.error('Error creating sales order:', error);

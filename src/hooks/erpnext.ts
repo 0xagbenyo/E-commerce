@@ -445,41 +445,89 @@ export const usePricingRules = () => {
 };
 
 /**
- * Hook for fetching user orders
+ * Hook for fetching user orders with pagination support
  */
-export const useOrders = (customerId: string, company?: string) => {
-  const [state, setState] = useState<UseAsyncState<Order[]>>({
-    data: null,
-    loading: true,
-    error: null,
-  });
+export const useOrders = (customerId: string, company?: string, pageSize: number = 20) => {
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+  const [hasMore, setHasMore] = useState(true);
+  const [offset, setOffset] = useState(0);
+  const [initialLoad, setInitialLoad] = useState(true);
 
   useEffect(() => {
-    const fetchOrders = async () => {
+    const fetchInitialOrders = async () => {
+      if (!customerId || customerId.trim() === '') {
+        setOrders([]);
+        setLoading(false);
+        setHasMore(false);
+        return;
+      }
+
       try {
-        setState((prev) => ({ ...prev, loading: true, error: null }));
+        setLoading(true);
+        setError(null);
         const client = getERPNextClient();
-        // Only fetch if customerId is valid (not empty)
-        if (!customerId || customerId.trim() === '') {
-          setState({ data: [], loading: false, error: null });
-          return;
-        }
-        const erpOrders = await client.getSalesOrders(customerId, company);
-        const orders = erpOrders.map((order) => mapERPSalesOrderToOrder(order));
-        setState({ data: orders, loading: false, error: null });
-      } catch (error) {
-        setState({
-          data: [],
-          loading: false,
-          error: error instanceof Error ? error : new Error('Unknown error'),
-        });
+        const erpOrders = await client.getSalesOrders(customerId, company, pageSize, 0);
+        const mappedOrders = erpOrders.map((order) => mapERPSalesOrderToOrder(order));
+        
+        setOrders(mappedOrders);
+        setOffset(mappedOrders.length);
+        setHasMore(mappedOrders.length === pageSize);
+        setInitialLoad(false);
+      } catch (err) {
+        setError(err instanceof Error ? err : new Error('Unknown error'));
+        setOrders([]);
+        setHasMore(false);
+      } finally {
+        setLoading(false);
       }
     };
 
-      fetchOrders();
-  }, [customerId, company]);
+    fetchInitialOrders();
+  }, [customerId, company, pageSize]);
 
-  return state;
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !hasMore || initialLoad || !customerId || customerId.trim() === '') {
+      return;
+    }
+
+    setLoadingMore(true);
+    setError(null);
+
+    try {
+      const client = getERPNextClient();
+      const erpOrders = await client.getSalesOrders(customerId, company, pageSize, offset);
+      const mappedOrders = erpOrders.map((order) => mapERPSalesOrderToOrder(order));
+      
+      setOrders((prev) => [...prev, ...mappedOrders]);
+      setOffset((prev) => prev + mappedOrders.length);
+      setHasMore(mappedOrders.length === pageSize);
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error('Unknown error'));
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, hasMore, offset, pageSize, initialLoad, customerId, company]);
+
+  const refresh = useCallback(() => {
+    setOrders([]);
+    setOffset(0);
+    setHasMore(true);
+    setInitialLoad(true);
+    setError(null);
+  }, []);
+
+  return {
+    data: orders,
+    loading,
+    loadingMore,
+    error,
+    hasMore,
+    loadMore,
+    refresh,
+  };
 };
 
 /**

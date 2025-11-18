@@ -167,6 +167,8 @@ export type OrderStatus =
   | 'pending'
   | 'confirmed'
   | 'processing'
+  | 'to_deliver'
+  | 'completed'
   | 'shipped'
   | 'delivered'
   | 'cancelled'
@@ -221,6 +223,7 @@ export type RootStackParamList = {
   Checkout: undefined;
   OrderSuccess: { orderId?: string };
   OrderHistory: undefined;
+  OrderDetails: { orderId: string };
   InvoiceDetails: { invoiceId: string };
   EditProfile: undefined;
   Settings: undefined;
