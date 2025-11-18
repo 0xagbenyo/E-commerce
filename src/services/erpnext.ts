@@ -1300,19 +1300,19 @@ class ERPNextClient {
   }
 
   // Get Website Items by group/category with optional price sorting
-  async getWebsiteItemsByGroup(groupName: string, limit: number = 50, sortByPrice?: 'asc' | 'desc'): Promise<any[]> {
+  async getWebsiteItemsByGroup(groupName: string, limit: number = 50, offset: number = 0, sortByPrice?: 'asc' | 'desc'): Promise<any[]> {
     // If price sorting is requested, use server-side sorting from ERPNext
     if (sortByPrice) {
       return this.getWebsiteItemsSortedByPrice(
         [['Website Item', 'item_group', '=', groupName]],
         limit,
-        0,
+        offset,
         sortByPrice
       );
     }
     // Use getWebsiteItems with item_group filter - it already handles prices and stock
     const filters = [['Website Item', 'item_group', '=', groupName]];
-    return this.getWebsiteItems(filters, limit, 0);
+    return this.getWebsiteItems(filters, limit, offset);
   }
   
   /**

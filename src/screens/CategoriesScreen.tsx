@@ -36,53 +36,81 @@ const AnimatedCategoryItem: React.FC<{
   index: number;
   onPress: () => void;
 }> = ({ category, image, categoryName, index, onPress }) => {
-  const scaleAnim = useRef(new Animated.Value(0)).current;
-  const shakeAnim = useRef(new Animated.Value(0)).current;
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(30)).current;
+  const rotateAnim = useRef(new Animated.Value(0)).current;
+  const scaleAnim = useRef(new Animated.Value(0.8)).current;
   
   useEffect(() => {
-    Animated.spring(scaleAnim, {
-      toValue: 1,
-      delay: index * 50,
-      useNativeDriver: true,
-      tension: 50,
-      friction: 7,
-    }).start();
+    // Staggered entrance animation with fade, slide, rotate, and scale
+    const delay = index * 80;
     
-    // Continuous shake animation
-    const createShakeAnimation = () => {
-      return Animated.sequence([
-        Animated.timing(shakeAnim, {
-          toValue: 2,
-          duration: 100,
+    Animated.parallel([
+      // Fade in
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 600,
+        delay: delay,
+        useNativeDriver: true,
+      }),
+      // Slide up
+      Animated.spring(slideAnim, {
+        toValue: 0,
+        delay: delay,
+        useNativeDriver: true,
+        tension: 50,
+        friction: 8,
+      }),
+      // Rotate with bounce
+      Animated.sequence([
+        Animated.timing(rotateAnim, {
+          toValue: 1,
+          duration: 400,
+          delay: delay,
           useNativeDriver: true,
         }),
-        Animated.timing(shakeAnim, {
-          toValue: -2,
-          duration: 100,
+        Animated.spring(rotateAnim, {
+          toValue: 0,
           useNativeDriver: true,
+          tension: 100,
+          friction: 3,
         }),
-      ]);
-    };
-    
-    const startContinuousShake = () => {
-      createShakeAnimation().start(() => {
-        startContinuousShake();
-      });
-    };
-    
-    startContinuousShake();
+      ]),
+      // Scale bounce
+      Animated.sequence([
+        Animated.spring(scaleAnim, {
+          toValue: 1.1,
+          delay: delay,
+          useNativeDriver: true,
+          tension: 100,
+          friction: 4,
+        }),
+        Animated.spring(scaleAnim, {
+          toValue: 1,
+          useNativeDriver: true,
+          tension: 100,
+          friction: 6,
+        }),
+      ]),
+    ]).start();
   }, []);
+  
+  const rotateInterpolate = rotateAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '10deg'],
+  });
   
   return (
     <Animated.View
-            style={[
+      style={[
         styles.childCategoryItem,
         {
+          opacity: fadeAnim,
           transform: [
+            { translateY: slideAnim },
+            { rotate: rotateInterpolate },
             { scale: scaleAnim },
-            { translateX: shakeAnim },
           ],
-          opacity: scaleAnim,
         },
       ]}
     >
@@ -214,14 +242,14 @@ export const CategoriesScreen: React.FC = () => {
       });
       setChildCategories(children);
 
-      // Fetch product images for each child category (get multiple products and pick one randomly)
+      // Fetch product images for each child category (get fewer products initially for performance)
       // Convert sortOption to server-side sorting parameter for image fetching
       const sortByPrice = sortOption === 'lowToHigh' ? 'asc' : sortOption === 'highToLow' ? 'desc' : undefined;
       const images: Record<string, string> = {};
       for (const child of children) {
         try {
-          // Fetch multiple products (up to 20) to get a better selection, with optional price sorting
-          const websiteItems = await client.getWebsiteItemsByGroup(child.name, 20, sortByPrice);
+          // Fetch fewer products (up to 5) to get a better selection, with optional price sorting
+          const websiteItems = await client.getWebsiteItemsByGroup(child.name, 5, 0, sortByPrice);
           if (websiteItems && websiteItems.length > 0) {
             // Map all products
             const products = websiteItems.map((item: any) => mapERPWebsiteItemToProduct(item));

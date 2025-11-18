@@ -10,6 +10,7 @@ import {
   SafeAreaView,
   Image,
   RefreshControl,
+  ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -87,7 +88,14 @@ export const CategoryProductsScreen: React.FC = () => {
   // Use selectedCategory state instead of route params for fetching products
   // Convert sortOption to server-side sorting parameter
   const sortByPrice = sortOption === 'lowToHigh' ? 'asc' : sortOption === 'highToLow' ? 'desc' : undefined;
-  const { data: products, loading: productsLoading, refresh: refreshProducts } = useProductsByCategory(selectedCategory, 50, sortByPrice);
+  const { 
+    data: products, 
+    loading: productsLoading, 
+    loadingMore: productsLoadingMore,
+    hasMore: productsHasMore,
+    loadMore: loadMoreProducts,
+    refresh: refreshProducts 
+  } = useProductsByCategory(selectedCategory, 20, sortByPrice);
   const { data: pricingRules = [], loading: pricingRulesLoading } = usePricingRules();
   
   // Pull-to-refresh state
@@ -111,6 +119,13 @@ export const CategoryProductsScreen: React.FC = () => {
   // Check if page is initially loading (fresh load - no data loaded yet)
   const isInitialLoading = (!products && productsLoading) && 
     (!pricingRules || pricingRules.length === 0);
+
+  // Handle infinite scroll
+  const handleEndReached = useCallback(() => {
+    if (productsHasMore && !productsLoadingMore && !productsLoading) {
+      loadMoreProducts();
+    }
+  }, [productsHasMore, productsLoadingMore, productsLoading, loadMoreProducts]);
 
   // Fetch sibling categories and their first product image
   useEffect(() => {
@@ -406,6 +421,16 @@ export const CategoryProductsScreen: React.FC = () => {
       );
     }
 
+    const renderFooter = () => {
+      if (!productsLoadingMore) return null;
+      return (
+        <View style={styles.footerLoader}>
+          <ActivityIndicator size="small" color={Colors.SHEIN_PINK} />
+          <Text style={styles.footerLoaderText}>Loading more products...</Text>
+        </View>
+      );
+    };
+
     return (
       <FlatList
         data={sortedProducts}
@@ -425,6 +450,9 @@ export const CategoryProductsScreen: React.FC = () => {
         keyExtractor={(item) => item.id}
         ListHeaderComponent={ListHeader}
         ListHeaderComponentStyle={styles.listHeader}
+        ListFooterComponent={renderFooter}
+        onEndReached={handleEndReached}
+        onEndReachedThreshold={0.5}
         removeClippedSubviews={true}
         initialNumToRender={6}
         maxToRenderPerBatch={4}
@@ -579,6 +607,16 @@ const styles = StyleSheet.create({
     fontSize: Typography.FONT_SIZE_MD,
     color: Colors.DARK_GRAY,
     marginTop: Spacing.MARGIN_SM,
+  },
+  footerLoader: {
+    paddingVertical: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  footerLoaderText: {
+    marginTop: 8,
+    fontSize: 14,
+    color: Colors.TEXT_SECONDARY,
   },
 });
 

@@ -118,61 +118,98 @@ export const useNewArrivals = (pageSize: number = 20, sortByPrice?: 'asc' | 'des
 };
 
 /**
- * Hook for fetching products by category
+ * Hook for fetching products by category with pagination support
  */
-export const useProductsByCategory = (categoryId: string, limit: number = 50, sortByPrice?: 'asc' | 'desc') => {
-  const [state, setState] = useState<UseAsyncState<Product[]>>({
-    data: null,
-    loading: false,
-    error: null,
-  });
-  const [refreshKey, setRefreshKey] = useState(0);
+export const useProductsByCategory = (categoryId: string, pageSize: number = 20, sortByPrice?: 'asc' | 'desc') => {
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+  const [hasMore, setHasMore] = useState(true);
+  const [offset, setOffset] = useState(0);
+  const [initialLoad, setInitialLoad] = useState(true);
 
+  // Load initial products
   useEffect(() => {
-    // Don't fetch if categoryId is empty
-    if (!categoryId || categoryId.trim() === '') {
-      setState({ data: null, loading: false, error: null });
-      return;
-    }
+    const loadInitialProducts = async () => {
+      // Don't fetch if categoryId is empty
+      if (!categoryId || categoryId.trim() === '') {
+        setProducts([]);
+        setLoading(false);
+        setHasMore(false);
+        setInitialLoad(false);
+        return;
+      }
 
-    let isMounted = true;
+      if (!initialLoad) return;
 
-    const fetchProducts = async () => {
+      setLoading(true);
+      setError(null);
+      
       try {
-        if (isMounted) {
-          setState((prev) => ({ ...prev, loading: true, error: null }));
-        }
         const client = getERPNextClient();
-        // Use getWebsiteItemsByGroup with price sorting if provided
-        const websiteItems = await client.getWebsiteItemsByGroup(categoryId, limit, sortByPrice);
-        // Use Website Item mapper for better eCommerce support
-        const products = websiteItems.map((item) => mapERPWebsiteItemToProduct(item));
-        if (isMounted) {
-          setState({ data: products, loading: false, error: null });
-        }
-      } catch (error) {
-        if (isMounted) {
-          setState({
-            data: null,
-            loading: false,
-            error: error instanceof Error ? error : new Error('Unknown error'),
-          });
-        }
+        const websiteItems = await client.getWebsiteItemsByGroup(categoryId, pageSize, 0, sortByPrice);
+        const mappedProducts = websiteItems.map((item) => mapERPWebsiteItemToProduct(item));
+        
+        setProducts(mappedProducts);
+        setOffset(mappedProducts.length);
+        setHasMore(mappedProducts.length === pageSize);
+        setInitialLoad(false);
+      } catch (err) {
+        setError(err instanceof Error ? err : new Error('Unknown error'));
+        setProducts([]);
+        setHasMore(false);
+        setInitialLoad(false);
+      } finally {
+        setLoading(false);
       }
     };
 
-    fetchProducts();
+    loadInitialProducts();
+  }, [categoryId, pageSize, sortByPrice, initialLoad]);
 
-    return () => {
-      isMounted = false;
-    };
-  }, [categoryId, limit, sortByPrice, refreshKey]);
+  // Load more products (for infinite scroll)
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !hasMore || initialLoad || !categoryId || categoryId.trim() === '') {
+      return;
+    }
 
+    setLoadingMore(true);
+    setError(null);
+
+    try {
+      const client = getERPNextClient();
+      const websiteItems = await client.getWebsiteItemsByGroup(categoryId, pageSize, offset, sortByPrice);
+      const mappedProducts = websiteItems.map((item) => mapERPWebsiteItemToProduct(item));
+      
+      setProducts((prev) => [...prev, ...mappedProducts]);
+      setOffset((prev) => prev + mappedProducts.length);
+      setHasMore(mappedProducts.length === pageSize);
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error('Unknown error'));
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, hasMore, offset, pageSize, initialLoad, categoryId, sortByPrice]);
+
+  // Refresh function to reload from start
   const refresh = useCallback(() => {
-    setRefreshKey((prev) => prev + 1);
+    setProducts([]);
+    setOffset(0);
+    setHasMore(true);
+    setInitialLoad(true);
+    setError(null);
   }, []);
 
-  return { ...state, refresh };
+  return {
+    data: products,
+    loading,
+    loadingMore,
+    error,
+    hasMore,
+    loadMore,
+    refresh,
+  };
 };
 
 /**
