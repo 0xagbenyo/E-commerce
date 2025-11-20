@@ -3,7 +3,7 @@
  * Updated to use Website Item doctype for better eCommerce support
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { getERPNextClient } from '../services/erpnext';
 import { useUserSession } from '../context/UserContext';
 import {
@@ -25,6 +25,18 @@ interface UseAsyncState<T> {
   loading: boolean;
   error: Error | null;
 }
+
+/**
+ * Utility function to shuffle an array randomly
+ */
+const shuffleArray = <T,>(array: T[]): T[] => {
+  const shuffled = [...array];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+};
 
 /**
  * Hook for fetching new arrivals (latest Website Items) with infinite scroll
@@ -52,7 +64,10 @@ export const useNewArrivals = (pageSize: number = 20, sortByPrice?: 'asc' | 'des
         const websiteItems = await client.getNewArrivals(pageSize, sortByPrice);
         const mappedProducts = websiteItems.map((item) => mapERPWebsiteItemToProduct(item));
         
-        setProducts(mappedProducts);
+        // Randomize products only when not sorting by price
+        const finalProducts = sortByPrice ? mappedProducts : shuffleArray(mappedProducts);
+        
+        setProducts(finalProducts);
         setOffset(pageSize);
         setHasMore(websiteItems.length === pageSize);
         setInitialLoad(false);
@@ -87,7 +102,10 @@ export const useNewArrivals = (pageSize: number = 20, sortByPrice?: 'asc' | 'des
       );
       const mappedProducts = websiteItems.map((item) => mapERPWebsiteItemToProduct(item));
       
-      setProducts((prev) => [...prev, ...mappedProducts]);
+      // Randomize products only when not sorting by price
+      const finalProducts = sortByPrice ? mappedProducts : shuffleArray(mappedProducts);
+      
+      setProducts((prev) => [...prev, ...finalProducts]);
       setOffset((prev) => prev + pageSize);
       setHasMore(websiteItems.length === pageSize);
     } catch (err) {
@@ -151,9 +169,12 @@ export const useProductsByCategory = (categoryId: string, pageSize: number = 20,
         const websiteItems = await client.getWebsiteItemsByGroup(categoryId, pageSize, 0, sortByPrice);
         const mappedProducts = websiteItems.map((item) => mapERPWebsiteItemToProduct(item));
         
-        setProducts(mappedProducts);
-        setOffset(mappedProducts.length);
-        setHasMore(mappedProducts.length === pageSize);
+        // Randomize products only when not sorting by price
+        const finalProducts = sortByPrice ? mappedProducts : shuffleArray(mappedProducts);
+        
+        setProducts(finalProducts);
+        setOffset(finalProducts.length);
+        setHasMore(finalProducts.length === pageSize);
         setInitialLoad(false);
       } catch (err) {
         setError(err instanceof Error ? err : new Error('Unknown error'));
@@ -182,9 +203,12 @@ export const useProductsByCategory = (categoryId: string, pageSize: number = 20,
       const websiteItems = await client.getWebsiteItemsByGroup(categoryId, pageSize, offset, sortByPrice);
       const mappedProducts = websiteItems.map((item) => mapERPWebsiteItemToProduct(item));
       
-      setProducts((prev) => [...prev, ...mappedProducts]);
-      setOffset((prev) => prev + mappedProducts.length);
-      setHasMore(mappedProducts.length === pageSize);
+      // Randomize products only when not sorting by price
+      const finalProducts = sortByPrice ? mappedProducts : shuffleArray(mappedProducts);
+      
+      setProducts((prev) => [...prev, ...finalProducts]);
+      setOffset((prev) => prev + finalProducts.length);
+      setHasMore(finalProducts.length === pageSize);
     } catch (err) {
       setError(err instanceof Error ? err : new Error('Unknown error'));
     } finally {
@@ -280,7 +304,9 @@ export const useSearchProducts = (query: string) => {
         
         if (isMounted) {
         const products = websiteItems.map((item) => mapERPWebsiteItemToProduct(item));
-        setState({ data: products, loading: false, error: null });
+        // Randomize search results
+        const randomizedProducts = shuffleArray(products);
+        setState({ data: randomizedProducts, loading: false, error: null });
         }
       } catch (error) {
         if (isMounted) {
@@ -710,6 +736,7 @@ export const useCreateOrder = () => {
         item_code: string;
         qty: number;
         rate?: number;
+        description?: string;
       }>;
     }) => {
       try {
@@ -841,16 +868,6 @@ export const useForYouProducts = (pageSize: number = 20) => {
   const [hasMore, setHasMore] = useState(true);
   const [offset, setOffset] = useState(0);
   const [initialLoad, setInitialLoad] = useState(true);
-
-  // Shuffle array function for randomizing items
-  const shuffleArray = <T,>(array: T[]): T[] => {
-    const shuffled = [...array];
-    for (let i = shuffled.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-    }
-    return shuffled;
-  };
 
   // Load initial products
   useEffect(() => {
@@ -1157,6 +1174,9 @@ export const useProductReviews = (websiteItemName: string | null) => {
   return { ...state, refresh };
 };
 
+// Stable empty array reference for wishlist
+const EMPTY_WISHLIST: WishlistItem[] = [];
+
 /**
  * Hook for fetching user wishlist
  */
@@ -1174,7 +1194,7 @@ export const useWishlist = (userEmail: string | null) => {
     const fetchWishlist = async () => {
       if (!userEmail) {
         if (isMounted) {
-          setState({ data: [], loading: false, error: null });
+          setState({ data: EMPTY_WISHLIST, loading: false, error: null });
         }
         return;
       }
@@ -1188,7 +1208,7 @@ export const useWishlist = (userEmail: string | null) => {
         
         if (!erpWishlist || !erpWishlist.items || erpWishlist.items.length === 0) {
           if (isMounted) {
-            setState({ data: [], loading: false, error: null });
+            setState({ data: EMPTY_WISHLIST, loading: false, error: null });
           }
           return;
         }
@@ -1221,8 +1241,32 @@ export const useWishlist = (userEmail: string | null) => {
     setRefreshKey((prev) => prev + 1);
   }, []);
 
+  // Memoize wishlistItems to prevent creating new array references on every render
+  // Compare by content, not reference, to avoid unnecessary re-renders
+  const wishlistItemsRef = useRef<WishlistItem[]>(EMPTY_WISHLIST);
+  const wishlistIdsStringRef = useRef<string>('');
+  
+  const wishlistItems = useMemo(() => {
+    if (!state.data || state.data.length === 0) {
+      return EMPTY_WISHLIST;
+    }
+    
+    // Create a stable string representation to compare content
+    const currentIdsString = JSON.stringify([...new Set(state.data.map(item => item.productId))].sort());
+    
+    // Only return new array if content actually changed
+    if (currentIdsString === wishlistIdsStringRef.current) {
+      return wishlistItemsRef.current;
+    }
+    
+    // Update refs and return new array
+    wishlistIdsStringRef.current = currentIdsString;
+    wishlistItemsRef.current = state.data;
+    return state.data;
+  }, [state.data]);
+
   return {
-    wishlistItems: state.data || [],
+    wishlistItems,
     loading: state.loading,
     error: state.error,
     refresh,
@@ -1380,6 +1424,7 @@ export const useShoppingCart = (userEmail: string | null) => {
                     id: item.name || `${item.item_code}-${Date.now()}`,
                     itemCode: item.item_code || item.item,
                     quantity: item.quantity || 1,
+                    description: item.description || '', // Include description from cart item
                     product: product ? mapERPWebsiteItemToProduct(product) : null,
                   };
                 } catch (err) {
@@ -1438,7 +1483,7 @@ export const useCartActions = (onSuccess?: () => void) => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
-  const addToCart = useCallback(async (itemCode: string, quantity: number = 1) => {
+  const addToCart = useCallback(async (itemCode: string, quantity: number = 1, description?: string) => {
     if (!user?.email) {
       setError(new Error('Please log in to add items to cart'));
       return false;
@@ -1449,7 +1494,7 @@ export const useCartActions = (onSuccess?: () => void) => {
 
     try {
       const client = getERPNextClient();
-      await client.addToCart(user.email, itemCode, quantity);
+      await client.addToCart(user.email, itemCode, quantity, description);
       
       if (onSuccess) {
         setTimeout(() => {
@@ -1656,8 +1701,10 @@ export const useProductBundles = (limit: number = 10) => {
       try {
         const client = getERPNextClient();
         const bundles = await client.getProductBundles(limit);
+        // Randomize product bundles
+        const shuffledBundles = shuffleArray(bundles);
         if (isMounted) {
-          setState({ data: bundles, loading: false, error: null });
+          setState({ data: shuffledBundles, loading: false, error: null });
         }
       } catch (err) {
         if (isMounted) {

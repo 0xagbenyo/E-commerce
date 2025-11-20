@@ -185,7 +185,7 @@ export const OrderHistoryScreen: React.FC = () => {
         {renderHeader()}
         {renderFilterTabs()}
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={Colors.SHEIN_PINK} />
+          <ActivityIndicator size="large" color=" #bc8474" />
           <Text style={styles.loadingText}>Loading orders...</Text>
         </View>
       </SafeAreaView>
@@ -224,7 +224,7 @@ export const OrderHistoryScreen: React.FC = () => {
     if (!loadingMore) return null;
     return (
       <View style={styles.footerLoader}>
-        <ActivityIndicator size="small" color={Colors.SHEIN_PINK} />
+        <ActivityIndicator size="small" color=" #bc8474" />
         <Text style={styles.footerLoaderText}>Loading more orders...</Text>
       </View>
     );
@@ -247,8 +247,8 @@ export const OrderHistoryScreen: React.FC = () => {
           <RefreshControl
             refreshing={loading && !loadingMore}
             onRefresh={refresh}
-            tintColor={Colors.SHEIN_PINK}
-            colors={[Colors.SHEIN_PINK]}
+            tintColor=" #bc8474"
+            colors={[" #bc8474"]}
           />
         }
         removeClippedSubviews={true}
@@ -299,7 +299,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
   },
   filterTabActive: {
-    backgroundColor: Colors.SHEIN_PINK,
+    backgroundColor: ' #bc8474', // Burgundy
   },
   filterTabText: {
     fontSize: 14,
@@ -383,8 +383,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   primaryButton: {
-    backgroundColor: Colors.SHEIN_PINK,
-    borderColor: Colors.SHEIN_PINK,
+    backgroundColor: ' #bc8474', // Burgundy
+    borderColor: ' #bc8474', // Burgundy
   },
   actionButtonText: {
     fontSize: 14,

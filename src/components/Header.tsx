@@ -18,6 +18,7 @@ interface HeaderProps {
   showBackButton?: boolean;
   onBackPress?: () => void;
   customPaddingTop?: number;
+  isScrolled?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -33,6 +34,7 @@ export const Header: React.FC<HeaderProps> = ({
   showBackButton = false,
   onBackPress,
   customPaddingTop,
+  isScrolled = false,
 }) => {
   const navigation = useNavigation();
   const [localSearchValue, setLocalSearchValue] = useState('');
@@ -45,6 +47,22 @@ export const Header: React.FC<HeaderProps> = ({
     const route = state?.routes[state?.index || 0];
     return route?.name;
   });
+  
+  // Determine if we're on Home screen - Home screen has special transparent styling
+  const isHomeScreen = currentRouteName === 'Home';
+  
+  // For non-Home screens, use white background with black text
+  // For Home screen, use transparent when not scrolled, white when scrolled
+  const headerBackgroundColor = !isHomeScreen ? Colors.WHITE : 'transparent';
+  const headerTopBackgroundColor = !isHomeScreen ? Colors.WHITE : 'transparent';
+  
+  // Icon color logic:
+  // - Other screens: black (on white background)
+  // - Home screen, not scrolled: white (on transparent, over carousel)
+  // - Home screen, scrolled: black (on white background)
+  const iconColor = !isHomeScreen 
+    ? Colors.BLACK 
+    : (isScrolled ? Colors.BLACK : Colors.WHITE);
 
   // Use controlled value if provided, otherwise use local state
   const searchValue = controlledSearchValue !== undefined ? controlledSearchValue : localSearchValue;
@@ -175,9 +193,18 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <View style={[styles.header, customPaddingTop !== undefined && { paddingTop: customPaddingTop }]}>
+    <View style={[
+      styles.header, 
+      customPaddingTop !== undefined && { paddingTop: customPaddingTop },
+      { backgroundColor: headerBackgroundColor },
+      !isHomeScreen && styles.headerScrolled
+    ]}>
       {/* Search and Icons Row */}
-      <View style={styles.headerTop}>
+      <View style={[
+        styles.headerTop, 
+        styles.headerTopWithBackground,
+        { backgroundColor: headerTopBackgroundColor }
+      ]}>
         {/* Left side icons */}
         <View style={styles.leftIcons}>
           {showBackButton ? (
@@ -186,7 +213,7 @@ export const Header: React.FC<HeaderProps> = ({
               onPress={handleBackPress}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
-              <Ionicons name="arrow-back" size={18} color={Colors.BLACK} />
+              <Ionicons name="arrow-back" size={18} color={iconColor} />
             </TouchableOpacity>
           ) : (
             <>
@@ -195,7 +222,7 @@ export const Header: React.FC<HeaderProps> = ({
                 onPress={handleMailPress}
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
-                <Ionicons name="mail-outline" size={18} color={Colors.BLACK} />
+                <Ionicons name="mail-outline" size={18} color={iconColor} />
               </TouchableOpacity>
               
               <TouchableOpacity 
@@ -203,7 +230,7 @@ export const Header: React.FC<HeaderProps> = ({
                 onPress={handleCalendarPress}
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
-                <Ionicons name="cube-outline" size={18} color={Colors.BLACK} />
+                <Ionicons name="cube-outline" size={18} color={iconColor} />
               </TouchableOpacity>
             </>
           )}
@@ -212,13 +239,20 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Search bar */}
         <View style={styles.searchWrapper}>
           <TouchableOpacity 
-            style={styles.searchContainer}
-            activeOpacity={1}
+            style={[
+              styles.searchContainer,
+              isScrolled && styles.searchContainerScrolled,
+              !isHomeScreen && styles.searchContainerWhite
+            ]}
+            activeOpacity={0.7}
             onPress={handleSearchPress}
           >
             <TextInput
               ref={searchInputRef}
-              style={styles.searchInput}
+              style={[
+                styles.searchInput,
+                !isHomeScreen && styles.searchInputWhite
+              ]}
               placeholder="Search"
               placeholderTextColor={Colors.TEXT_SECONDARY}
               value={searchValue}
@@ -229,7 +263,7 @@ export const Header: React.FC<HeaderProps> = ({
               editable={currentRouteName === 'Search'}
               pointerEvents={currentRouteName === 'Search' ? 'auto' : 'none'}
             />
-            <View style={styles.searchIconsContainer}>
+            <View style={styles.searchIconsContainer} pointerEvents="box-none">
               <TouchableOpacity 
                 style={styles.cameraButton} 
                 onPress={handleCameraPress}
@@ -239,10 +273,10 @@ export const Header: React.FC<HeaderProps> = ({
               </TouchableOpacity>
               <TouchableOpacity 
                 style={styles.searchIconButton} 
-                onPress={handleSearchSubmit}
+                onPress={currentRouteName === 'Search' ? handleSearchSubmit : handleSearchPress}
                 hitSlop={{ top: 5, bottom: 5, left: 5, right: 5 }}
               >
-                <Ionicons name="search" size={18} color={Colors.FLASH_SALE_RED} />
+                <Ionicons name="search" size={18} color={!isHomeScreen ? Colors.BLACK : (isScrolled ? Colors.BLACK : Colors.WHITE)} />
               </TouchableOpacity>
             </View>
           </TouchableOpacity>
@@ -252,17 +286,17 @@ export const Header: React.FC<HeaderProps> = ({
         <View style={styles.rightIcons}>
           <TouchableOpacity 
             style={styles.iconButton} 
-            onPress={handleCartPress}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          >
-            <Ionicons name="cart-outline" size={18} color={Colors.BLACK} />
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={styles.iconButton} 
             onPress={handleWishlistPress}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
-            <Ionicons name="heart-outline" size={18} color={Colors.BLACK} />
+            <Ionicons name="heart-outline" size={18} color={iconColor} />
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.iconButton} 
+            onPress={handleCartPress}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Ionicons name="cart-outline" size={18} color={iconColor} />
           </TouchableOpacity>
         </View>
       </View>
@@ -275,7 +309,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.SCREEN_PADDING,
     paddingTop: Spacing.PADDING_LG + 30,
     paddingBottom: Spacing.PADDING_SM,
-    backgroundColor: '#DC143C',
+    backgroundColor: 'transparent',
+    width: '100%',
+    marginBottom: 0,
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
+    overflow: 'hidden',
+  },
+  headerScrolled: {
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
   },
   appNameRow: {
     alignItems: 'center',
@@ -322,19 +370,19 @@ const styles = StyleSheet.create({
   searchContainer: {
     flex: 1,
     flexDirection: 'row',
-    backgroundColor: Colors.LIGHT_GRAY,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
     borderRadius: 20,
     paddingHorizontal: Spacing.PADDING_SM,
     paddingVertical: Spacing.PADDING_XS,
     minHeight: 32,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: Colors.BORDER,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
   },
   searchInput: {
     flex: 1,
     fontSize: 14,
-    color: Colors.TEXT_PRIMARY,
+    color: Colors.BLACK,
     padding: 0,
     margin: 0,
   },
@@ -349,5 +397,22 @@ const styles = StyleSheet.create({
   },
   searchIconButton: {
     padding: 4,
+  },
+  headerTopWithBackground: {
+    backgroundColor: 'transparent',
+    borderRadius: 12,
+    paddingHorizontal: Spacing.PADDING_SM,
+    paddingVertical: Spacing.PADDING_XS,
+  },
+  searchContainerScrolled: {
+    backgroundColor: Colors.LIGHT_GRAY,
+    borderColor: Colors.BORDER,
+  },
+  searchContainerWhite: {
+    backgroundColor: Colors.LIGHT_GRAY,
+    borderColor: Colors.BORDER,
+  },
+  searchInputWhite: {
+    color: Colors.BLACK,
   },
 });

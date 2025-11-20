@@ -7,6 +7,8 @@ import {
   Animated,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useNavigation } from '@react-navigation/native';
+import { CommonActions } from '@react-navigation/native';
 import { Colors } from '../constants/colors';
 import { Typography } from '../constants/typography';
 import { Spacing } from '../constants/spacing';
@@ -14,6 +16,7 @@ import { Spacing } from '../constants/spacing';
 const { width, height } = Dimensions.get('window');
 
 export const SplashScreen: React.FC = () => {
+  const navigation = useNavigation();
   const fadeAnim = new Animated.Value(0);
   const scaleAnim = new Animated.Value(0.8);
 
@@ -33,13 +36,18 @@ export const SplashScreen: React.FC = () => {
       }),
     ]).start();
 
-    // Navigate to next screen after 3 seconds
+    // Navigate to main app after 3 seconds
     const timer = setTimeout(() => {
-      // TODO: Navigate to onboarding or main app
+      navigation.dispatch(
+        CommonActions.reset({
+          index: 0,
+          routes: [{ name: 'Main' as never }],
+        })
+      );
     }, 3000);
 
     return () => clearTimeout(timer);
-  }, []);
+  }, [navigation]);
 
   return (
     <View style={styles.container}>

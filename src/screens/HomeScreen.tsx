@@ -11,25 +11,32 @@ import {
 	ActivityIndicator,
 	RefreshControl,
 	Alert,
+	Animated,
+	Easing,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Path } from 'react-native-svg';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, CommonActions } from '@react-navigation/native';
 import { RootStackParamList } from '../types';
 import type { NavigationProp } from '@react-navigation/native';
+import * as Updates from 'expo-updates';
 import { Colors } from '../constants/colors';
 import { Spacing } from '../constants/spacing';
 import { Typography } from '../constants/typography';
-import { useNewArrivals, useProductsByCategory, useForYouProducts, usePricingRuleFields, usePricingRules, useWishlistActions, useWishlist, useCartActions, useDealProducts, useTopCustomers, useProductBundles } from '../hooks/erpnext';
+import { useNewArrivals, useProductsByCategory, useForYouProducts, usePricingRuleFields, usePricingRules, useWishlistActions, useWishlist, useCartActions, useDealProducts, useTopCustomers, useProductBundles, useCategories } from '../hooks/erpnext';
 import { useUserSession } from '../context/UserContext';
 import { ProductCard } from '../components/ProductCard';
 import { LoadingScreen } from '../components/LoadingScreen';
+import { ProductCardSkeletonList } from '../components/ProductCardSkeletonList';
+import { ProductCardSkeletonHorizontal } from '../components/ProductCardSkeletonHorizontal';
 import { CategoryTabs } from '../components/CategoryTabs';
 import { Header } from '../components/Header';
 import { Toast } from '../components/Toast';
 import { PriceFilter, SortOption } from '../components/PriceFilter';
 import { TopCustomerAward } from '../components/TopCustomerAward';
+import { CartAnimation } from '../components/CartAnimation';
 import { getProductDiscount } from '../utils/pricingRules';
 import { Product } from '../types';
 import { getERPNextClient } from '../services/erpnext';
@@ -85,6 +92,7 @@ export const HomeScreen: React.FC = () => {
 	const [selectedCategory, setSelectedCategory] = useState('All');
 	const [selectedFilter, setSelectedFilter] = useState('For You');
 	const [shouldScrollToFilterTabs, setShouldScrollToFilterTabs] = useState(false);
+	const [isScrolledPastFilterTabs, setIsScrolledPastFilterTabs] = useState(false);
 	const forYouListRef = useRef<FlatList>(null);
 	const mainListRef = useRef<FlatList>(null);
 	const navigation = useNavigation<NavigationProp<RootStackParamList>>();
@@ -109,6 +117,22 @@ export const HomeScreen: React.FC = () => {
 	const [toastMessage, setToastMessage] = useState('');
 	const [sortOption, setSortOption] = useState<SortOption>('default');
 	
+	// Cart animation state
+	const [showCartAnimation, setShowCartAnimation] = useState(false);
+	const [animationStartPos, setAnimationStartPos] = useState({ x: 0, y: 0 });
+	const [animationEndPos, setAnimationEndPos] = useState({ x: 0, y: 0 });
+	const [animationProductImage, setAnimationProductImage] = useState<string | undefined>(undefined);
+	
+	// Debug: Log animation state changes
+	useEffect(() => {
+		console.log('HomeScreen: Animation state changed', {
+			showCartAnimation,
+			animationStartPos,
+			animationEndPos,
+			animationProductImage
+		});
+	}, [showCartAnimation, animationStartPos, animationEndPos, animationProductImage]);
+	
 	// Create a Set of wishlisted product IDs for quick lookup
 	const wishlistedProductIds = useMemo(() => {
 		const baseSet = new Set(wishlistItems.map(item => item.productId));
@@ -119,12 +143,34 @@ export const HomeScreen: React.FC = () => {
 	
 	// Sync optimistic state with actual wishlist when it updates
 	// Only sync when not currently performing operations to avoid infinite loops
+	const wishlistIdsRef = useRef<string>('');
+	const pendingOpsSizeRef = useRef<number>(0);
+	
+	const currentWishlistIds = useMemo(() => {
+		const ids = [...new Set(wishlistItems.map(item => item.productId))].sort();
+		return JSON.stringify(ids);
+	}, [wishlistItems]);
+	
 	useEffect(() => {
-		if (pendingOperations.size > 0) {
+		// Update refs for comparison
+		const currentPendingSize = pendingOperations.size;
+		pendingOpsSizeRef.current = currentPendingSize;
+		
+		if (currentPendingSize > 0) {
 			return; // Don't sync while operations are pending
 		}
 		
-		const actualSet = new Set(wishlistItems.map(item => item.productId));
+		// Only update if the wishlist IDs actually changed
+		if (currentWishlistIds === wishlistIdsRef.current) {
+			return;
+		}
+		
+		wishlistIdsRef.current = currentWishlistIds;
+		
+		// Parse IDs from the string to avoid depending on wishlistItems array
+		const actualIds = JSON.parse(currentWishlistIds) as string[];
+		const actualSet = new Set(actualIds);
+		
 		setOptimisticWishlist(prev => {
 			// Clear optimistic state and sync with actual wishlist
 			// This ensures we start fresh after operations complete
@@ -136,7 +182,7 @@ export const HomeScreen: React.FC = () => {
 			}
 			return prev; // Return same reference if no change
 		});
-	}, [wishlistItems, pendingOperations.size]);
+	}, [currentWishlistIds, pendingOperations.size]);
 	
 	// Map category to item group name
 	const itemGroupName = mapCategoryToItemGroup(selectedCategory);
@@ -156,6 +202,54 @@ export const HomeScreen: React.FC = () => {
 	
 	// Fetch Product Bundles
 	const { data: productBundles, loading: bundlesLoading, error: bundlesError } = useProductBundles(10);
+	
+	// Fetch categories for category images section
+	const { data: allCategories, loading: categoriesLoading } = useCategories();
+	
+	// Get random 30 categories with images
+	const [randomCategories, setRandomCategories] = useState<any[]>([]);
+	const [categoryImages, setCategoryImages] = useState<Record<string, string>>({});
+	const [loadingCategoryImages, setLoadingCategoryImages] = useState(false);
+	
+	useEffect(() => {
+		const fetchRandomCategories = async () => {
+			if (!allCategories || allCategories.length === 0) return;
+			
+			setLoadingCategoryImages(true);
+			try {
+				const client = getERPNextClient();
+				
+				// Get all categories and shuffle them
+				const shuffled = [...allCategories].sort(() => Math.random() - 0.5);
+				const selected = shuffled.slice(0, 30);
+				
+				// Fetch images for each category
+				const images: Record<string, string> = {};
+				for (const category of selected) {
+					try {
+						const websiteItems = await client.getWebsiteItemsByGroup(category.id, 1);
+						if (websiteItems && websiteItems.length > 0) {
+							const product = mapERPWebsiteItemToProduct(websiteItems[0]);
+							if (product.images && product.images.length > 0) {
+								images[category.id] = product.images[0];
+							}
+						}
+					} catch (error) {
+						// Silently fail for individual categories
+					}
+				}
+				
+				setRandomCategories(selected);
+				setCategoryImages(images);
+			} catch (error) {
+				console.error('Error fetching random categories:', error);
+			} finally {
+				setLoadingCategoryImages(false);
+			}
+		};
+		
+		fetchRandomCategories();
+	}, [allCategories]);
 	
 	// Fetch trending products from top items
 	const [trendingProducts, setTrendingProducts] = useState<Product[]>([]);
@@ -204,8 +298,15 @@ export const HomeScreen: React.FC = () => {
 				const fetchedProducts = await Promise.all(productPromises);
 				const validProducts = fetchedProducts.filter((p): p is Product => p !== null);
 				
+				// Randomize trending products
+				const shuffledProducts = [...validProducts];
+				for (let i = shuffledProducts.length - 1; i > 0; i--) {
+					const j = Math.floor(Math.random() * (i + 1));
+					[shuffledProducts[i], shuffledProducts[j]] = [shuffledProducts[j], shuffledProducts[i]];
+				}
+				
 				if (isMounted) {
-					setTrendingProducts(validProducts);
+					setTrendingProducts(shuffledProducts);
 				}
 			} catch (error) {
 				if (isMounted && error instanceof Error && !error.message.includes('aborted')) {
@@ -250,6 +351,14 @@ export const HomeScreen: React.FC = () => {
 			console.log('💰 PRICING RULES FETCHED:', pricingRules.length, 'rules');
 			pricingRules.slice(0, 3).forEach((rule: any) => {
 				console.log(`  - ${rule.name}: ${rule.discount_percentage}% (${rule.item_code || rule.item_group})`);
+				// Log all keys to see what fields are available
+				console.log(`  📋 Available fields in ${rule.name}:`, Object.keys(rule));
+				// Specifically check for custom_flyer
+				if (rule.custom_flyer !== undefined) {
+					console.log(`  🖼️ custom_flyer found in ${rule.name}:`, rule.custom_flyer);
+				} else {
+					console.log(`  ⚠️ custom_flyer NOT found in ${rule.name}`);
+				}
 			});
 		}
 	}, [pricingRules]);
@@ -308,23 +417,39 @@ export const HomeScreen: React.FC = () => {
 	// Pull-to-refresh state
 	const [refreshing, setRefreshing] = useState(false);
 	
-	// Handle pull-to-refresh
+	// Handle pull-to-refresh - reload the entire page
 	const onRefresh = useCallback(async () => {
 		setRefreshing(true);
 		try {
-			// Refresh all data sources
-			await Promise.all([
-				refreshNewArrivals(),
-				refreshCategoryProducts(),
-				refreshForYouProducts(),
-				refreshWishlist(),
-			]);
+			// Navigate to Splash screen first to show SIAMAE
+			navigation.dispatch(
+				CommonActions.reset({
+					index: 0,
+					routes: [{ name: 'Splash' }],
+				})
+			);
+			
+			// Wait a moment for Splash to appear, then reload the entire app
+			setTimeout(async () => {
+				try {
+					// Try to reload the app using expo-updates
+					await Updates.reloadAsync();
+				} catch (error) {
+					// If reload fails (e.g., in development mode), reset navigation to Main
+					console.log('Updates.reloadAsync not available, using navigation reset');
+					navigation.dispatch(
+						CommonActions.reset({
+							index: 0,
+							routes: [{ name: 'Main' }],
+						})
+					);
+				}
+			}, 1500); // Show splash for 1.5 seconds before reload
 		} catch (error) {
 			console.error('Error refreshing data:', error);
-		} finally {
 			setRefreshing(false);
 		}
-	}, [refreshNewArrivals, refreshCategoryProducts, refreshForYouProducts, refreshWishlist]);
+	}, [navigation]);
 	
 	// Products to display - only show when a specific category is selected
 	const displayedProducts = selectedCategory === 'All' 
@@ -577,18 +702,18 @@ export const HomeScreen: React.FC = () => {
 	const getSections = (): Array<{ type: string; id: string; ruleName?: string; ruleTitle?: string; discountPercent?: number }> => {
 		if (selectedCategory !== 'All') {
 			return [
-				{ type: 'header', id: 'header' },
-				{ type: 'categoryTabs', id: 'categoryTabs' },
+				{ type: 'flyerCarousel', id: 'flyerCarousel' },
 			];
 		}
 		
 		// Always return the same sections structure to prevent remounting
 		// The renderSection function will conditionally render content based on selectedFilter
+		// Note: header and categoryTabs are rendered separately as absolute positioned overlays
 		const baseSections: Array<{ type: string; id: string; ruleName?: string; ruleTitle?: string; discountPercent?: number }> = [
-			{ type: 'header', id: 'header' },
+			{ type: 'flyerCarousel', id: 'flyerCarousel' },
 			{ type: 'priceFilter', id: 'priceFilter' },
-			{ type: 'categoryTabs', id: 'categoryTabs' },
 			{ type: 'shippingBanner', id: 'shippingBanner' },
+			{ type: 'categoryImages', id: 'categoryImages' },
 			{ type: 'topCustomerAward', id: 'topCustomerAward' },
 			{ type: 'superDeals', id: 'superDeals' },
 			...pricingRuleSections,
@@ -604,11 +729,9 @@ export const HomeScreen: React.FC = () => {
 	
 	const sections = getSections();
 
-	// Find the index of the header section for sticky header
-	const stickyHeaderIndex = useMemo(() => {
-		const index = sections.findIndex(section => section.type === 'header');
-		return index >= 0 ? index : undefined;
-	}, [sections]);
+	// Find the index of filterTabs section for sticky header
+	const filterTabsIndex = sections.findIndex(s => s.id === 'filterTabs');
+	const stickyHeaderIndices = filterTabsIndex >= 0 ? [filterTabsIndex] : [];
 
 	// Store section layout positions to scroll directly to them
 	const sectionLayouts = useRef<{ [key: string]: number }>({});
@@ -623,22 +746,226 @@ export const HomeScreen: React.FC = () => {
 		prevFilterRef.current = selectedFilter;
 	}, [selectedFilter]);
 
-	const renderHeader = () => (
-		<View style={[styles.stickyHeaderWrapper, { paddingTop: insets.top - Spacing.PADDING_MD }]}>
-			<Header 
-				onCalendarPress={() => {
-					if (productBundles && productBundles.length > 0) {
-						(navigation as any).navigate('ProductBundles');
-					}
-				}}
-				customPaddingTop={Spacing.PADDING_LG + 5}
-			/>
-				</View>
-	);
-
-
 	const bannerScrollRef = useRef<ScrollView>(null);
 	const [currentBannerIndex, setCurrentBannerIndex] = useState(0);
+	const flyerCarouselRef = useRef<ScrollView>(null);
+	const [currentFlyerIndex, setCurrentFlyerIndex] = useState(0);
+	const [isScrolledPastCarousel, setIsScrolledPastCarousel] = useState(false);
+	
+	// Animated values for header transitions (all non-native to avoid conflicts)
+	const headerOpacity = useRef(new Animated.Value(0)).current;
+	const headerBorderRadius = useRef(new Animated.Value(0)).current;
+	const headerShadowOpacity = useRef(new Animated.Value(0)).current;
+	
+	// Initialize header animation state
+	useEffect(() => {
+		if (isScrolledPastCarousel) {
+			headerOpacity.setValue(1);
+			headerBorderRadius.setValue(20);
+			headerShadowOpacity.setValue(0.15);
+		}
+	}, []); // Only run on mount
+
+	// Extract custom_flyer images from pricing rules
+	const flyerImages = useMemo(() => {
+		if (!pricingRules || pricingRules.length === 0) {
+			console.log('🖼️ No pricing rules available for flyer images');
+			return [];
+		}
+		
+		const images: string[] = [];
+		const baseUrl = 'https://glamora.rxcue.net';
+		
+		pricingRules.forEach((rule: any) => {
+			// Log to debug
+			console.log(`🖼️ Checking pricing rule ${rule.name}:`, {
+				hasCustomFlyer: !!rule.custom_flyer,
+				customFlyerType: typeof rule.custom_flyer,
+				customFlyerValue: rule.custom_flyer,
+			});
+			
+			if (rule.custom_flyer) {
+				// Handle both single image string and array of images
+				if (Array.isArray(rule.custom_flyer)) {
+					rule.custom_flyer.forEach((img: string) => {
+						if (img && img.trim()) {
+				// Format URL - prepend base URL if it's a relative path
+				// Also fix /private/files/ to /files/ for public access
+				let formattedUrl = img.trim().startsWith('http') 
+					? img.trim() 
+					: `${baseUrl}${img.trim().startsWith('/') ? img.trim() : '/' + img.trim()}`;
+				// Replace /private/files/ with /files/ for public access
+				formattedUrl = formattedUrl.replace('/private/files/', '/files/');
+				images.push(formattedUrl);
+						}
+					});
+				} else if (typeof rule.custom_flyer === 'string' && rule.custom_flyer.trim()) {
+				// Format URL - prepend base URL if it's a relative path
+				// Also fix /private/files/ to /files/ for public access
+				let formattedUrl = rule.custom_flyer.trim().startsWith('http') 
+					? rule.custom_flyer.trim() 
+					: `${baseUrl}${rule.custom_flyer.trim().startsWith('/') ? rule.custom_flyer.trim() : '/' + rule.custom_flyer.trim()}`;
+				// Replace /private/files/ with /files/ for public access
+				formattedUrl = formattedUrl.replace('/private/files/', '/files/');
+				images.push(formattedUrl);
+				}
+			}
+		});
+		
+		console.log(`🖼️ Extracted ${images.length} flyer images:`, images);
+		return images;
+	}, [pricingRules]);
+
+	// Auto-scroll flyer carousel
+	useEffect(() => {
+		if (flyerImages.length <= 1) return;
+		const interval = setInterval(() => {
+			setCurrentFlyerIndex((prevIndex) => {
+				const nextIndex = (prevIndex + 1) % flyerImages.length;
+				flyerCarouselRef.current?.scrollTo({
+					x: nextIndex * width,
+					animated: true,
+				});
+				return nextIndex;
+			});
+		}, 4000); // Change image every 4 seconds
+		return () => clearInterval(interval);
+	}, [flyerImages.length]);
+
+	const renderHeader = () => {
+		const backgroundColor = headerOpacity.interpolate({
+			inputRange: [0, 1],
+			outputRange: ['rgba(255, 255, 255, 0)', 'rgba(255, 255, 255, 1)'],
+		});
+		
+		const shadowOpacity = headerShadowOpacity.interpolate({
+			inputRange: [0, 1],
+			outputRange: [0, 0.15],
+		});
+		
+		return (
+			<Animated.View 
+				style={[
+					styles.stickyHeaderWrapper, 
+					{ 
+						paddingTop: insets.top - Spacing.PADDING_MD,
+						backgroundColor,
+						borderBottomLeftRadius: headerBorderRadius,
+						borderBottomRightRadius: headerBorderRadius,
+						shadowOpacity,
+					},
+					isScrolledPastCarousel && styles.stickyHeaderWrapperScrolled
+				]}
+			>
+				<View style={styles.headerContentWrapper}>
+					<Header 
+						onCalendarPress={() => {
+							if (productBundles && productBundles.length > 0) {
+								(navigation as any).navigate('ProductBundles');
+							}
+						}}
+						customPaddingTop={Spacing.PADDING_LG + 5}
+						isScrolled={isScrolledPastCarousel}
+					/>
+				</View>
+			</Animated.View>
+		);
+	};
+
+	const renderCategoryTabsOverlay = () => {
+		// Calculate header height when scrolled:
+		// stickyHeaderWrapper paddingTop: insets.top - 16
+		// Header customPaddingTop: 24 + 5 = 29
+		// Header content (search bar + icons): ~42px
+		// Header paddingBottom: 8
+		// Total: insets.top - 16 + 29 + 42 + 8 = insets.top + 63
+		const headerHeight = isScrolledPastCarousel 
+			? Math.max(insets.top - Spacing.PADDING_MD, 0) + (Spacing.PADDING_LG + 5) + 42 + Spacing.PADDING_SM
+			: 100;
+		
+		return (
+			<View style={[
+				styles.categoryTabsOverlay,
+				isScrolledPastCarousel && [
+					styles.categoryTabsOverlayScrolled,
+					{ top: headerHeight }
+				]
+			]}>
+				<View style={styles.categoryTabsContentWrapper}>
+					<CategoryTabs 
+						selectedCategory={selectedCategory}
+						onSelectCategory={handleCategorySelect}
+						variant="red"
+						showMenuIcon={true}
+						isScrolled={isScrolledPastCarousel}
+					/>
+				</View>
+			</View>
+		);
+	};
+
+	const renderFlyerCarousel = () => {
+		if (flyerImages.length === 0) {
+			// Show a placeholder or default image if no flyers
+			return (
+				<View style={styles.flyerCarouselContainer}>
+					<View style={styles.flyerImageContainer}>
+						<View style={styles.flyerPlaceholder}>
+							<Ionicons name="image-outline" size={48} color={Colors.TEXT_SECONDARY} />
+						</View>
+					</View>
+					<View style={styles.carouselOverlay} />
+				</View>
+			);
+		}
+
+		return (
+			<View style={styles.flyerCarouselContainer}>
+				<ScrollView
+					ref={flyerCarouselRef}
+					horizontal
+					pagingEnabled
+					showsHorizontalScrollIndicator={false}
+					scrollEventThrottle={16}
+					onMomentumScrollEnd={(event) => {
+						const newIndex = Math.round(event.nativeEvent.contentOffset.x / width);
+						setCurrentFlyerIndex(newIndex);
+					}}
+				>
+					{flyerImages.map((imageUri, index) => (
+						<View key={index} style={styles.flyerImageContainer}>
+							<Image
+								source={{ uri: imageUri }}
+								style={styles.flyerImage}
+								resizeMode="cover"
+								onError={(error) => {
+									console.error(`🖼️ Error loading flyer image ${index}:`, imageUri, error.nativeEvent.error);
+								}}
+								onLoad={() => {
+									console.log(`🖼️ Successfully loaded flyer image ${index}:`, imageUri);
+								}}
+							/>
+						</View>
+					))}
+				</ScrollView>
+				{/* Thin black overlay on carousel */}
+				<View style={styles.carouselOverlay} />
+				{flyerImages.length > 1 && (
+					<View style={styles.flyerIndicators}>
+						{flyerImages.map((_, index) => (
+							<View
+								key={index}
+								style={[
+									styles.flyerIndicator,
+									index === currentFlyerIndex && styles.flyerIndicatorActive,
+								]}
+							/>
+						))}
+					</View>
+				)}
+			</View>
+		);
+	};
 
 	// Calculate banner count for auto-scroll
 	const latestRule = pricingRules && pricingRules.length > 0 ? pricingRules[0] : null;
@@ -666,22 +993,6 @@ export const HomeScreen: React.FC = () => {
 	}, [bannerCount]);
 
 	const renderShippingBanner = () => {
-		// Get the latest pricing rule (first one in the array)
-		const latestRuleName = latestRule?.name || (latestRule as any)?.name;
-		const latestRuleProducts = latestRuleName ? (productsByRule[latestRuleName] || []) : [];
-		
-		const handleBannerPress = () => {
-			// Use latestRuleProducts if available, otherwise fallback to allDealProducts
-			const dealsToShow = latestRuleProducts.length > 0 ? latestRuleProducts : allDealProducts;
-			if (dealsToShow.length > 0) {
-				(navigation as any).navigate('AllDeals', { deals: dealsToShow });
-			}
-		};
-		
-		if (!showDiscountBanner && !showTopCustomerBanner) {
-			return null;
-		}
-		
 		// Get month name
 		const getMonthName = (monthNum: string) => {
 			const months = ['January', 'February', 'March', 'April', 'May', 'June', 
@@ -691,59 +1002,89 @@ export const HomeScreen: React.FC = () => {
 		};
 		
 		return (
-			<ScrollView 
-				ref={bannerScrollRef}
-				horizontal
-				showsHorizontalScrollIndicator={false}
-				pagingEnabled
-				contentContainerStyle={styles.bannerCarouselContainer}
-				scrollEventThrottle={16}
-				onMomentumScrollEnd={(event) => {
-					const newIndex = Math.round(event.nativeEvent.contentOffset.x / width);
-					setCurrentBannerIndex(newIndex);
-				}}
-			>
-				{showDiscountBanner && (
-					<View style={styles.bannerCarouselItem}>
-						<View style={styles.shippingBannerContainer}>
-							<TouchableOpacity
-								style={styles.shippingBanner}
-								onPress={handleBannerPress}
-								activeOpacity={0.7}
-								disabled={allDealProducts.length === 0 && latestRuleProducts.length === 0}
-							>
-								<Ionicons name="pricetag" size={14} color={Colors.BLACK} />
-								<Text style={styles.shippingText}>Get {discountPercent}% Off</Text>
-					</TouchableOpacity>
+			<View style={styles.shippingBannersContainer}>
+				{/* Free Shipping Banner */}
+				<View style={styles.shippingBannerContainer}>
+					<View style={styles.shippingBanner}>
+						<View style={styles.shippingBannerContent}>
+							<Text style={styles.shippingText}>Free Shipping</Text>
+							<Text style={styles.shippingSubtext}>On orders of $50.00+</Text>
+						</View>
+						<Ionicons name="car-outline" size={18} color={Colors.WHITE} />
+					</View>
 				</View>
-			</View>
-				)}
-				{showTopCustomerBanner && (
-					<View style={styles.bannerCarouselItem}>
-						<View style={styles.shippingBannerContainer}>
-							<View style={styles.topCustomerBanner}>
-								<View style={styles.topCustomerLeft}>
-									<View style={styles.trophyIconContainer}>
-										<Ionicons name="trophy" size={16} color={Colors.GOLD} />
-		</View>
-									<View style={styles.topCustomerTextContainer}>
-										<Text style={styles.topCustomerBannerText}>Top Customer</Text>
-										<Text style={styles.topCustomerBannerSubtext}>
-											{getMonthName(topCustomersData.month)} {topCustomersData.year}
-										</Text>
-				</View>
-			</View>
-								<View style={styles.topCustomerRight}>
-									<Ionicons name="star" size={14} color={Colors.GOLD} />
-									<Text style={styles.topCustomerBannerName}>{topCustomer.customer}</Text>
-									<Ionicons name="star" size={14} color={Colors.GOLD} />
+				
+				{/* Top Customer Banner */}
+				{showTopCustomerBanner && topCustomer && (
+					<View style={styles.shippingBannerContainer}>
+						<View style={styles.topCustomerBanner}>
+							<View style={styles.topCustomerBannerContent}>
+								<Text style={styles.topCustomerBannerLabel}>Top Customer</Text>
+								<Text style={styles.topCustomerBannerName}>{topCustomer.customer}</Text>
+								<Text style={styles.topCustomerBannerSubtext}>
+									{getMonthName(topCustomersData.month)} {topCustomersData.year}
+								</Text>
+							</View>
+							<Ionicons name="trophy" size={18} color={Colors.WHITE} />
 						</View>
 					</View>
-			</View>
-		</View>
 				)}
-			</ScrollView>
-	);
+			</View>
+		);
+	};
+	
+	const renderCategoryImages = () => {
+		if (loadingCategoryImages || randomCategories.length === 0) {
+			return null;
+		}
+		
+		// Display all 30 categories in a grid (6 rows x 5 columns)
+		return (
+			<View style={styles.categoryImagesSection}>
+				<FlatList
+					data={randomCategories}
+					numColumns={5}
+					scrollEnabled={false}
+					showsVerticalScrollIndicator={false}
+					contentContainerStyle={styles.categoryImagesGrid}
+					columnWrapperStyle={styles.categoryImagesRow}
+					renderItem={({ item }) => {
+						const image = categoryImages[item.id];
+						const categoryName = item.name || 'Category';
+						
+						return (
+							<TouchableOpacity
+								style={styles.categoryImageItem}
+								onPress={() => {
+									(navigation as any).navigate('CategoryProducts', {
+										categoryName: item.id,
+										parentName: item.parentItemGroup || '',
+									});
+								}}
+							>
+								<View style={styles.categoryImageContainer}>
+									{image ? (
+										<Image
+											source={{ uri: image }}
+											style={styles.categoryImage}
+											resizeMode="cover"
+										/>
+									) : (
+										<View style={styles.categoryImagePlaceholder}>
+											<Ionicons name="image-outline" size={16} color={Colors.TEXT_SECONDARY} />
+										</View>
+									)}
+								</View>
+								<Text style={styles.categoryImageName} numberOfLines={2}>
+									{categoryName}
+								</Text>
+							</TouchableOpacity>
+						);
+					}}
+					keyExtractor={(item) => item.id || item.name}
+				/>
+			</View>
+		);
 	};
 
 	const renderSuperDeals = () => {
@@ -757,59 +1098,68 @@ export const HomeScreen: React.FC = () => {
 			return null;
 		}
 
+		// Calculate average discount percentage for display
+		const discounts = firstTenDeals
+			.map(item => item.discount || 0)
+			.filter(d => d > 0);
+		const avgDiscount = discounts.length > 0
+			? Math.round(discounts.reduce((a, b) => a + b, 0) / discounts.length)
+			: 20; // Default to 20% if no discounts
+
 		return (
 		<View style={styles.section}>
 			{allDealProducts.length > 0 && (
-				<View style={styles.superDealsTitleContainer}>
-					<View style={styles.titleWithIcon}>
-						<Ionicons name="flash" size={12} color={Colors.WHITE} />
-						<Text style={styles.superDealsTitle}>Super Deals</Text>
-				</View>
-					<TouchableOpacity 
-						onPress={() => {
-							navigation.navigate('PricingRules');
-						}}
-					>
-						<Text style={styles.viewMoreTextWhite}>View more {'>'}</Text>
-			</TouchableOpacity>
-			</View>
+					<View style={styles.superDealsTitleContainer}>
+						<View style={styles.superDealsTitleLeft}>
+						<Ionicons name="flash" size={12} color={Colors.BLACK} />
+							<Text style={styles.superDealsTitle}>Super Deals</Text>
+							<Text style={styles.superDealsDiscount}>-{avgDiscount}%</Text>
+						</View>
+						<TouchableOpacity 
+							onPress={() => {
+								navigation.navigate('PricingRules');
+							}}
+						>
+							<Text style={styles.superDealsSaveText}>Save big now! {'>'}</Text>
+						</TouchableOpacity>
+					</View>
 			)}
 			<FlatList
-					data={firstTenDeals}
+				data={firstTenDeals}
 				horizontal
 				showsHorizontalScrollIndicator={false}
 				contentContainerStyle={styles.productsList}
-					renderItem={({ item }: { item: any }) => (
-						<TouchableOpacity 
-							style={styles.productCard}
-							onPress={() => (navigation as any).navigate('ProductDetails', { productId: item.id })}
-						>
+				renderItem={({ item }: { item: any }) => (
+					<TouchableOpacity 
+						style={styles.productCard}
+						onPress={() => (navigation as any).navigate('ProductDetails', { productId: item.id })}
+					>
 						<View style={styles.productImage}>
-								{item.images && item.images.length > 0 && item.images[0] ? (
-									<Image 
-										source={{ uri: item.images[0] }} 
-										style={styles.productImageContent}
-										resizeMode="cover"
-									/>
-								) : (
-									<View style={styles.productImagePlaceholder}>
-										<Ionicons name="image-outline" size={24} color={Colors.TEXT_SECONDARY} />
-									</View>
-								)}
-								{item.discount > 0 && (
-								<View style={styles.discountTag}>
-										<Text style={styles.discountText}>-{Math.round(item.discount)}%</Text>
+							{item.images && item.images.length > 0 && item.images[0] ? (
+								<Image 
+									source={{ uri: item.images[0] }} 
+									style={styles.productImageContent}
+									resizeMode="cover"
+								/>
+							) : (
+								<View style={styles.productImagePlaceholder}>
+									<Ionicons name="image-outline" size={24} color={Colors.TEXT_SECONDARY} />
+								</View>
+							)}
+							{item.discount > 0 && (
+								<View style={styles.flashSaleTag}>
+									<Text style={styles.flashSaleText}>Flash Sale</Text>
 								</View>
 							)}
 						</View>
-							<Text style={styles.productName} numberOfLines={2}>{item.name}</Text>
-							<View style={styles.priceRow}>
-								<Text style={styles.productPrice}>GH₵{(item.price * (1 - item.discount / 100)).toFixed(2)}</Text>
-								{item.discount > 0 && (
-									<Text style={styles.originalPrice}>GH₵{item.price.toFixed(2)}</Text>
-								)}
-					</View>
-						</TouchableOpacity>
+						<Text style={styles.productName} numberOfLines={2}>{item.name}</Text>
+						<View style={styles.priceRow}>
+							<Text style={styles.productPrice} numberOfLines={1} ellipsizeMode="tail">GH₵{(item.price * (1 - (item.discount || 0) / 100)).toFixed(2)}</Text>
+							{(item.discount || 0) > 0 && (
+								<Text style={styles.originalPrice} numberOfLines={1} ellipsizeMode="tail">GH₵{item.price.toFixed(2)}</Text>
+							)}
+						</View>
+					</TouchableOpacity>
 				)}
 				keyExtractor={(item) => item.id}
 			/>
@@ -833,18 +1183,29 @@ export const HomeScreen: React.FC = () => {
 		return (
 		<View style={styles.section}>
 			<View style={styles.sectionHeader}>
-				<View style={styles.sectionTitleContainer}>
+				<TouchableOpacity 
+					style={styles.sectionTitleContainer}
+					onPress={() => {
+						(navigation as any).navigate('PricingRules', { ruleName });
+					}}
+					activeOpacity={0.7}
+				>
+					<View>
 						<Text style={styles.sectionTitle}>{ruleTitle}</Text>
-						{ruleProducts.length > 5 && (
-							<TouchableOpacity onPress={() => {
-								const dealsToNavigate = Array.isArray(ruleProducts) ? ruleProducts : [];
-								(navigation as any).navigate('AllDeals', { deals: dealsToNavigate });
-							}}>
-								<Text style={styles.viewMoreText}>View more {'>'}</Text>
-							</TouchableOpacity>
-						)}
-				</View>
-					<Text style={styles.sectionSubtitle}>{discountPercent}% off</Text>
+						<Text style={styles.sectionSubtitle}>{discountPercent}% off</Text>
+					</View>
+				</TouchableOpacity>
+				{ruleProducts.length > 5 && (
+					<TouchableOpacity 
+						onPress={() => {
+							const dealsToNavigate = Array.isArray(ruleProducts) ? ruleProducts : [];
+							(navigation as any).navigate('AllDeals', { deals: dealsToNavigate });
+						}}
+						activeOpacity={0.7}
+					>
+						<Text style={styles.viewMoreText}>View more {'>'}</Text>
+					</TouchableOpacity>
+				)}
 			</View>
 			<FlatList
 					data={firstFive}
@@ -876,9 +1237,9 @@ export const HomeScreen: React.FC = () => {
 		</View>
 							<Text style={styles.productName} numberOfLines={2}>{item.name}</Text>
 							<View style={styles.priceRow}>
-								<Text style={styles.productPrice}>GH₵{(item.price * (1 - item.discount / 100)).toFixed(2)}</Text>
+								<Text style={styles.productPrice} numberOfLines={1} ellipsizeMode="tail">GH₵{(item.price * (1 - item.discount / 100)).toFixed(2)}</Text>
 								{item.discount > 0 && (
-									<Text style={styles.originalPrice}>GH₵{item.price.toFixed(2)}</Text>
+									<Text style={styles.originalPrice} numberOfLines={1} ellipsizeMode="tail">GH₵{item.price.toFixed(2)}</Text>
 								)}
 				</View>
 						</TouchableOpacity>
@@ -889,16 +1250,23 @@ export const HomeScreen: React.FC = () => {
 	);
 	};
 
-	const renderFilterTabs = () => (
+	const renderFilterTabs = () => {
+		return (
 		<View 
 			ref={filterTabsLayoutRef}
-			style={styles.filterTabs}
+				style={[
+					styles.filterTabs,
+					styles.filterTabsNormal, // Apply margin only when not sticky
+					isScrolledPastFilterTabs && { opacity: 0 } // Hide when sticky overlay is shown
+				]}
 			onLayout={(e) => {
 				const { y } = e.nativeEvent.layout;
 				sectionLayouts.current['filterTabs'] = y;
 			}}
 		>
-			{filterTabs.map((tab) => (
+				{filterTabs.map((tab) => {
+					if (!tab.name) return null;
+					return (
 				<TouchableOpacity
 					key={tab.id}
 					style={[
@@ -927,9 +1295,12 @@ export const HomeScreen: React.FC = () => {
 						{tab.name}
 					</Text>
 				</TouchableOpacity>
-			))}
+					);
+				})}
 		</View>
 	);
+	};
+
 
 	// Memoized renderItem for "New In" products (New Arrivals)
 	const renderNewInItem = useCallback(({ item, index }: { item: any; index: number }) => {
@@ -957,7 +1328,7 @@ export const HomeScreen: React.FC = () => {
 							onPress={(productId) => {
 								(navigation as any).navigate('ProductDetails', { productId });
 							}}
-				onCartPress={async (productId) => {
+				onCartPress={async (productId, animationData) => {
 					if (!user?.email) {
 						Alert.alert('Login Required', 'Please log in to add items to your cart.');
 						return;
@@ -967,8 +1338,18 @@ export const HomeScreen: React.FC = () => {
 						const itemCode = item.itemCode || productId;
 						const success = await addItemToCart(itemCode, 1);
 						if (success) {
-							setToastMessage('Item added to cart!');
-							setToastVisible(true);
+							// Trigger animation if data is available
+							if (animationData) {
+								const endX = width - 60; // Approx position of cart icon
+								const endY = 50; // Approx position of cart icon
+								setAnimationStartPos(animationData.startPos);
+								setAnimationEndPos({ x: endX, y: endY });
+								setAnimationProductImage(animationData.productImage);
+								setShowCartAnimation(true);
+							} else {
+								setToastMessage('Item added to cart!');
+								setToastVisible(true);
+							}
 						}
 					} catch (error) {
 						console.error('Error adding to cart:', error);
@@ -1056,7 +1437,7 @@ export const HomeScreen: React.FC = () => {
 				onPress={(productId) => {
 					(navigation as any).navigate('ProductDetails', { productId });
 				}}
-				onCartPress={async (productId) => {
+				onCartPress={async (productId, animationData) => {
 					if (!user?.email) {
 						Alert.alert('Login Required', 'Please log in to add items to your cart.');
 						return;
@@ -1066,8 +1447,18 @@ export const HomeScreen: React.FC = () => {
 						const itemCode = item.itemCode || productId;
 						const success = await addItemToCart(itemCode, 1);
 						if (success) {
-							setToastMessage('Item added to cart!');
-							setToastVisible(true);
+							// Trigger animation if data is available
+							if (animationData) {
+								const endX = width - 60; // Approx position of cart icon
+								const endY = 50; // Approx position of cart icon
+								setAnimationStartPos(animationData.startPos);
+								setAnimationEndPos({ x: endX, y: endY });
+								setAnimationProductImage(animationData.productImage);
+								setShowCartAnimation(true);
+							} else {
+								setToastMessage('Item added to cart!');
+								setToastVisible(true);
+							}
 						}
 					} catch (error) {
 						console.error('Error adding to cart:', error);
@@ -1130,10 +1521,13 @@ export const HomeScreen: React.FC = () => {
 	}, [navigation, wishlistedProductIds, toggleWishlist, pricingRules, user, addItemToCart, pendingOperations]);
 
 	const renderMainProducts = () => {
-		// Only show main products when "For You" is not selected
-		if (selectedFilter === 'For You') {
+		// Only show main products when "Best Sellers" is selected
+		if (selectedFilter !== 'Best Sellers') {
 			return null;
 		}
+
+		// Use trending products (from top_items) for Best Sellers
+		const bestSellerProducts = trendingProducts || [];
 
 		return (
 			<View 
@@ -1144,8 +1538,15 @@ export const HomeScreen: React.FC = () => {
 					sectionLayouts.current['mainProducts'] = y;
 				}}
 			>
+			{trendingProductsLoading ? (
+				<ProductCardSkeletonList count={6} numColumns={2} />
+			) : bestSellerProducts.length === 0 ? (
+				<View style={styles.emptyContainer}>
+					<Text style={styles.emptyText}>No best sellers available</Text>
+				</View>
+			) : (
 				<FlatList
-					data={categoryProducts || []}
+					data={bestSellerProducts}
 					numColumns={2}
 					showsVerticalScrollIndicator={false}
 					contentContainerStyle={styles.productsList}
@@ -1175,7 +1576,8 @@ export const HomeScreen: React.FC = () => {
 								onPress={(productId) => {
 									(navigation as any).navigate('ProductDetails', { productId });
 								}}
-								onCartPress={async (productId) => {
+								onCartPress={async (productId, animationData) => {
+									console.log('HomeScreen: onCartPress called', { productId, hasAnimationData: !!animationData, animationData });
 									if (!user?.email) {
 										Alert.alert('Login Required', 'Please log in to add items to your cart.');
 										return;
@@ -1185,9 +1587,25 @@ export const HomeScreen: React.FC = () => {
 										// Use item.itemCode if available, otherwise fallback to productId
 										const itemCode = item.itemCode || productId;
 										const success = await addItemToCart(itemCode, 1);
+										console.log('HomeScreen: addItemToCart result', { success, hasAnimationData: !!animationData });
 										if (success) {
-											// Show a subtle success feedback (you can enhance this later)
-											console.log('Item added to cart:', itemCode);
+											// Trigger animation if data is available
+											if (animationData) {
+												const endX = width - 60; // Approx position of cart icon
+												const endY = 50; // Approx position of cart icon
+												console.log('HomeScreen: Setting animation state', {
+													startPos: animationData.startPos,
+													endPos: { x: endX, y: endY },
+													productImage: animationData.productImage
+												});
+												setAnimationStartPos(animationData.startPos);
+												setAnimationEndPos({ x: endX, y: endY });
+												setAnimationProductImage(animationData.productImage);
+												setShowCartAnimation(true);
+												console.log('HomeScreen: Animation state set, showCartAnimation should be true');
+											} else {
+												console.log('HomeScreen: No animation data, item added to cart:', itemCode);
+											}
 										}
 									} catch (error) {
 										console.error('Error adding to cart:', error);
@@ -1250,6 +1668,7 @@ export const HomeScreen: React.FC = () => {
 					}}
 					keyExtractor={(item) => item.id}
 				/>
+			)}
 			</View>
 		);
 	};
@@ -1263,10 +1682,7 @@ export const HomeScreen: React.FC = () => {
 		return (
 			<View style={styles.categoryView}>
 				{isLoadingProducts ? (
-					<View style={styles.loadingContainer}>
-						<ActivityIndicator size="large" color={Colors.SHEIN_RED} />
-						<Text style={styles.loadingText}>Loading {selectedCategory} items...</Text>
-					</View>
+					<ProductCardSkeletonList count={6} numColumns={2} />
 				) : productsError ? (
 					<View style={styles.errorContainer}>
 						<Ionicons name="alert-circle-outline" size={24} color={Colors.ERROR} />
@@ -1301,7 +1717,8 @@ export const HomeScreen: React.FC = () => {
 								onPress={(productId) => {
 									(navigation as any).navigate('ProductDetails', { productId });
 								}}
-								onCartPress={async (productId) => {
+								onCartPress={async (productId, animationData) => {
+									console.log('HomeScreen: onCartPress called (Best Sellers)', { productId, hasAnimationData: !!animationData, animationData });
 									if (!user?.email) {
 										Alert.alert('Login Required', 'Please log in to add items to your cart.');
 										return;
@@ -1310,8 +1727,25 @@ export const HomeScreen: React.FC = () => {
 									try {
 										const itemCode = item.itemCode || productId;
 										const success = await addItemToCart(itemCode, 1);
+										console.log('HomeScreen: addItemToCart result (Best Sellers)', { success, hasAnimationData: !!animationData });
 										if (success) {
-											console.log('Item added to cart:', itemCode);
+											// Trigger animation if data is available
+											if (animationData) {
+												const endX = width - 60; // Approx position of cart icon
+												const endY = 50; // Approx position of cart icon
+												console.log('HomeScreen: Setting animation state (Best Sellers)', {
+													startPos: animationData.startPos,
+													endPos: { x: endX, y: endY },
+													productImage: animationData.productImage
+												});
+												setAnimationStartPos(animationData.startPos);
+												setAnimationEndPos({ x: endX, y: endY });
+												setAnimationProductImage(animationData.productImage);
+												setShowCartAnimation(true);
+												console.log('HomeScreen: Animation state set (Best Sellers), showCartAnimation should be true');
+											} else {
+												console.log('HomeScreen: No animation data (Best Sellers), item added to cart:', itemCode);
+											}
 										}
 									} catch (error) {
 										console.error('Error adding to cart:', error);
@@ -1376,7 +1810,8 @@ export const HomeScreen: React.FC = () => {
 			onPress={(productId) => {
 				(navigation as any).navigate('ProductDetails', { productId });
 			}}
-			onCartPress={async (productId) => {
+			onCartPress={async (productId, animationData) => {
+				console.log('HomeScreen: onCartPress called (For You)', { productId, hasAnimationData: !!animationData, animationData });
 				if (!user?.email) {
 					Alert.alert('Login Required', 'Please log in to add items to your cart.');
 					return;
@@ -1385,8 +1820,25 @@ export const HomeScreen: React.FC = () => {
 				try {
 					const itemCode = item.itemCode || productId;
 					const success = await addItemToCart(itemCode, 1);
+					console.log('HomeScreen: addItemToCart result (For You)', { success, hasAnimationData: !!animationData });
 					if (success) {
-						console.log('Item added to cart:', itemCode);
+						// Trigger animation if data is available
+						if (animationData) {
+							const endX = width - 60; // Approx position of cart icon
+							const endY = 50; // Approx position of cart icon
+							console.log('HomeScreen: Setting animation state (For You)', {
+								startPos: animationData.startPos,
+								endPos: { x: endX, y: endY },
+								productImage: animationData.productImage
+							});
+							setAnimationStartPos(animationData.startPos);
+							setAnimationEndPos({ x: endX, y: endY });
+							setAnimationProductImage(animationData.productImage);
+							setShowCartAnimation(true);
+							console.log('HomeScreen: Animation state set (For You), showCartAnimation should be true');
+						} else {
+							console.log('HomeScreen: No animation data (For You), item added to cart:', itemCode);
+						}
 					}
 				} catch (error) {
 					console.error('Error adding to cart:', error);
@@ -1448,14 +1900,14 @@ export const HomeScreen: React.FC = () => {
 	}, [navigation, wishlistedProductIds, toggleWishlist, refreshWishlist]);
 	
 	const renderSection = useCallback(({ item }: { item: SectionItem }) => {
-		// Hide all sections except header and category tabs when a category is selected
-		if (selectedCategory !== 'All' && item.type !== 'header' && item.type !== 'categoryTabs') {
+		// Hide all sections except flyer carousel when a category is selected
+		if (selectedCategory !== 'All' && item.type !== 'flyerCarousel') {
 			return null;
 		}
 
 		switch (item.type) {
-			case 'header':
-				return renderHeader();
+			case 'flyerCarousel':
+				return renderFlyerCarousel();
 			case 'topCustomerAward':
 				// Show loading state or error for debugging
 				if (topCustomersLoading) {
@@ -1483,16 +1935,14 @@ export const HomeScreen: React.FC = () => {
 					<View style={styles.topCustomerSection}>
 						{topCustomersData?.top_items && topCustomersData.top_items.length > 0 && (
 							<View style={styles.trendingItemsSection}>
-								<View style={styles.superDealsTitleContainer}>
-									<View style={styles.titleWithIcon}>
-										<Ionicons name="trending-up" size={12} color={Colors.WHITE} />
-										<Text style={styles.superDealsTitle}>Trending Items and Combos</Text>
+									<View style={styles.trendingTitleContainer}>
+										<View style={styles.titleWithIcon}>
+											<Ionicons name="trending-up" size={12} color={Colors.BLACK} />
+											<Text style={styles.trendingTitleText}>Trending Items and Combos</Text>
+										</View>
 									</View>
-								</View>
 								{trendingProductsLoading ? (
-									<View style={styles.trendingLoadingContainer}>
-										<ActivityIndicator size="small" color={Colors.SHEIN_RED} />
-									</View>
+									<ProductCardSkeletonHorizontal count={6} />
 								) : trendingProducts.length > 0 ? (
 									<FlatList
 										data={trendingProducts}
@@ -1507,11 +1957,23 @@ export const HomeScreen: React.FC = () => {
 													onPress={(productId) => {
 														(navigation as any).navigate('ProductDetails', { productId });
 													}}
-													onCartPress={async (productId) => {
+													onCartPress={async (productId, animationData) => {
 														try {
-															await addItemToCart(productId, 1);
-															setToastMessage('Added to cart!');
-															setToastVisible(true);
+															const success = await addItemToCart(productId, 1);
+															if (success) {
+																// Trigger animation if data is available
+																if (animationData) {
+																	const endX = width - 60; // Approx position of cart icon
+																	const endY = 50; // Approx position of cart icon
+																	setAnimationStartPos(animationData.startPos);
+																	setAnimationEndPos({ x: endX, y: endY });
+																	setAnimationProductImage(animationData.productImage);
+																	setShowCartAnimation(true);
+																} else {
+																	setToastMessage('Added to cart!');
+																	setToastVisible(true);
+																}
+															}
 														} catch (error) {
 															setToastMessage('Failed to add to cart');
 															setToastVisible(true);
@@ -1572,16 +2034,12 @@ export const HomeScreen: React.FC = () => {
 				// This case is now handled within topCustomerAward case
 				return null;
 			case 'categoryTabs':
-				return (
-					<CategoryTabs 
-						selectedCategory={selectedCategory}
-						onSelectCategory={handleCategorySelect}
-						variant="red"
-						showMenuIcon={true}
-					/>
-				);
+				// Category tabs are now rendered as overlay, return null here
+				return null;
 			case 'shippingBanner':
 				return renderShippingBanner();
+			case 'categoryImages':
+				return renderCategoryImages();
 			case 'superDeals':
 				return renderSuperDeals();
 			case 'pricingRule':
@@ -1745,6 +2203,7 @@ export const HomeScreen: React.FC = () => {
 		renderForYouItem,
 		renderNewInItem,
 		renderDealItem,
+		flyerImages,
 		forYouProducts,
 		dealProducts,
 		forYouLoading,
@@ -1780,9 +2239,9 @@ export const HomeScreen: React.FC = () => {
 	const getItemLayout = useCallback((data: any, index: number) => {
 		// Approximate section heights (in pixels)
 		const sectionHeights: { [key: string]: number } = {
-			'header': 60,
-			'categoryTabs': 50,
-			'shippingBanner': 40,
+			'flyerCarousel': 350,
+			'shippingBanner': 80,
+			'categoryImages': 400, // 6 rows x ~65px per row
 			'latestCarousel': 280,
 			'newArrivals': 200,
 			'topCustomerAward': 200, // Increased to account for carousel
@@ -1921,6 +2380,57 @@ export const HomeScreen: React.FC = () => {
 		if (!isScrollingRef.current) {
 			scrollPositionRef.current = event.nativeEvent.contentOffset.y;
 		}
+		// Check if scrolled past carousel (350px height)
+		const scrollY = event.nativeEvent.contentOffset.y;
+		const carouselHeight = 350;
+		const scrolledPast = scrollY > carouselHeight - 50; // Start transition slightly before carousel ends
+		setIsScrolledPastCarousel(scrolledPast);
+		
+		// Animate header transitions smoothly
+		// Stop any running animations first to prevent conflicts
+		headerOpacity.stopAnimation();
+		headerBorderRadius.stopAnimation();
+		headerShadowOpacity.stopAnimation();
+		
+		// Run all animations with non-native driver to avoid conflicts
+		Animated.parallel([
+			Animated.timing(headerOpacity, {
+				toValue: scrolledPast ? 1 : 0,
+				duration: 300,
+				easing: Easing.out(Easing.cubic),
+				useNativeDriver: false, // backgroundColor doesn't support native driver
+			}),
+			Animated.timing(headerBorderRadius, {
+				toValue: scrolledPast ? 20 : 0,
+				duration: 300,
+				easing: Easing.out(Easing.cubic),
+				useNativeDriver: false,
+			}),
+			Animated.timing(headerShadowOpacity, {
+				toValue: scrolledPast ? 0.15 : 0,
+				duration: 300,
+				easing: Easing.out(Easing.cubic),
+				useNativeDriver: false,
+			}),
+		]).start();
+		
+		// Check if scrolled past filter tabs
+		// filterTabsY is the position in the FlatList content (relative to FlatList)
+		// scrollY is the scroll offset from the top of the FlatList
+		// When scrollY >= filterTabsY, we've scrolled past the filter tabs
+		const filterTabsY = sectionLayouts.current['filterTabs'];
+		if (filterTabsY !== undefined && filterTabsY > 0) {
+			// Set sticky when we've scrolled past the filter tabs position
+			// The filter tabs height is approximately 50px
+			const filterTabsHeight = 50;
+			const threshold = 10; // Small threshold for smooth transition
+			// When scrollY exceeds filterTabsY + filterTabsHeight, we've scrolled past
+			const shouldBeSticky = scrollY > filterTabsY + filterTabsHeight - threshold;
+			setIsScrolledPastFilterTabs(shouldBeSticky);
+		} else {
+			// If filter tabs position hasn't been measured yet, keep it false
+			setIsScrolledPastFilterTabs(false);
+		}
 	}, []);
 
 	// Show loading screen on initial load
@@ -1928,14 +2438,85 @@ export const HomeScreen: React.FC = () => {
 		return <LoadingScreen />;
 	}
 
+	// Render sticky filter tabs overlay - only when scrolled past
+	const renderStickyFilterTabs = () => {
+		if (!isScrolledPastFilterTabs) return null;
+		
+		// Calculate position below header and category tabs when scrolled
+		const headerHeight = isScrolledPastCarousel 
+			? Math.max(insets.top - Spacing.PADDING_MD, 0) + (Spacing.PADDING_LG + 5) + 42 + Spacing.PADDING_SM
+			: 100;
+		const categoryTabsHeight = 50;
+		const stickyTop = headerHeight + categoryTabsHeight - 8;
+
 	return (
-		<SafeAreaView style={styles.container} edges={['bottom', 'left', 'right']}>
+			<View 
+				style={[
+					styles.filterTabs,
+					styles.filterTabsSticky,
+					{ top: stickyTop }
+				]}
+			>
+				{filterTabs.map((tab) => {
+					if (!tab.name) return null;
+					return (
+						<TouchableOpacity
+							key={`sticky-${tab.id}`}
+							style={[
+								styles.filterTab,
+								selectedFilter === tab.name && styles.filterTabActive
+							]}
+							onPress={() => {
+								if (selectedFilter === 'For You' && tab.name !== 'For You' && selectedCategory === 'All') {
+									setShouldScrollToFilterTabs(true);
+								}
+								setSelectedFilter(tab.name);
+							}}
+						>
+							{tab.icon && (
+								<Ionicons 
+									name={tab.icon as any} 
+									size={16} 
+									color={selectedFilter === tab.name ? Colors.WHITE : Colors.BLACK} 
+								/>
+							)}
+							<Text style={[
+								styles.filterTabText,
+								selectedFilter === tab.name && styles.filterTabTextActive
+							]}>
+								{tab.name}
+							</Text>
+						</TouchableOpacity>
+					);
+				})}
+			</View>
+		);
+	};
+
+	return (
+		<View style={styles.container} pointerEvents="box-none">
+			{/* Sticky filter tabs overlay - outside SafeAreaView for proper positioning */}
+			{renderStickyFilterTabs()}
+			<CartAnimation
+				visible={showCartAnimation}
+				startPosition={animationStartPos}
+				endPosition={animationEndPos}
+				productImage={animationProductImage}
+				onComplete={() => {
+					console.log('HomeScreen: Animation complete');
+					setShowCartAnimation(false);
+				}}
+			/>
+			<SafeAreaView style={styles.safeArea} edges={['bottom', 'left', 'right']}>
 			<Toast
 				message={toastMessage}
 				type="success"
 				visible={toastVisible}
 				onHide={() => setToastVisible(false)}
 			/>
+			{/* Header and Category Tabs positioned absolutely to overlay carousel */}
+			{renderHeader()}
+			{renderCategoryTabsOverlay()}
 			<FlatList
 				ref={mainListRef}
 				key={mainListKey}
@@ -1948,7 +2529,6 @@ export const HomeScreen: React.FC = () => {
 				onContentSizeChange={handleContentSizeChange}
 				onScroll={handleScroll}
 				scrollEventThrottle={16}
-				stickyHeaderIndices={stickyHeaderIndex !== undefined ? [stickyHeaderIndex] : []}
 				onEndReached={(selectedFilter === 'For You' || selectedFilter === 'New In' || selectedFilter === 'Deals') ? handleEndReached : undefined}
 				onEndReachedThreshold={(selectedFilter === 'For You' || selectedFilter === 'New In' || selectedFilter === 'Deals') ? 0.5 : undefined}
 				removeClippedSubviews={true}
@@ -1973,6 +2553,7 @@ export const HomeScreen: React.FC = () => {
 				}
 			/>
 		</SafeAreaView>
+		</View>
 	);
 };
 
@@ -1980,10 +2561,106 @@ const styles = StyleSheet.create({
 	container: {
 		flex: 1,
 		backgroundColor: Colors.BACKGROUND,
+		position: 'relative', // Ensure absolute positioning works correctly
+	},
+	safeArea: {
+		flex: 1,
 	},
 	stickyHeaderWrapper: {
-		backgroundColor: '#DC143C',
+		backgroundColor: 'transparent',
 		zIndex: 2000,
+		position: 'absolute',
+		top: 0,
+		left: 0,
+		right: 0,
+		width: width,
+	},
+	stickyHeaderWrapperScrolled: {
+		overflow: 'hidden',
+		shadowColor: '#000',
+		shadowOffset: { width: 0, height: 6 },
+		shadowRadius: 15,
+		elevation: 10,
+	},
+	headerContentWrapper: {
+		width: '100%',
+		backgroundColor: 'transparent',
+	},
+	categoryTabsOverlay: {
+		position: 'absolute',
+		top: 100, // Position below header
+		left: 0,
+		right: 0,
+		width: width,
+		zIndex: 1999,
+		backgroundColor: 'transparent',
+	},
+	categoryTabsOverlayScrolled: {
+		backgroundColor: Colors.WHITE,
+		top: 0, // Will be calculated dynamically based on header height
+		marginTop: 0,
+		paddingTop: 0,
+		marginBottom: 0,
+		borderBottomLeftRadius: 20,
+		borderBottomRightRadius: 20,
+		shadowColor: '#000',
+		shadowOffset: { width: 0, height: 4 },
+		shadowOpacity: 0.15,
+		shadowRadius: 12,
+		elevation: 8,
+	},
+	categoryTabsContentWrapper: {
+		width: '100%',
+		backgroundColor: 'transparent',
+	},
+	flyerCarouselContainer: {
+		width: width,
+		height: 350,
+		position: 'relative',
+		zIndex: 1,
+	},
+	flyerImageContainer: {
+		width: width,
+		height: 350,
+	},
+	flyerImage: {
+		width: '100%',
+		height: '100%',
+	},
+	carouselOverlay: {
+		position: 'absolute',
+		top: 0,
+		left: 0,
+		right: 0,
+		bottom: 0,
+		backgroundColor: 'rgba(0, 0, 0, 0.3)',
+		zIndex: 2,
+	},
+	flyerPlaceholder: {
+		width: '100%',
+		height: '100%',
+		backgroundColor: Colors.LIGHT_GRAY,
+		justifyContent: 'center',
+		alignItems: 'center',
+	},
+	flyerIndicators: {
+		position: 'absolute',
+		bottom: 12,
+		left: 0,
+		right: 0,
+		flexDirection: 'row',
+		justifyContent: 'center',
+		gap: 6,
+	},
+	flyerIndicator: {
+		width: 6,
+		height: 6,
+		borderRadius: 3,
+		backgroundColor: 'rgba(255, 255, 255, 0.5)',
+	},
+	flyerIndicatorActive: {
+		backgroundColor: Colors.WHITE,
+		width: 20,
 	},
 	topCustomerSection: {
 		marginBottom: 0,
@@ -2004,6 +2681,34 @@ const styles = StyleSheet.create({
 	trendingItemsSection: {
 		width: '100%',
 		marginBottom: 0,
+		backgroundColor: Colors.LIGHT_GRAY,
+		paddingVertical: Spacing.PADDING_MD,
+	},
+	trendingTitleContainer: {
+		flexDirection: 'row',
+		alignItems: 'center',
+		justifyContent: 'flex-start',
+		paddingHorizontal: Spacing.SCREEN_PADDING,
+		paddingVertical: Spacing.PADDING_XS,
+		width: '100%',
+		backgroundColor: Colors.WHITE,
+		marginBottom: Spacing.MARGIN_SM,
+	},
+	titleWithIcon: {
+		flexDirection: 'row',
+		alignItems: 'center',
+		gap: Spacing.MARGIN_XS,
+	},
+	trendingTitleText: {
+		fontSize: Typography.FONT_SIZE_SM,
+		fontWeight: Typography.FONT_WEIGHT_SEMIBOLD,
+		color: Colors.BLACK,
+		letterSpacing: 0.5,
+		textTransform: 'uppercase',
+	},
+	superDealsTitleGradient: {
+		width: '100%',
+		marginBottom: Spacing.MARGIN_SM,
 	},
 	trendingItemsTitle: {
 		fontSize: Typography.FONT_SIZE_MD,
@@ -2046,11 +2751,11 @@ const styles = StyleSheet.create({
 	},
 	categoryTabText: {
 		fontSize: 14,
-		color: Colors.TEXT_SECONDARY,
+		color: Colors.BLACK,
 		fontWeight: '500',
 	},
 	categoryTabTextActive: {
-		color: Colors.WHITE,
+		color: Colors.BLACK,
 	},
 	bannerCarouselContainer: {
 		alignItems: 'center',
@@ -2064,43 +2769,56 @@ const styles = StyleSheet.create({
 		marginVertical: 0,
 		paddingVertical: 0,
 	},
+	shippingBannersContainer: {
+		flexDirection: 'row',
+		paddingHorizontal: Spacing.SCREEN_PADDING,
+		paddingVertical: Spacing.PADDING_SM,
+		gap: Spacing.MARGIN_SM,
+	},
 	shippingBannerContainer: {
-		paddingHorizontal: 0,
-		paddingVertical: 0,
-		width: '100%',
+		flex: 1,
 	},
 	shippingBanner: {
 		flexDirection: 'row',
 		alignItems: 'center',
-		justifyContent: 'center',
-		backgroundColor: '#FFE5E5',
-		paddingVertical: Spacing.PADDING_XS,
+		justifyContent: 'space-between',
+		backgroundColor: Colors.FLASH_SALE_RED,
+		paddingVertical: Spacing.PADDING_SM,
 		paddingHorizontal: Spacing.PADDING_MD,
-		gap: 6,
-		width: '100%',
-		height: 36,
+		borderRadius: 8,
+		minHeight: 50,
+		borderWidth: 1,
+		borderColor: Colors.FLASH_SALE_RED,
+	},
+	shippingBannerContent: {
+		flex: 1,
+		marginRight: Spacing.MARGIN_SM,
 	},
 	shippingText: {
 		fontSize: Typography.FONT_SIZE_SM,
 		color: Colors.BLACK,
-		fontWeight: Typography.FONT_WEIGHT_SEMIBOLD,
+		fontWeight: Typography.FONT_WEIGHT_BOLD,
+		marginBottom: 2,
+	},
+	shippingSubtext: {
+		fontSize: Typography.FONT_SIZE_XS,
+		color: Colors.BLACK,
 	},
 	topCustomerBanner: {
 		flexDirection: 'row',
 		alignItems: 'center',
 		justifyContent: 'space-between',
-		backgroundColor: '#FFF5E6',
+		backgroundColor: Colors.FLASH_SALE_RED,
 		paddingVertical: Spacing.PADDING_SM,
 		paddingHorizontal: Spacing.PADDING_MD,
-		width: '100%',
-		height: 40,
-		borderLeftWidth: 3,
-		borderLeftColor: Colors.GOLD,
-		shadowColor: Colors.BLACK,
-		shadowOffset: { width: 0, height: 1 },
-		shadowOpacity: 0.1,
-		shadowRadius: 2,
-		elevation: 2,
+		borderRadius: 8,
+		minHeight: 50,
+		borderWidth: 1,
+		borderColor: Colors.FLASH_SALE_RED,
+	},
+	topCustomerBannerContent: {
+		flex: 1,
+		marginRight: Spacing.MARGIN_SM,
 	},
 	topCustomerLeft: {
 		flexDirection: 'row',
@@ -2133,7 +2851,7 @@ const styles = StyleSheet.create({
 	},
 	topCustomerBannerSubtext: {
 		fontSize: Typography.FONT_SIZE_XS,
-		color: Colors.TEXT_SECONDARY,
+		color: Colors.BLACK,
 		fontWeight: Typography.FONT_WEIGHT_MEDIUM,
 	},
 	topCustomerRight: {
@@ -2142,15 +2860,63 @@ const styles = StyleSheet.create({
 		gap: Spacing.MARGIN_XS,
 		flexShrink: 1,
 	},
+	topCustomerBannerLabel: {
+		fontSize: Typography.FONT_SIZE_XS,
+		color: Colors.BLACK,
+		fontWeight: Typography.FONT_WEIGHT_BOLD,
+		marginBottom: 2,
+	},
 	topCustomerBannerName: {
 		fontSize: Typography.FONT_SIZE_SM,
 		color: Colors.BLACK,
 		fontWeight: Typography.FONT_WEIGHT_BOLD,
-		fontStyle: 'italic',
-		textAlign: 'right',
+	},
+	categoryImagesSection: {
+		paddingVertical: Spacing.PADDING_MD,
+		paddingHorizontal: Spacing.SCREEN_PADDING,
+	},
+	categoryImagesGrid: {
+		paddingBottom: Spacing.PADDING_SM,
+	},
+	categoryImagesRow: {
+		justifyContent: 'space-between',
+		marginBottom: Spacing.MARGIN_MD,
+	},
+	categoryImageItem: {
+		alignItems: 'center',
+		width: (width - Spacing.SCREEN_PADDING * 2) / 5,
+	},
+	categoryImageContainer: {
+		width: 50,
+		height: 50,
+		borderRadius: 25,
+		backgroundColor: Colors.LIGHT_GRAY,
+		justifyContent: 'center',
+		alignItems: 'center',
+		overflow: 'hidden',
+		marginBottom: Spacing.MARGIN_XS,
+	},
+	categoryImage: {
+		width: '100%',
+		height: '100%',
+	},
+	categoryImagePlaceholder: {
+		width: '100%',
+		height: '100%',
+		justifyContent: 'center',
+		alignItems: 'center',
+		backgroundColor: Colors.LIGHT_GRAY,
+	},
+	categoryImageName: {
+		fontSize: 10,
+		color: Colors.TEXT_PRIMARY,
+		textAlign: 'center',
+		fontWeight: Typography.FONT_WEIGHT_MEDIUM,
+		lineHeight: 12,
 	},
 	section: {
 		paddingVertical: 16,
+		backgroundColor: Colors.LIGHT_GRAY,
 	},
 	sectionHeader: {
 		flexDirection: 'row',
@@ -2176,31 +2942,41 @@ const styles = StyleSheet.create({
 		paddingHorizontal: Spacing.PADDING_SM,
 	},
 	sectionTitleContainer: {
-		flexDirection: 'row',
-		alignItems: 'center',
-		gap: 8,
+		flex: 1,
 	},
 	superDealsTitleContainer: {
 		flexDirection: 'row',
 		alignItems: 'center',
 		justifyContent: 'space-between',
-		gap: 2,
-		backgroundColor: Colors.BLACK,
-		paddingHorizontal: Spacing.PADDING_SM,
-		paddingVertical: 2,
-		borderRadius: 0,
+		paddingHorizontal: Spacing.SCREEN_PADDING,
+		paddingVertical: Spacing.PADDING_XS,
 		width: '100%',
+		backgroundColor: Colors.WHITE,
 		marginBottom: Spacing.MARGIN_SM,
 	},
-	titleWithIcon: {
+	superDealsTitleLeft: {
 		flexDirection: 'row',
 		alignItems: 'center',
-		gap: 2,
+		gap: Spacing.MARGIN_XS,
 	},
 	superDealsTitle: {
-		fontSize: 12,
-		fontWeight: 'bold',
-		color: Colors.WHITE,
+		fontSize: Typography.FONT_SIZE_SM,
+		fontWeight: Typography.FONT_WEIGHT_SEMIBOLD,
+		color: Colors.BLACK,
+		letterSpacing: 0.5,
+		textTransform: 'uppercase',
+	},
+	superDealsDiscount: {
+		fontSize: Typography.FONT_SIZE_SM,
+		fontWeight: Typography.FONT_WEIGHT_SEMIBOLD,
+		color: Colors.FLASH_SALE_RED,
+		letterSpacing: 0.5,
+	},
+	superDealsSaveText: {
+		fontSize: Typography.FONT_SIZE_SM,
+		color: Colors.TEXT_SECONDARY,
+		fontWeight: Typography.FONT_WEIGHT_MEDIUM,
+		letterSpacing: 0.3,
 	},
 	sectionTitle: {
 		fontSize: 12,
@@ -2255,6 +3031,20 @@ const styles = StyleSheet.create({
 		color: Colors.WHITE,
 		fontWeight: 'bold',
 	},
+	flashSaleTag: {
+		position: 'absolute',
+		top: 8,
+		left: 8,
+		backgroundColor: Colors.FLASH_SALE_RED,
+		paddingHorizontal: 6,
+		paddingVertical: 2,
+		borderRadius: 4,
+	},
+	flashSaleText: {
+		fontSize: 10,
+		color: Colors.WHITE,
+		fontWeight: 'bold',
+	},
 	productImageContent: {
 		width: '100%',
 		height: '100%',
@@ -2285,6 +3075,8 @@ const styles = StyleSheet.create({
 		flexDirection: 'row',
 		alignItems: 'center',
 		justifyContent: 'center',
+		flexWrap: 'wrap',
+		maxWidth: '100%',
 	},
 	originalPrice: {
 		fontSize: 12,
@@ -2292,6 +3084,8 @@ const styles = StyleSheet.create({
 		textDecorationLine: 'line-through',
 		textAlign: 'center',
 		marginLeft: 4,
+		flexShrink: 1,
+		maxWidth: '50%',
 	},
 	filterTabs: {
 		flexDirection: 'row',
@@ -2299,6 +3093,26 @@ const styles = StyleSheet.create({
 		paddingVertical: 12,
 		borderBottomWidth: 1,
 		borderBottomColor: Colors.BORDER,
+		backgroundColor: Colors.WHITE,
+		minHeight: 50,
+	},
+	filterTabsNormal: {
+		marginTop: -8, // Move up by 8px when not sticky
+	},
+	filterTabsSticky: {
+		position: 'absolute',
+		left: 0,
+		right: 0,
+		width: '100%',
+		zIndex: 2000,
+		backgroundColor: Colors.WHITE,
+		borderBottomLeftRadius: 25,
+		borderBottomRightRadius: 25,
+		shadowColor: '#000',
+		shadowOffset: { width: 0, height: 6 },
+		shadowOpacity: 0.2,
+		shadowRadius: 15,
+		elevation: 10,
 	},
 	filterTab: {
 		flexDirection: 'row',

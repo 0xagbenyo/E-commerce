@@ -16,8 +16,10 @@ import { Colors } from '../constants/colors';
 import { Spacing } from '../constants/spacing';
 import { useWishlist, useWishlistActions } from '../hooks/erpnext';
 import { ProductCard } from '../components/ProductCard';
+import { ProductCardSkeletonList } from '../components/ProductCardSkeletonList';
 import { PriceFilter, SortOption } from '../components/PriceFilter';
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { useNavigation, useFocusEffect, CommonActions } from '@react-navigation/native';
+import * as Updates from 'expo-updates';
 import { WishlistItem } from '../types';
 import { useUserSession } from '../context/UserContext';
 
@@ -228,17 +230,42 @@ export const WishlistScreen: React.FC = () => {
   );
 
   const renderLoadingState = () => (
-    <View style={styles.loadingContainer}>
-      <ActivityIndicator size="large" color={Colors.SHEIN_PINK} />
-      <Text style={styles.loadingText}>Loading your wishlist...</Text>
-    </View>
+    <ProductCardSkeletonList count={6} numColumns={2} />
   );
+
+  // Function to reload the full page by navigating to Splash screen, then reloading the app
+  const handleFullReload = useCallback(async () => {
+    // Navigate to Splash screen first to show SIAMAE
+    navigation.dispatch(
+      CommonActions.reset({
+        index: 0,
+        routes: [{ name: 'Splash' }],
+      })
+    );
+    
+    // Wait a moment for Splash to appear, then reload the entire app
+    setTimeout(async () => {
+      try {
+        // Try to reload the app using expo-updates
+        await Updates.reloadAsync();
+      } catch (error) {
+        // If reload fails (e.g., in development mode), reset navigation to Main
+        console.log('Updates.reloadAsync not available, using navigation reset');
+        navigation.dispatch(
+          CommonActions.reset({
+            index: 0,
+            routes: [{ name: 'Main' }],
+          })
+        );
+      }
+    }, 1500); // Show splash for 1.5 seconds before reload
+  }, [navigation]);
 
   const renderErrorState = () => (
     <View style={styles.errorContainer}>
       <Ionicons name="alert-circle-outline" size={48} color={Colors.ERROR} />
       <Text style={styles.errorText}>Failed to load wishlist</Text>
-      <TouchableOpacity style={styles.retryButton} onPress={refresh}>
+      <TouchableOpacity style={styles.retryButton} onPress={handleFullReload}>
         <Text style={styles.retryButtonText}>Retry</Text>
       </TouchableOpacity>
     </View>

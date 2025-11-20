@@ -15,7 +15,8 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useRoute, useNavigation } from '@react-navigation/native';
+import { useRoute, useNavigation, CommonActions } from '@react-navigation/native';
+import * as Updates from 'expo-updates';
 import { RootStackParamList } from '../types';
 import type { NavigationProp } from '@react-navigation/native';
 import { Colors } from '../constants/colors';
@@ -24,8 +25,10 @@ import { Typography } from '../constants/typography';
 import { usePricingRules, useWishlistActions, useWishlist, useCartActions } from '../hooks/erpnext';
 import { useUserSession } from '../context/UserContext';
 import { LoadingScreen } from '../components/LoadingScreen';
+import { ProductCardSkeletonList } from '../components/ProductCardSkeletonList';
 import { ProductCard } from '../components/ProductCard';
 import { PriceFilter, SortOption } from '../components/PriceFilter';
+import { CartAnimation } from '../components/CartAnimation';
 import { getProductDiscount } from '../utils/pricingRules';
 import { getERPNextClient } from '../services/erpnext';
 import { mapERPWebsiteItemToProduct } from '../services/mappers';
@@ -33,6 +36,7 @@ import { mapERPWebsiteItemToProduct } from '../services/mappers';
 const { width } = Dimensions.get('window');
 
 export const PricingRulesScreen: React.FC = () => {
+  const route = useRoute();
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
   const insets = useSafeAreaInsets();
   const { user } = useUserSession();
@@ -40,11 +44,22 @@ export const PricingRulesScreen: React.FC = () => {
   const { toggleWishlist } = useWishlistActions(refreshWishlist);
   const { addToCart: addItemToCart } = useCartActions();
   const { data: pricingRules, loading: pricingRulesLoading } = usePricingRules();
-  const safePricingRules = pricingRules || [];
+  // Memoize safePricingRules to prevent infinite loops
+  const safePricingRules = useMemo(() => pricingRules || [], [pricingRules]);
+  
+  // Get rule name from route params if provided
+  const routeParams = route.params as { ruleName?: string } | undefined;
+  const initialRuleName = routeParams?.ruleName;
 
   // Optimistic state for immediate UI updates
   const [optimisticWishlist, setOptimisticWishlist] = useState<Set<string>>(new Set());
   const [pendingOperations, setPendingOperations] = useState<Set<string>>(new Set());
+  
+  // Cart animation state
+  const [showCartAnimation, setShowCartAnimation] = useState(false);
+  const [animationStartPos, setAnimationStartPos] = useState({ x: 0, y: 0 });
+  const [animationEndPos, setAnimationEndPos] = useState({ x: 0, y: 0 });
+  const [animationProductImage, setAnimationProductImage] = useState<string | undefined>(undefined);
   
   // Create a Set of wishlisted product IDs for quick lookup
   const wishlistedProductIds = useMemo(() => {
@@ -55,12 +70,28 @@ export const PricingRulesScreen: React.FC = () => {
   }, [wishlistItems, optimisticWishlist]);
   
   // Sync optimistic state with actual wishlist when it updates
+  const wishlistIdsRef = useRef<string>('');
+  const currentWishlistIds = useMemo(() => {
+    const ids = [...new Set(wishlistItems.map(item => item.productId))].sort();
+    return JSON.stringify(ids);
+  }, [wishlistItems]);
+  
   useEffect(() => {
     if (pendingOperations.size > 0) {
       return; // Don't sync while operations are pending
     }
     
-    const actualSet = new Set(wishlistItems.map(item => item.productId));
+    // Only update if the wishlist IDs actually changed
+    if (currentWishlistIds === wishlistIdsRef.current) {
+      return;
+    }
+    
+    wishlistIdsRef.current = currentWishlistIds;
+    
+    // Parse IDs from the string to avoid depending on wishlistItems array
+    const actualIds = JSON.parse(currentWishlistIds) as string[];
+    const actualSet = new Set(actualIds);
+    
     setOptimisticWishlist(prev => {
       const newSet = new Set(actualSet);
       if (newSet.size !== prev.size || Array.from(newSet).some(id => !prev.has(id)) || Array.from(prev).some(id => !newSet.has(id))) {
@@ -68,7 +99,7 @@ export const PricingRulesScreen: React.FC = () => {
       }
       return prev;
     });
-  }, [wishlistItems, pendingOperations.size]);
+  }, [currentWishlistIds, pendingOperations.size]);
 
   const [selectedRule, setSelectedRule] = useState<string | null>(null);
   const [ruleProducts, setRuleProducts] = useState<any[]>([]);
@@ -81,17 +112,38 @@ export const PricingRulesScreen: React.FC = () => {
   // Pull-to-refresh state
   const [refreshing, setRefreshing] = useState(false);
   
-  // Handle pull-to-refresh
+  // Handle pull-to-refresh - reload the entire page
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await refreshWishlist();
+      const navigation = useNavigation();
+      // Navigate to Splash screen first to show SIAMAE
+      navigation.dispatch(
+        CommonActions.reset({
+          index: 0,
+          routes: [{ name: 'Splash' }],
+        })
+      );
+      
+      // Wait a moment for Splash to appear, then reload the entire app
+      setTimeout(async () => {
+        try {
+          await Updates.reloadAsync();
+        } catch (error) {
+          console.log('Updates.reloadAsync not available, using navigation reset');
+          navigation.dispatch(
+            CommonActions.reset({
+              index: 0,
+              routes: [{ name: 'Main' }],
+            })
+          );
+        }
+      }, 1500);
     } catch (error) {
       console.error('Error refreshing data:', error);
-    } finally {
       setRefreshing(false);
     }
-  }, [refreshWishlist]);
+  }, []);
   
   // Check if page is initially loading
   const isInitialLoading = pricingRulesLoading && safePricingRules.length === 0;
@@ -187,12 +239,25 @@ export const PricingRulesScreen: React.FC = () => {
   }, [selectedRule, safePricingRules]);
 
 
-  // Auto-select first rule if none selected
+  // Auto-select rule from route params or first rule if none selected
+  // Use a ref to track if we've already auto-selected to prevent infinite loops
+  const hasAutoSelectedRef = useRef(false);
   useEffect(() => {
-    if (!selectedRule && safePricingRules && safePricingRules.length > 0) {
-      setSelectedRule(safePricingRules[0].name);
+    if (!selectedRule && safePricingRules && safePricingRules.length > 0 && !hasAutoSelectedRef.current) {
+      hasAutoSelectedRef.current = true;
+      // If route param provides a rule name, try to select it, otherwise select first rule
+      if (initialRuleName) {
+        const ruleExists = safePricingRules.some((r: any) => r.name === initialRuleName);
+        if (ruleExists) {
+          setSelectedRule(initialRuleName);
+        } else {
+          setSelectedRule(safePricingRules[0].name);
+        }
+      } else {
+        setSelectedRule(safePricingRules[0].name);
+      }
     }
-  }, [selectedRule, safePricingRules]);
+  }, [selectedRule, safePricingRules, initialRuleName]);
 
   // Sort products
   const sortedProducts = useMemo(() => {
@@ -249,11 +314,11 @@ export const PricingRulesScreen: React.FC = () => {
     
     return (
       <>
-        <View style={[styles.header, { paddingTop: insets.top + 2 }]}>
+        <View style={[styles.header, { paddingTop: Math.max(insets.top - 20, 0) }]}>
           <TouchableOpacity onPress={handleBack} style={styles.backButton}>
-            <Ionicons name="chevron-back" size={24} color={Colors.WHITE} />
+            <Ionicons name="chevron-back" size={20} color={Colors.WHITE} />
           </TouchableOpacity>
-          <Text style={styles.titleWhite}>Super Deals</Text>
+          <Text style={styles.title}>Super Deals</Text>
           <View style={styles.backButton} />
         </View>
         <View style={styles.subHeader}>
@@ -263,8 +328,8 @@ export const PricingRulesScreen: React.FC = () => {
           >
             <Ionicons 
               name={sidebarVisible ? "close" : "menu"} 
-              size={24} 
-              color={Colors.BLACK} 
+              size={20} 
+              color={Colors.WHITE} 
             />
           </TouchableOpacity>
           <Text style={styles.dealTitle} numberOfLines={1}>
@@ -302,14 +367,25 @@ export const PricingRulesScreen: React.FC = () => {
         onPress={(productId) => {
           (navigation as any).navigate('ProductDetails', { productId });
         }}
-        onCartPress={async (productId) => {
+        onCartPress={async (productId, animationData) => {
           if (!user?.email) {
             return;
           }
           
           try {
             const itemCode = item.itemCode || productId;
-            await addItemToCart(itemCode, 1);
+            const success = await addItemToCart(itemCode, 1);
+            if (success) {
+              // Trigger animation if data is available
+              if (animationData) {
+                const endX = width - 60; // Approx position of cart icon
+                const endY = 50; // Approx position of cart icon
+                setAnimationStartPos(animationData.startPos);
+                setAnimationEndPos({ x: endX, y: endY });
+                setAnimationProductImage(animationData.productImage);
+                setShowCartAnimation(true);
+              }
+            }
           } catch (error) {
             console.error('Error adding to cart:', error);
           }
@@ -362,11 +438,22 @@ export const PricingRulesScreen: React.FC = () => {
   };
 
   if (isInitialLoading) {
-    return <LoadingScreen />;
+    return (
+      <SafeAreaView style={styles.container} edges={['bottom', 'left', 'right']}>
+        <ProductCardSkeletonList count={6} numColumns={2} />
+      </SafeAreaView>
+    );
   }
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom', 'left', 'right']}>
+      <CartAnimation
+        visible={showCartAnimation}
+        startPosition={animationStartPos}
+        endPosition={animationEndPos}
+        productImage={animationProductImage}
+        onComplete={() => setShowCartAnimation(false)}
+      />
       {renderHeader()}
       <View style={styles.content}>
         {/* Left sidebar with pricing rules */}
@@ -420,10 +507,7 @@ export const PricingRulesScreen: React.FC = () => {
           </View>
           
           {loadingProducts ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color={Colors.SHEIN_PINK} />
-              <Text style={styles.loadingText}>Loading products...</Text>
-            </View>
+            <ProductCardSkeletonList count={6} numColumns={2} />
           ) : sortedProducts.length > 0 ? (
             <Animated.View 
               style={{ 
@@ -441,8 +525,8 @@ export const PricingRulesScreen: React.FC = () => {
                   <RefreshControl
                     refreshing={refreshing}
                     onRefresh={onRefresh}
-                    tintColor={Colors.SHEIN_PINK}
-                    colors={[Colors.SHEIN_PINK]}
+                    tintColor="#acc5e1"
+                    colors={["#acc5e1"]}
                   />
                 }
                 renderItem={renderProductItem}
@@ -451,7 +535,7 @@ export const PricingRulesScreen: React.FC = () => {
             </Animated.View>
           ) : (
             <View style={styles.emptyContainer}>
-              <Ionicons name="pricetag-outline" size={40} color={Colors.TEXT_SECONDARY} />
+              <Ionicons name="pricetag-outline" size={40} color="#acc5e1" />
               <Text style={styles.emptyText}>No products available</Text>
               <Text style={styles.emptySubtext}>Select a pricing rule to see products</Text>
             </View>
@@ -471,11 +555,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: Spacing.PADDING_MD,
-    paddingBottom: Spacing.PADDING_XS,
-    paddingTop: Spacing.PADDING_XS,
+    paddingHorizontal: 12,
+    paddingVertical: Spacing.PADDING_SM,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.BORDER,
+    borderBottomColor: Colors.BLACK,
     backgroundColor: Colors.FLASH_SALE_RED,
   },
   subHeader: {
@@ -484,14 +567,14 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: Spacing.PADDING_MD,
     paddingVertical: Spacing.PADDING_XS,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.BORDER,
-    backgroundColor: Colors.LIGHT_GRAY,
+    borderBottomWidth: 0,
+    borderBottomColor: 'transparent',
+    backgroundColor: Colors.FLASH_SALE_RED,
   },
   dealTitle: {
     fontSize: Typography.FONT_SIZE_SM,
     fontWeight: Typography.FONT_WEIGHT_SEMIBOLD,
-    color: Colors.TEXT_PRIMARY,
+    color: Colors.WHITE,
     flex: 1,
     marginLeft: Spacing.MARGIN_SM,
     textAlign: 'center',
@@ -505,20 +588,20 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   backButton: {
-    width: 40,
-    height: 40,
+    width: 32,
+    height: 32,
     justifyContent: 'center',
     alignItems: 'center',
   },
   title: {
-    fontSize: Typography.FONT_SIZE_LG,
+    fontSize: Typography.FONT_SIZE_MD,
     fontWeight: Typography.FONT_WEIGHT_BOLD,
-    color: Colors.TEXT_PRIMARY,
+    color: Colors.WHITE,
     flex: 1,
     textAlign: 'center',
   },
   titleWhite: {
-    fontSize: Typography.FONT_SIZE_LG,
+    fontSize: Typography.FONT_SIZE_MD,
     fontWeight: Typography.FONT_WEIGHT_BOLD,
     color: Colors.WHITE,
     flex: 1,
@@ -563,7 +646,7 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.PADDING_SM,
     backgroundColor: Colors.WHITE,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.BORDER,
+    borderBottomColor: Colors.FLASH_SALE_RED,
   },
   productsGrid: {
     paddingHorizontal: Spacing.SCREEN_PADDING,
@@ -598,12 +681,12 @@ const styles = StyleSheet.create({
     marginTop: Spacing.MARGIN_SM,
     fontSize: Typography.FONT_SIZE_MD,
     fontWeight: Typography.FONT_WEIGHT_SEMIBOLD,
-    color: Colors.TEXT_PRIMARY,
+    color: Colors.FLASH_SALE_RED,
   },
   emptySubtext: {
     marginTop: Spacing.MARGIN_XS,
     fontSize: Typography.FONT_SIZE_SM,
-    color: Colors.TEXT_SECONDARY,
+    color: Colors.FLASH_SALE_RED,
   },
 });
 

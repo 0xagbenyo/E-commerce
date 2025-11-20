@@ -9,7 +9,8 @@ import {
   Dimensions,
   RefreshControl,
 } from 'react-native';
-import { useRoute, useNavigation } from '@react-navigation/native';
+import { useRoute, useNavigation, CommonActions } from '@react-navigation/native';
+import * as Updates from 'expo-updates';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../constants/colors';
 import { Spacing } from '../constants/spacing';
@@ -32,22 +33,55 @@ export const AllDealsScreen: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [sortOption, setSortOption] = useState<SortOption>('default');
   
-  // Handle pull-to-refresh
+  // Handle pull-to-refresh - reload the entire page
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    // AllDealsScreen receives deals from route params, so refresh by navigating back and forth
-    // or just simulate refresh
-    setTimeout(() => {
+    try {
+      // Navigate to Splash screen first to show SIAMAE
+      navigation.dispatch(
+        CommonActions.reset({
+          index: 0,
+          routes: [{ name: 'Splash' }],
+        })
+      );
+      
+      // Wait a moment for Splash to appear, then reload the entire app
+      setTimeout(async () => {
+        try {
+          await Updates.reloadAsync();
+        } catch (error) {
+          console.log('Updates.reloadAsync not available, using navigation reset');
+          navigation.dispatch(
+            CommonActions.reset({
+              index: 0,
+              routes: [{ name: 'Main' }],
+            })
+          );
+        }
+      }, 1500);
+    } catch (error) {
+      console.error('Error refreshing data:', error);
       setRefreshing(false);
-    }, 1000);
-  }, []);
+    }
+  }, [navigation]);
 
-  // Sort deals by price or discount
+  // Sort deals by price or discount, randomize when not sorting
   const sortedDeals = useMemo(() => {
     if (!Array.isArray(deals) || deals.length === 0) {
       return [];
     }
     const sorted = [...deals];
+    
+    // Randomize when not sorting
+    if (sortOption === 'default') {
+      const shuffled = [...sorted];
+      for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+      }
+      return shuffled;
+    }
+    
     switch (sortOption) {
       case 'lowToHigh':
         return sorted.sort((a: any, b: any) => (a.price || 0) - (b.price || 0));
@@ -66,7 +100,7 @@ export const AllDealsScreen: React.FC = () => {
   const renderHeader = () => (
     <View style={styles.header}>
       <TouchableOpacity onPress={handleBack} style={styles.backButton}>
-        <Ionicons name="chevron-back" size={24} color={Colors.BLACK} />
+        <Ionicons name="chevron-back" size={20} color="#acc5e1" />
       </TouchableOpacity>
       <Text style={styles.title}>Super Deals</Text>
       <View style={styles.backButton} />
@@ -81,7 +115,7 @@ export const AllDealsScreen: React.FC = () => {
       </View>
       {!Array.isArray(sortedDeals) || sortedDeals.length === 0 ? (
         <View style={styles.emptyContainer}>
-          <Ionicons name="pricetag-outline" size={48} color={Colors.TEXT_SECONDARY} />
+          <Ionicons name="pricetag-outline" size={48} color="#acc5e1" />
           <Text style={styles.emptyText}>No deals available</Text>
         </View>
       ) : (
@@ -94,8 +128,8 @@ export const AllDealsScreen: React.FC = () => {
             <RefreshControl
               refreshing={refreshing}
               onRefresh={onRefresh}
-              tintColor={Colors.SHEIN_PINK}
-              colors={[Colors.SHEIN_PINK]}
+              tintColor="#acc5e1"
+              colors={["#acc5e1"]}
             />
           }
           renderItem={({ item, index }) => {
@@ -146,27 +180,30 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: Spacing.PADDING_MD,
-    paddingVertical: Spacing.PADDING_MD,
+    paddingHorizontal: 12,
+    paddingVertical: Spacing.PADDING_SM,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.BORDER,
+    borderBottomColor: Colors.FLASH_SALE_RED, // Burgundy border
+    backgroundColor: Colors.WHITE,
   },
   backButton: {
-    width: 40,
-    height: 40,
+    width: 32,
+    height: 32,
     justifyContent: 'center',
     alignItems: 'center',
   },
   title: {
-    fontSize: Typography.FONT_SIZE_LG,
+    fontSize: Typography.FONT_SIZE_MD,
     fontWeight: Typography.FONT_WEIGHT_BOLD,
-    color: Colors.TEXT_PRIMARY,
+    color: Colors.FLASH_SALE_RED, // Burgundy
     flex: 1,
     textAlign: 'center',
   },
   filterContainer: {
-    paddingHorizontal: Spacing.PADDING_MD,
+    paddingHorizontal: 12,
     paddingVertical: Spacing.PADDING_SM,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.FLASH_SALE_RED, // Burgundy border
   },
   gridContainer: {
     paddingHorizontal: Spacing.PADDING_SM,
@@ -185,7 +222,7 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: Typography.FONT_SIZE_MD,
-    color: Colors.TEXT_SECONDARY,
+    color: Colors.FLASH_SALE_RED,
     marginTop: Spacing.MARGIN_MD,
     fontWeight: Typography.FONT_WEIGHT_SEMIBOLD,
   },

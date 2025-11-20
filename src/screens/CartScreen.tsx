@@ -18,7 +18,8 @@ import { Colors } from '../constants/colors';
 import { Spacing } from '../constants/spacing';
 import { useShoppingCart, useCartActions } from '../hooks/erpnext';
 import { useUserSession } from '../context/UserContext';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, CommonActions } from '@react-navigation/native';
+import * as Updates from 'expo-updates';
 import { LoadingScreen } from '../components/LoadingScreen';
 import { getERPNextClient } from '../services/erpnext';
 import { ModernAlert } from '../components/ModernAlert';
@@ -71,14 +72,34 @@ export const CartScreen: React.FC = () => {
     }, [user?.email, refresh])
   );
   
-  // Handle pull-to-refresh
+  // Handle pull-to-refresh - reload the entire page
   const onRefresh = async () => {
     setRefreshing(true);
     try {
-      await refresh();
+      // Navigate to Splash screen first to show SIAMAE
+      navigation.dispatch(
+        CommonActions.reset({
+          index: 0,
+          routes: [{ name: 'Splash' }],
+        })
+      );
+      
+      // Wait a moment for Splash to appear, then reload the entire app
+      setTimeout(async () => {
+        try {
+          await Updates.reloadAsync();
+        } catch (error) {
+          console.log('Updates.reloadAsync not available, using navigation reset');
+          navigation.dispatch(
+            CommonActions.reset({
+              index: 0,
+              routes: [{ name: 'Main' }],
+            })
+          );
+        }
+      }, 1500);
     } catch (error) {
       console.error('Error refreshing cart:', error);
-    } finally {
       setRefreshing(false);
     }
   };
@@ -383,7 +404,7 @@ export const CartScreen: React.FC = () => {
               <Ionicons 
               name={selectedItems.includes(item.id) ? "radio-button-on" : "radio-button-off"} 
               size={16} 
-              color={selectedItems.includes(item.id) ? Colors.SHEIN_PINK : Colors.BLACK} 
+              color={selectedItems.includes(item.id) ? Colors.FLASH_SALE_RED : Colors.BLACK} 
             />
           </TouchableOpacity>
           
@@ -408,7 +429,7 @@ export const CartScreen: React.FC = () => {
           
           <View style={styles.priceContainer}>
               {isUpdating ? (
-                <ActivityIndicator size="small" color={Colors.SHEIN_PINK} style={styles.priceLoading} />
+                <ActivityIndicator size="small" color="#acc5e1" style={styles.priceLoading} />
               ) : (
                 <>
                   <Text style={styles.itemPrice}>{formatPrice(itemTotalPrice)}</Text>
@@ -435,7 +456,7 @@ export const CartScreen: React.FC = () => {
             </TouchableOpacity>
             <View style={styles.quantityBox}>
                 {isUpdating ? (
-                  <ActivityIndicator size="small" color={Colors.SHEIN_PINK} />
+                  <ActivityIndicator size="small" color="#acc5e1" />
                 ) : (
                   <TextInput
                     style={styles.quantityInput}
@@ -487,7 +508,7 @@ export const CartScreen: React.FC = () => {
   const renderPromotionsBanner = () => (
     <View style={styles.promotionsBanner}>
       <View style={styles.promotionsContent}>
-        <Ionicons name="pricetag" size={16} color={Colors.SHEIN_PINK} />
+        <Ionicons name="pricetag" size={16} color="#acc5e1" />
         <Text style={styles.promotionsText}>
           2 Promotions in your cart! Click to view exclusive deals and save more!
         </Text>
@@ -548,8 +569,8 @@ export const CartScreen: React.FC = () => {
             <RefreshControl
               refreshing={refreshing}
               onRefresh={onRefresh}
-              tintColor={Colors.SHEIN_PINK}
-              colors={[Colors.SHEIN_PINK]}
+              tintColor="#acc5e1"
+              colors={["#acc5e1"]}
             />
           }
         >
@@ -606,6 +627,14 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderBottomWidth: 1,
     borderBottomColor: Colors.BORDER,
+    backgroundColor: Colors.WHITE,
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
   },
   headerTop: {
     flexDirection: 'row',
@@ -690,7 +719,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   trendsTag: {
-    backgroundColor: Colors.SHEIN_PINK,
+    backgroundColor: Colors.FLASH_SALE_RED, // Burgundy
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 3,
@@ -806,7 +835,7 @@ const styles = StyleSheet.create({
   },
   salesText: {
     fontSize: 10,
-    color: Colors.SHEIN_PINK,
+    color: Colors.FLASH_SALE_RED, // Burgundy
     marginLeft: 3,
   },
   priceContainer: {
@@ -915,14 +944,14 @@ const styles = StyleSheet.create({
   },
   viewMoreButton: {
     borderWidth: 1,
-    borderColor: Colors.SHEIN_PINK,
+    borderColor: Colors.FLASH_SALE_RED, // Burgundy
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 3,
   },
   viewMoreText: {
     fontSize: 12,
-    color: Colors.SHEIN_PINK,
+    color: Colors.FLASH_SALE_RED, // Burgundy
     fontWeight: '500',
   },
   checkoutBar: {

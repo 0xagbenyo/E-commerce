@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import {
   View,
   Text,
@@ -20,7 +20,7 @@ export interface ProductCardProps {
   product: Product;
   onPress?: (productId: string) => void;
   onWishlistPress?: (productId: string) => void;
-  onCartPress?: (productId: string) => void;
+  onCartPress?: (productId: string, animationData?: { startPos: { x: number; y: number }, productImage?: string }) => void;
   isWishlisted?: boolean;
   style?: any;
   variant?: 'tall' | 'medium' | 'short'; // For staggered layout
@@ -110,6 +110,38 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({
   };
 
   const { imageHeight, contentPadding } = getHeights();
+  const imageRef = useRef<View>(null);
+  const cartButtonRef = useRef<TouchableOpacity>(null);
+
+  const handleCartPress = () => {
+    if (!onCartPress) return;
+
+    const productImage = product.images?.[0] || product.image;
+    
+    // Always measure fresh on each press to get the correct position for this specific card
+    if (cartButtonRef.current) {
+      cartButtonRef.current.measureInWindow((x, y, width, height) => {
+        if (x !== undefined && y !== undefined && width && height) {
+          const startX = x + width / 2 - 25; // 25 is half of animation item width
+          const startY = y + height / 2 - 25;
+          
+          console.log('ProductCard: Measured on press', { startX, startY, productImage, x, y, width, height });
+          onCartPress(product.id, {
+            startPos: { x: startX, y: startY },
+            productImage,
+          });
+        } else {
+          console.log('ProductCard: Measurement failed, calling without animation');
+          // Final fallback: call without animation data
+          onCartPress(product.id);
+        }
+      });
+    } else {
+      console.log('ProductCard: No ref, calling without animation');
+      // Final fallback: call without animation data
+      onCartPress(product.id);
+    }
+  };
 
   return (
     <TouchableOpacity
@@ -117,7 +149,10 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({
       onPress={() => onPress?.(product.id)}
       activeOpacity={0.9}
     >
-      <View style={[styles.imageContainer, { height: imageHeight }]}>
+      <View 
+        ref={imageRef}
+        style={[styles.imageContainer, { height: imageHeight }]}
+      >
         {product.images && product.images.length > 0 && product.images[0] ? (
           <Image
             source={{ uri: product.images[0] }}
@@ -148,8 +183,9 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({
         {/* Cart Button */}
         {onCartPress && (
           <TouchableOpacity
+            ref={cartButtonRef}
             style={styles.cartButton}
-            onPress={() => onCartPress(product.id)}
+            onPress={handleCartPress}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
             <Ionicons

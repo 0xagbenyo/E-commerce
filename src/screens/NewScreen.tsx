@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -8,19 +8,23 @@ import {
   Dimensions,
   RefreshControl,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, CommonActions } from '@react-navigation/native';
 import { RootStackParamList } from '../types';
 import type { NavigationProp } from '@react-navigation/native';
+import * as Updates from 'expo-updates';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../constants/colors';
 import { Spacing } from '../constants/spacing';
 import { CategoryTabs } from '../components/CategoryTabs';
 import { ProductCard } from '../components/ProductCard';
 import { LoadingScreen } from '../components/LoadingScreen';
+import { ProductCardSkeletonList } from '../components/ProductCardSkeletonList';
 import { Header } from '../components/Header';
 import { Toast } from '../components/Toast';
+import { CartAnimation } from '../components/CartAnimation';
 import { PriceFilter, SortOption } from '../components/PriceFilter';
 import { useNewArrivals, usePricingRules, useWishlistActions, useWishlist, useCartActions } from '../hooks/erpnext';
 import { useUserSession } from '../context/UserContext';
@@ -70,6 +74,12 @@ export const NewScreen: React.FC = () => {
   const [toastMessage, setToastMessage] = useState('');
   const [sortOption, setSortOption] = useState<SortOption>('default');
   
+  // Cart animation state
+  const [showCartAnimation, setShowCartAnimation] = useState(false);
+  const [animationStartPos, setAnimationStartPos] = useState({ x: 0, y: 0 });
+  const [animationEndPos, setAnimationEndPos] = useState({ x: 0, y: 0 });
+  const [animationProductImage, setAnimationProductImage] = useState<string | undefined>(undefined);
+  
   // Map category to item group name
   const itemGroupName = mapCategoryToItemGroup(selectedCategory);
   
@@ -90,12 +100,28 @@ export const NewScreen: React.FC = () => {
   
   // Sync optimistic state with actual wishlist when it updates
   // Only sync when not currently performing operations to avoid infinite loops
+  const wishlistIdsRef = useRef<string>('');
+  const currentWishlistIds = useMemo(() => {
+    const ids = [...new Set(wishlistItems.map(item => item.productId))].sort();
+    return JSON.stringify(ids);
+  }, [wishlistItems]);
+  
   useEffect(() => {
     if (pendingOperations.size > 0) {
       return; // Don't sync while operations are pending
     }
     
-    const actualSet = new Set(wishlistItems.map(item => item.productId));
+    // Only update if the wishlist IDs actually changed
+    if (currentWishlistIds === wishlistIdsRef.current) {
+      return;
+    }
+    
+    wishlistIdsRef.current = currentWishlistIds;
+    
+    // Parse IDs from the string to avoid depending on wishlistItems array
+    const actualIds = JSON.parse(currentWishlistIds) as string[];
+    const actualSet = new Set(actualIds);
+    
     setOptimisticWishlist(prev => {
       // Clear optimistic state and sync with actual wishlist
       // This ensures we start fresh after operations complete
@@ -107,38 +133,66 @@ export const NewScreen: React.FC = () => {
       }
       return prev; // Return same reference if no change
     });
-  }, [wishlistItems, pendingOperations.size]);
+  }, [currentWishlistIds, pendingOperations.size]);
   
   // Always fetch all new arrivals, then filter by category client-side
   // Convert sortOption to server-side sorting parameter
   const sortByPrice = sortOption === 'lowToHigh' ? 'asc' : sortOption === 'highToLow' ? 'desc' : undefined;
-  const { data: allNewArrivals, loading: newArrivalsLoading, refresh: refreshNewArrivals } = useNewArrivals(100, sortByPrice);
+  const { products: allNewArrivals, loading: newArrivalsLoading, refresh: refreshNewArrivals } = useNewArrivals(100, sortByPrice);
   
   // Pull-to-refresh state
   const [refreshing, setRefreshing] = useState(false);
   
-  // Handle pull-to-refresh
+  // Handle pull-to-refresh - reload the entire page
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await Promise.all([
-        refreshNewArrivals(),
-        refreshWishlist(),
-      ]);
+      // Navigate to Splash screen first to show SIAMAE
+      navigation.dispatch(
+        CommonActions.reset({
+          index: 0,
+          routes: [{ name: 'Splash' }],
+        })
+      );
+      
+      // Wait a moment for Splash to appear, then reload the entire app
+      setTimeout(async () => {
+        try {
+          await Updates.reloadAsync();
+        } catch (error) {
+          console.log('Updates.reloadAsync not available, using navigation reset');
+          navigation.dispatch(
+            CommonActions.reset({
+              index: 0,
+              routes: [{ name: 'Main' }],
+            })
+          );
+        }
+      }, 1500);
     } catch (error) {
       console.error('Error refreshing data:', error);
-    } finally {
       setRefreshing(false);
     }
-  }, [refreshNewArrivals, refreshWishlist]);
+  }, [navigation]);
   
   // Check if page is initially loading (fresh load - no data loaded yet)
-  const isInitialLoading = (!allNewArrivals && newArrivalsLoading) && 
+  const isInitialLoading = ((!allNewArrivals || allNewArrivals.length === 0) && newArrivalsLoading) && 
     (!pricingRules || pricingRules.length === 0);
   
+  // Debug: Log products when they change
+  useEffect(() => {
+    console.log('NewScreen - allNewArrivals:', allNewArrivals?.length || 0, 'items');
+    if (allNewArrivals && allNewArrivals.length > 0) {
+      console.log('NewScreen - First product:', allNewArrivals[0]);
+    }
+  }, [allNewArrivals]);
+
   // Filter new arrivals by selected category and sort
   const displayArrivals = useMemo(() => {
+    console.log('NewScreen - Filtering products. allNewArrivals:', allNewArrivals?.length || 0, 'selectedCategory:', selectedCategory);
+    
     if (!allNewArrivals || allNewArrivals.length === 0) {
+      console.log('NewScreen - No products to display');
       return [];
     }
     
@@ -153,9 +207,11 @@ export const NewScreen: React.FC = () => {
         // Case-insensitive comparison
         return productCategory.toLowerCase() === itemGroupName?.toLowerCase();
       });
+      console.log('NewScreen - Filtered products:', filtered.length, 'for category:', selectedCategory);
     }
     
     // No client-side sorting needed - server-side sorting is already applied
+    console.log('NewScreen - Final displayArrivals:', filtered.length);
     return filtered;
   }, [selectedCategory, allNewArrivals, itemGroupName]);
   
@@ -185,7 +241,7 @@ export const NewScreen: React.FC = () => {
         onPress={(productId) => {
           (navigation as any).navigate('ProductDetails', { productId });
         }}
-        onCartPress={async (productId) => {
+        onCartPress={async (productId, animationData) => {
           if (!user?.email) {
             Alert.alert('Login Required', 'Please log in to add items to your cart.');
             return;
@@ -195,8 +251,18 @@ export const NewScreen: React.FC = () => {
             const itemCode = item.itemCode || productId;
             const success = await addItemToCart(itemCode, 1);
             if (success) {
-              setToastMessage('Item added to cart!');
-              setToastVisible(true);
+              // Trigger animation if data is available
+              if (animationData) {
+                const endX = width - 60; // Approx position of cart icon
+                const endY = 50; // Approx position of cart icon
+                setAnimationStartPos(animationData.startPos);
+                setAnimationEndPos({ x: endX, y: endY });
+                setAnimationProductImage(animationData.productImage);
+                setShowCartAnimation(true);
+              } else {
+                setToastMessage('Item added to cart!');
+                setToastVisible(true);
+              }
             }
           } catch (error) {
             console.error('Error adding to cart:', error);
@@ -259,7 +325,13 @@ export const NewScreen: React.FC = () => {
   };
 
   const renderProducts = () => {
-    if (displayArrivals.length === 0) {
+    // Show skeleton loading cards while fetching products
+    if (newArrivalsLoading && (!allNewArrivals || allNewArrivals.length === 0)) {
+      return <ProductCardSkeletonList count={6} numColumns={2} />;
+    }
+    
+    // Show empty state only if we're not loading and have no products
+    if (displayArrivals.length === 0 && !newArrivalsLoading) {
       return (
         <View style={styles.emptyContainer}>
           <Ionicons name="cube-outline" size={64} color={Colors.TEXT_SECONDARY} />
@@ -268,9 +340,9 @@ export const NewScreen: React.FC = () => {
             {selectedCategory === 'All' 
               ? 'Check back soon for new products!' 
               : `No new arrivals in ${selectedCategory} category`}
-            </Text>
-    </View>
-  );
+          </Text>
+        </View>
+      );
     }
 
     return (
@@ -284,8 +356,8 @@ export const NewScreen: React.FC = () => {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            tintColor={Colors.SHEIN_PINK}
-            colors={[Colors.SHEIN_PINK]}
+            tintColor="#acc5e1"
+            colors={["#acc5e1"]}
           />
         }
         renderItem={renderProductItem}
@@ -305,6 +377,13 @@ export const NewScreen: React.FC = () => {
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom', 'left', 'right']}>
+      <CartAnimation
+        visible={showCartAnimation}
+        startPosition={animationStartPos}
+        endPosition={animationEndPos}
+        productImage={animationProductImage}
+        onComplete={() => setShowCartAnimation(false)}
+      />
       <Toast
         message={toastMessage}
         type="success"
@@ -315,6 +394,7 @@ export const NewScreen: React.FC = () => {
       <CategoryTabs 
         selectedCategory={selectedCategory}
         onSelectCategory={handleCategorySelect}
+        activeColor="#acc5e1"
       />
       <View style={styles.filterContainer}>
         <PriceFilter onSortChange={setSortOption} currentSort={sortOption} />
@@ -342,6 +422,18 @@ const styles = StyleSheet.create({
     width: (width - Spacing.SCREEN_PADDING * 2 - Spacing.MARGIN_SM) / 2,
     marginBottom: 0, // Row spacing handled by columnWrapperStyle
   },
+  loadingContainer: {
+    flex: 1,
+    padding: Spacing.PADDING_XL * 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadingText: {
+    fontSize: 16,
+    color: Colors.TEXT_SECONDARY,
+    marginTop: Spacing.MARGIN_MD,
+    textAlign: 'center',
+  },
   emptyContainer: {
     flex: 1,
     padding: Spacing.PADDING_XL * 2,
@@ -366,6 +458,6 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.PADDING_SM,
     backgroundColor: Colors.WHITE,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.BORDER,
+    borderBottomColor: Colors.FLASH_SALE_RED, // Burgundy border
   },
 });

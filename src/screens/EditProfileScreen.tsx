@@ -106,7 +106,7 @@ export const EditProfileScreen: React.FC = () => {
           <View style={styles.placeholder} />
         </View>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={Colors.SHEIN_PINK} />
+          <ActivityIndicator size="large" color=" #bc8474" />
           <Text style={styles.loadingText}>Loading profile...</Text>
         </View>
       </SafeAreaView>
@@ -266,7 +266,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 14,
     fontWeight: '600',
-    color: Colors.SHEIN_PINK,
+    color: ' #bc8474', // Burgundy
     marginBottom: Spacing.MARGIN_SM,
   },
   inputContainer: {
@@ -302,7 +302,7 @@ const styles = StyleSheet.create({
     color: Colors.TEXT_SECONDARY,
   },
   saveButton: {
-    backgroundColor: Colors.SHEIN_PINK,
+    backgroundColor: ' #bc8474', // Burgundy
     borderRadius: 6,
     paddingVertical: Spacing.PADDING_SM,
     alignItems: 'center',

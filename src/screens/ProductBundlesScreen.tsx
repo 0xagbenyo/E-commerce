@@ -12,7 +12,8 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, CommonActions } from '@react-navigation/native';
+import * as Updates from 'expo-updates';
 import { RootStackParamList } from '../types';
 import type { NavigationProp } from '@react-navigation/native';
 import { Colors } from '../constants/colors';
@@ -21,6 +22,7 @@ import { Typography } from '../constants/typography';
 import { useProductBundles, useWishlistActions, useWishlist, useCartActions } from '../hooks/erpnext';
 import { useUserSession } from '../context/UserContext';
 import { LoadingScreen } from '../components/LoadingScreen';
+import { ProductCardSkeletonList } from '../components/ProductCardSkeletonList';
 import { ProductBundleCard } from '../components/ProductBundleCard';
 
 const { width } = Dimensions.get('window');
@@ -37,17 +39,37 @@ export const ProductBundlesScreen: React.FC = () => {
   // Pull-to-refresh state
   const [refreshing, setRefreshing] = useState(false);
   
-  // Handle pull-to-refresh
+  // Handle pull-to-refresh - reload the entire page
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await refreshWishlist();
+      // Navigate to Splash screen first to show SIAMAE
+      navigation.dispatch(
+        CommonActions.reset({
+          index: 0,
+          routes: [{ name: 'Splash' }],
+        })
+      );
+      
+      // Wait a moment for Splash to appear, then reload the entire app
+      setTimeout(async () => {
+        try {
+          await Updates.reloadAsync();
+        } catch (error) {
+          console.log('Updates.reloadAsync not available, using navigation reset');
+          navigation.dispatch(
+            CommonActions.reset({
+              index: 0,
+              routes: [{ name: 'Main' }],
+            })
+          );
+        }
+      }, 1500);
     } catch (error) {
       console.error('Error refreshing data:', error);
-    } finally {
       setRefreshing(false);
     }
-  }, [refreshWishlist]);
+  }, [navigation]);
   
   // Check if page is initially loading
   const isInitialLoading = bundlesLoading && (!productBundles || productBundles.length === 0);
@@ -79,7 +101,11 @@ export const ProductBundlesScreen: React.FC = () => {
   }, []);
 
   if (isInitialLoading) {
-    return <LoadingScreen />;
+    return (
+      <SafeAreaView style={styles.container} edges={['bottom', 'left', 'right']}>
+        <ProductCardSkeletonList count={6} numColumns={2} />
+      </SafeAreaView>
+    );
   }
 
   if (bundlesError) {

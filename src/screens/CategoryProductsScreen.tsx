@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -23,6 +23,7 @@ import { Typography } from '../constants/typography';
 import { useProductsByCategory, useCategories, usePricingRules, useWishlistActions, useWishlist } from '../hooks/erpnext';
 import { useUserSession } from '../context/UserContext';
 import { LoadingScreen } from '../components/LoadingScreen';
+import { ProductCardSkeletonList } from '../components/ProductCardSkeletonList';
 import { ProductCard } from '../components/ProductCard';
 import { PriceFilter, SortOption } from '../components/PriceFilter';
 import { getProductDiscount } from '../utils/pricingRules';
@@ -43,7 +44,8 @@ export const CategoryProductsScreen: React.FC = () => {
   const { user } = useUserSession();
   const { wishlistItems, refresh: refreshWishlist } = useWishlist(user?.email || null);
   const { toggleWishlist } = useWishlistActions(refreshWishlist);
-  const { categoryName: initialCategoryName, parentName } = route.params as RouteParams;
+  const routeParams = (route.params as RouteParams) || {};
+  const { categoryName: initialCategoryName = '', parentName = '' } = routeParams;
 
   const { data: allCategories } = useCategories();
   
@@ -61,12 +63,28 @@ export const CategoryProductsScreen: React.FC = () => {
   
   // Sync optimistic state with actual wishlist when it updates
   // Only sync when not currently performing operations to avoid infinite loops
+  const wishlistIdsRef = useRef<string>('');
+  const currentWishlistIds = useMemo(() => {
+    const ids = [...new Set(wishlistItems.map(item => item.productId))].sort();
+    return JSON.stringify(ids);
+  }, [wishlistItems]);
+  
   useEffect(() => {
     if (pendingOperations.size > 0) {
       return; // Don't sync while operations are pending
     }
     
-    const actualSet = new Set(wishlistItems.map(item => item.productId));
+    // Only update if the wishlist IDs actually changed
+    if (currentWishlistIds === wishlistIdsRef.current) {
+      return;
+    }
+    
+    wishlistIdsRef.current = currentWishlistIds;
+    
+    // Parse IDs from the string to avoid depending on wishlistItems array
+    const actualIds = JSON.parse(currentWishlistIds) as string[];
+    const actualSet = new Set(actualIds);
+    
     setOptimisticWishlist(prev => {
       // Clear optimistic state and sync with actual wishlist
       // This ensures we start fresh after operations complete
@@ -78,16 +96,24 @@ export const CategoryProductsScreen: React.FC = () => {
       }
       return prev; // Return same reference if no change
     });
-  }, [wishlistItems, pendingOperations.size]);
+  }, [currentWishlistIds, pendingOperations.size]);
   const [siblingsLoading, setSiblingsLoading] = useState(false);
   const [siblingCategories, setSiblingCategories] = useState<any[]>([]);
   const [siblingImages, setSiblingImages] = useState<Record<string, string>>({});
-  const [selectedCategory, setSelectedCategory] = useState(initialCategoryName);
+  // Ensure selectedCategory always has a value - use initialCategoryName from route params
+  // Use useMemo to ensure stable value for hook calls
+  const stableCategoryName = useMemo(() => initialCategoryName || '', [initialCategoryName]);
+  const [selectedCategory, setSelectedCategory] = useState(() => stableCategoryName);
   const [sortOption, setSortOption] = useState<SortOption>('default');
   
   // Use selectedCategory state instead of route params for fetching products
   // Convert sortOption to server-side sorting parameter
   const sortByPrice = sortOption === 'lowToHigh' ? 'asc' : sortOption === 'highToLow' ? 'desc' : undefined;
+  // Use memoized category name to ensure stable hook calls
+  const categoryForFetch = useMemo(() => {
+    return selectedCategory || stableCategoryName || '';
+  }, [selectedCategory, stableCategoryName]);
+  
   const { 
     data: products, 
     loading: productsLoading, 
@@ -95,26 +121,43 @@ export const CategoryProductsScreen: React.FC = () => {
     hasMore: productsHasMore,
     loadMore: loadMoreProducts,
     refresh: refreshProducts 
-  } = useProductsByCategory(selectedCategory, 20, sortByPrice);
+  } = useProductsByCategory(categoryForFetch, 20, sortByPrice);
   const { data: pricingRules = [], loading: pricingRulesLoading } = usePricingRules();
   
   // Pull-to-refresh state
   const [refreshing, setRefreshing] = useState(false);
   
-  // Handle pull-to-refresh
+  // Handle pull-to-refresh - reload the entire page
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await Promise.all([
-        refreshProducts(),
-        refreshWishlist(),
-      ]);
+      // Navigate to Splash screen first to show SIAMAE
+      navigation.dispatch(
+        CommonActions.reset({
+          index: 0,
+          routes: [{ name: 'Splash' }],
+        })
+      );
+      
+      // Wait a moment for Splash to appear, then reload the entire app
+      setTimeout(async () => {
+        try {
+          await Updates.reloadAsync();
+        } catch (error) {
+          console.log('Updates.reloadAsync not available, using navigation reset');
+          navigation.dispatch(
+            CommonActions.reset({
+              index: 0,
+              routes: [{ name: 'Main' }],
+            })
+          );
+        }
+      }, 1500);
     } catch (error) {
       console.error('Error refreshing data:', error);
-    } finally {
       setRefreshing(false);
     }
-  }, [refreshProducts, refreshWishlist]);
+  }, [navigation]);
   
   // Check if page is initially loading (fresh load - no data loaded yet)
   const isInitialLoading = (!products && productsLoading) && 
@@ -211,11 +254,15 @@ export const CategoryProductsScreen: React.FC = () => {
   };
   
   // Update selectedCategory when route params change (e.g., when navigating back)
+  // Use a ref to track if we've initialized to prevent unnecessary updates
+  const hasInitializedRef = useRef(false);
   useEffect(() => {
-    if (initialCategoryName && initialCategoryName !== selectedCategory) {
+    // Only update if we have a valid category name and haven't initialized yet, or if it changed
+    if (initialCategoryName && (!hasInitializedRef.current || initialCategoryName !== selectedCategory)) {
       setSelectedCategory(initialCategoryName);
+      hasInitializedRef.current = true;
     }
-  }, [initialCategoryName]);
+  }, [initialCategoryName, selectedCategory]);
 
   // No client-side sorting needed - server-side sorting is already applied
   const sortedProducts = useMemo(() => {
@@ -223,7 +270,7 @@ export const CategoryProductsScreen: React.FC = () => {
   }, [products]);
 
   const renderHeader = () => (
-    <View style={[styles.header, { paddingTop: insets.top + Spacing.PADDING_SM }]}>
+    <View style={styles.header}>
       <TouchableOpacity onPress={() => navigation.goBack()}>
         <Ionicons name="chevron-back" size={24} color={Colors.BLACK} />
       </TouchableOpacity>
@@ -306,17 +353,17 @@ export const CategoryProductsScreen: React.FC = () => {
 
         <TouchableOpacity style={styles.filterChip}>
           <Text style={styles.filterChipText}>Category</Text>
-          <Ionicons name="chevron-down" size={16} color={Colors.SHEIN_PINK} />
+          <Ionicons name="chevron-down" size={16} color="#acc5e1" />
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.filterChip}>
           <Text style={styles.filterChipText}>Size</Text>
-          <Ionicons name="chevron-down" size={16} color={Colors.SHEIN_PINK} />
+          <Ionicons name="chevron-down" size={16} color="#acc5e1" />
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.filterChip}>
           <Text style={styles.filterChipText}>Color</Text>
-          <Ionicons name="chevron-down" size={16} color={Colors.SHEIN_PINK} />
+          <Ionicons name="chevron-down" size={16} color="#acc5e1" />
         </TouchableOpacity>
       </ScrollView>
     </View>
@@ -409,6 +456,16 @@ export const CategoryProductsScreen: React.FC = () => {
       </>
     );
 
+    // Show skeleton loading cards while fetching products
+    if (productsLoading && (!products || products.length === 0)) {
+      return (
+        <>
+          <ListHeader />
+          <ProductCardSkeletonList count={6} numColumns={2} />
+        </>
+      );
+    }
+
     if (!sortedProducts || sortedProducts.length === 0) {
       return (
         <>
@@ -425,7 +482,8 @@ export const CategoryProductsScreen: React.FC = () => {
       if (!productsLoadingMore) return null;
       return (
         <View style={styles.footerLoader}>
-          <ActivityIndicator size="small" color={Colors.SHEIN_PINK} />
+          <ActivityIndicator size="small" color="#acc5e1
+" />
           <Text style={styles.footerLoaderText}>Loading more products...</Text>
         </View>
       );
@@ -442,8 +500,8 @@ export const CategoryProductsScreen: React.FC = () => {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            tintColor={Colors.SHEIN_PINK}
-            colors={[Colors.SHEIN_PINK]}
+            tintColor="#acc5e1"
+            colors={["#acc5e1"]}
           />
         }
         renderItem={renderProductItem}
@@ -468,7 +526,9 @@ export const CategoryProductsScreen: React.FC = () => {
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom', 'left', 'right']}>
-      {renderHeader()}
+      <View style={[styles.headerContainer, { paddingTop: Math.max(insets.top - 20, 0) }]}>
+        {renderHeader()}
+      </View>
       {renderProducts()}
     </SafeAreaView>
   );
@@ -479,14 +539,25 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Colors.WHITE,
   },
+  headerContainer: {
+    backgroundColor: Colors.WHITE,
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: Spacing.PADDING_SM,
-    paddingBottom: Spacing.PADDING_SM,
+    paddingVertical: Spacing.PADDING_SM,
     borderBottomWidth: 1,
     borderBottomColor: Colors.LIGHT_GRAY,
+    backgroundColor: Colors.WHITE,
   },
   headerTitle: {
     fontSize: Typography.FONT_SIZE_MD,
@@ -550,11 +621,18 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   siblingTabTextActive: {
-    color: Colors.SHEIN_PINK,
+    color: Colors.FLASH_SALE_RED, // Burgundy
     fontWeight: '600',
   },
   stickyFiltersWrapper: {
     backgroundColor: Colors.WHITE,
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
   },
   filtersContainer: {
     borderBottomWidth: 1,
@@ -573,7 +651,7 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.PADDING_XS,
     borderRadius: 4,
     borderWidth: 1,
-    borderColor: Colors.LIGHT_GRAY,
+    borderColor: Colors.FLASH_SALE_RED, // Burgundy border
     marginRight: Spacing.MARGIN_XS,
   },
   filterChipText: {

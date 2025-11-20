@@ -412,7 +412,23 @@ const extractColorsFromWebsiteItem = (websiteItem: any): ProductColor[] => {
  * Extract sizes from Website Item specifications
  */
 const extractSizesFromWebsiteItem = (websiteItem: any): ProductSize[] => {
-  // Check for specifications table with size values
+  // First, check for custom_size child table (priority)
+  if (websiteItem.custom_size && Array.isArray(websiteItem.custom_size)) {
+    const customSizes = websiteItem.custom_size
+      .filter((row: any) => row.size) // Filter out rows without size value
+      .map((row: any, index: number) => ({
+        id: row.name || row.idx?.toString() || (index + 1).toString(),
+        name: row.size || row.size_name || 'M',
+        inStock: row.in_stock !== undefined ? row.in_stock !== 0 : true, // Check in_stock field if available
+      }));
+    
+    if (customSizes.length > 0) {
+      console.log(`[Mapper] Found ${customSizes.length} sizes from custom_size child table`);
+      return customSizes;
+    }
+  }
+
+  // Fallback: Check for specifications table with size values
   if (websiteItem.website_specifications && Array.isArray(websiteItem.website_specifications)) {
     const sizeSpecs = websiteItem.website_specifications
       .filter((spec: any) => spec.name && spec.name.toLowerCase() === 'size')
@@ -422,18 +438,15 @@ const extractSizesFromWebsiteItem = (websiteItem: any): ProductSize[] => {
         inStock: true,
       }));
     
-    if (sizeSpecs.length > 0) return sizeSpecs;
+    if (sizeSpecs.length > 0) {
+      console.log(`[Mapper] Found ${sizeSpecs.length} sizes from website_specifications`);
+      return sizeSpecs;
+    }
   }
 
-  // Default sizes (common for fashion)
-  return [
-    { id: '1', name: 'XS', inStock: true },
-    { id: '2', name: 'S', inStock: true },
-    { id: '3', name: 'M', inStock: true },
-    { id: '4', name: 'L', inStock: true },
-    { id: '5', name: 'XL', inStock: true },
-    { id: '6', name: 'XXL', inStock: true },
-  ];
+  // No sizes found - return empty array (no dummy/default sizes)
+  console.log(`[Mapper] No sizes found, returning empty array`);
+  return [];
 };
 
 /**

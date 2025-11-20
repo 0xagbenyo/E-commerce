@@ -262,7 +262,7 @@ export const CheckoutScreen: React.FC = () => {
               text: 'OK',
               onPress: () => {
                 setIsPlacingOrder(false);
-                navigation.navigate('OrderSuccess' as never, { orderNumber } as never);
+                navigation.navigate('OrderHistory' as never);
               },
             },
           ]
@@ -277,8 +277,7 @@ export const CheckoutScreen: React.FC = () => {
               text: 'OK',
               onPress: () => {
                 setIsPlacingOrder(false);
-                // Navigate to success screen after payment initialization
-                navigation.navigate('OrderSuccess' as never, { orderNumber } as never);
+                // Don't navigate - payment not yet successful
               },
             },
           ]
@@ -293,7 +292,7 @@ export const CheckoutScreen: React.FC = () => {
               text: 'OK',
               onPress: () => {
                 setIsPlacingOrder(false);
-                navigation.navigate('OrderSuccess' as never, { orderNumber } as never);
+                // Don't navigate - payment not yet successful
               },
             },
           ]
@@ -311,7 +310,7 @@ export const CheckoutScreen: React.FC = () => {
               text: 'OK',
               onPress: () => {
                 setIsPlacingOrder(false);
-                navigation.navigate('OrderSuccess' as never, { orderNumber } as never);
+                // Don't navigate - payment not yet successful
               },
             },
           ]
@@ -341,7 +340,7 @@ export const CheckoutScreen: React.FC = () => {
               text: 'OK',
               onPress: () => {
                 setIsPlacingOrder(false);
-                navigation.navigate('OrderSuccess' as never, { orderNumber } as never);
+                // Don't navigate - payment not yet successful
               },
             },
           ]
@@ -581,6 +580,7 @@ export const CheckoutScreen: React.FC = () => {
             qty: qty,
             rate: rate,
             amount: amount,
+            description: item.description || '', // Include description from cart item (e.g., selected size)
           };
         });
 

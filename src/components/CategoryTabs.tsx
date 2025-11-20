@@ -22,6 +22,8 @@ interface CategoryTabsProps {
   variant?: 'default' | 'red'; // Variant for different background colors
   showMenuIcon?: boolean; // Show hamburger menu icon on the right
   onMenuPress?: () => void; // Handler for menu icon press
+  isScrolled?: boolean; // Whether scrolled past carousel
+  activeColor?: string; // Custom color for active tab (default: SHEIN_PINK)
 }
 
 export const CategoryTabs: React.FC<CategoryTabsProps> = ({
@@ -31,6 +33,8 @@ export const CategoryTabs: React.FC<CategoryTabsProps> = ({
   variant = 'default',
   showMenuIcon = false,
   onMenuPress,
+  isScrolled = false,
+  activeColor,
 }) => {
   const navigation = useNavigation();
   const isRedVariant = variant === 'red';
@@ -45,7 +49,11 @@ export const CategoryTabs: React.FC<CategoryTabsProps> = ({
   };
   
   return (
-    <View style={[styles.container, isRedVariant && styles.containerRed]}>
+    <View style={[
+      styles.container, 
+      isRedVariant && styles.containerRed,
+      isScrolled && styles.containerScrolled
+    ]}>
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -59,6 +67,7 @@ export const CategoryTabs: React.FC<CategoryTabsProps> = ({
               styles.tab,
               isRedVariant && styles.tabRed,
               selectedCategory === category && (isRedVariant ? styles.tabActiveRed : styles.tabActive),
+              selectedCategory === category && !isRedVariant && activeColor && { backgroundColor: activeColor },
             ]}
             onPress={() => onSelectCategory(category)}
           >
@@ -67,6 +76,8 @@ export const CategoryTabs: React.FC<CategoryTabsProps> = ({
                 styles.tabText,
                 isRedVariant && styles.tabTextRed,
                 selectedCategory === category && (isRedVariant ? styles.tabTextActiveRed : styles.tabTextActive),
+                isScrolled && isRedVariant && styles.tabTextScrolled,
+                isScrolled && isRedVariant && selectedCategory === category && styles.tabTextActiveScrolled,
               ]}
             >
               {category}
@@ -91,12 +102,17 @@ export const CategoryTabs: React.FC<CategoryTabsProps> = ({
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: '#DC143C',
+    backgroundColor: 'transparent',
     flexDirection: 'row',
     alignItems: 'center',
   },
   containerRed: {
-    backgroundColor: '#DC143C',
+    backgroundColor: 'transparent',
+  },
+  containerScrolled: {
+    backgroundColor: ' #bc8474',
+    marginTop: 0,
+    paddingTop: 0,
   },
   scrollView: {
     flex: 1,
@@ -127,19 +143,37 @@ const styles = StyleSheet.create({
     borderBottomColor: Colors.WHITE,
   },
   tabText: {
-    fontSize: Typography.FONT_SIZE_XS,
+    fontSize: Typography.FONT_SIZE_SM,
     color: Colors.DARK_GRAY,
-    fontWeight: '500',
+    fontWeight: '700',
   },
   tabTextRed: {
     color: Colors.BLACK,
+    fontSize: Typography.FONT_SIZE_MD,
+    fontWeight: '800',
+    textShadowColor: 'transparent',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 0,
   },
   tabTextActive: {
     color: Colors.WHITE,
+    fontWeight: '800',
   },
   tabTextActiveRed: {
     color: Colors.BLACK,
-    fontWeight: '600',
+    fontSize: Typography.FONT_SIZE_MD,
+    fontWeight: '900',
+    textShadowColor: 'transparent',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 0,
+  },
+  tabTextScrolled: {
+    color: Colors.BLACK,
+    textShadowColor: 'transparent',
+  },
+  tabTextActiveScrolled: {
+    color: Colors.BLACK,
+    textShadowColor: 'transparent',
   },
   menuIconContainer: {
     paddingRight: Spacing.PADDING_MD,

@@ -175,12 +175,28 @@ export const CategoriesScreen: React.FC = () => {
   
   // Sync optimistic state with actual wishlist when it updates
   // Only sync when not currently performing operations to avoid infinite loops
+  const wishlistIdsRef = useRef<string>('');
+  const currentWishlistIds = useMemo(() => {
+    const ids = [...new Set(wishlistItems.map(item => item.productId))].sort();
+    return JSON.stringify(ids);
+  }, [wishlistItems]);
+  
   useEffect(() => {
     if (pendingOperations.size > 0) {
       return; // Don't sync while operations are pending
     }
     
-    const actualSet = new Set(wishlistItems.map(item => item.productId));
+    // Only update if the wishlist IDs actually changed
+    if (currentWishlistIds === wishlistIdsRef.current) {
+      return;
+    }
+    
+    wishlistIdsRef.current = currentWishlistIds;
+    
+    // Parse IDs from the string to avoid depending on wishlistItems array
+    const actualIds = JSON.parse(currentWishlistIds) as string[];
+    const actualSet = new Set(actualIds);
+    
     setOptimisticWishlist(prev => {
       // Clear optimistic state and sync with actual wishlist
       // This ensures we start fresh after operations complete
@@ -192,7 +208,7 @@ export const CategoriesScreen: React.FC = () => {
       }
       return prev; // Return same reference if no change
     });
-  }, [wishlistItems, pendingOperations.size]);
+  }, [currentWishlistIds, pendingOperations.size]);
   
   // Check if page is initially loading (fresh load - no data loaded yet)
   const isInitialLoading = (!parentCategories && categoriesLoading) && 
@@ -300,24 +316,37 @@ export const CategoriesScreen: React.FC = () => {
     fetchChildCategories(categoryName);
   }, [sortOption]); // Include sortOption to refetch when sorting changes
   
-  // Handle pull-to-refresh
+  // Handle pull-to-refresh - reload the entire page
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await Promise.all([
-        refreshCategories(),
-        refreshWishlist(),
-      ]);
-      // Refresh child categories if one is selected
-      if (selectedCategory) {
-        fetchChildCategories(selectedCategory);
+      // Navigate to Splash screen first to show SIAMAE
+      navigation.dispatch(
+        CommonActions.reset({
+          index: 0,
+          routes: [{ name: 'Splash' }],
+        })
+      );
+      
+      // Wait a moment for Splash to appear, then reload the entire app
+      setTimeout(async () => {
+        try {
+          await Updates.reloadAsync();
+        } catch (error) {
+          console.log('Updates.reloadAsync not available, using navigation reset');
+          navigation.dispatch(
+            CommonActions.reset({
+              index: 0,
+              routes: [{ name: 'Main' }],
+            })
+          );
       }
+      }, 1500);
     } catch (error) {
       console.error('Error refreshing data:', error);
-    } finally {
       setRefreshing(false);
     }
-  }, [refreshCategories, refreshWishlist, selectedCategory]);
+  }, [navigation]);
 
 
   const renderSidebar = () => {

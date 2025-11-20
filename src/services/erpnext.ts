@@ -869,6 +869,7 @@ class ERPNextClient {
         "recommended_items",
         "offers",
         "website_item_groups",
+        "custom_size",
         "creation",
         "modified"
       ];
@@ -1560,6 +1561,7 @@ class ERPNextClient {
       qty: number;
       rate?: number;
       amount?: number;
+      description?: string;
     }>;
     delivery_date?: string;
   }): Promise<any> {
@@ -2471,13 +2473,25 @@ class ERPNextClient {
         .filter((rule: any) => !rule.disable)
         .map((rule: any) => rule.name);
       
-      // Fetch each rule individually to get full details
+      // Fetch each rule individually to get full details (includes all fields including custom fields)
       const fullRules: any[] = [];
       for (const ruleName of ruleNames) {
         try {
           const ruleResponse = await this.client.get(`${API_VERSION}/Pricing Rule/${ruleName}`);
           if (ruleResponse.data.data) {
-            fullRules.push(ruleResponse.data.data);
+            const ruleData = ruleResponse.data.data;
+            // Log to debug custom_flyer field - check if it exists
+            if (ruleData.custom_flyer !== undefined && ruleData.custom_flyer !== null) {
+              console.log(`🖼️ Found custom_flyer in ${ruleName}:`, ruleData.custom_flyer, typeof ruleData.custom_flyer);
+            } else {
+              // Log all field names to help debug
+              const allFields = Object.keys(ruleData);
+              const customFields = allFields.filter(f => f.startsWith('custom_'));
+              if (customFields.length > 0) {
+                console.log(`📋 Custom fields in ${ruleName}:`, customFields);
+              }
+            }
+            fullRules.push(ruleData);
           }
         } catch (error) {
           console.warn(`Could not fetch pricing rule details for ${ruleName}`);
@@ -3080,8 +3094,9 @@ class ERPNextClient {
    *   Child Table Row:
    *     - item_code: itemCode (Link to Item doctype)
    *     - quantity: quantity (Integer)
+   *     - description: description (Text/Data field - e.g., selected size)
    */
-  async addToCart(userEmail: string, itemCode: string, quantity: number = 1): Promise<any> {
+  async addToCart(userEmail: string, itemCode: string, quantity: number = 1, description?: string): Promise<any> {
     try {
       // Get existing cart or create new one
       let cart = await this.getShoppingCart(userEmail);
@@ -3104,16 +3119,23 @@ class ERPNextClient {
       const sessionClient = this.getSessionClient();
       
       if (existingItemIndex >= 0) {
-        // Update quantity if item already exists
-        cart.items[existingItemIndex].quantity = (cart.items[existingItemIndex].quantity || 0) + quantity;
-        console.log('Updating existing item in cart:', itemCode, 'new quantity:', cart.items[existingItemIndex].quantity);
+        // Update existing item - preserve all existing fields including 'name' (row identifier)
+        const existingItem = cart.items[existingItemIndex];
+        cart.items[existingItemIndex] = {
+          ...existingItem, // Preserve all existing fields (name, doctype, parent, etc.)
+          item_code: itemCode,
+          quantity: (existingItem.quantity || 0) + quantity,
+          description: description || existingItem.description || '', // Update description if provided
+        };
+        console.log('Updating existing item in cart:', itemCode, 'new quantity:', cart.items[existingItemIndex].quantity, 'description:', description);
       } else {
-        // Add new item to cart
+        // Add new item to cart - don't include 'name' field (ERPNext will generate it)
         cart.items.push({
           item_code: itemCode,
           quantity: quantity,
+          description: description || '', // Include description field (e.g., selected size)
         });
-        console.log('Adding new item to cart:', itemCode, 'quantity:', quantity);
+        console.log('Adding new item to cart:', itemCode, 'quantity:', quantity, 'description:', description);
       }
       
       // Update cart in ERPNext

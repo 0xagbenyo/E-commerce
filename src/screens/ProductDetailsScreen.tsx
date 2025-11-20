@@ -15,7 +15,8 @@ import {
   Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useNavigation, useRoute, CommonActions } from '@react-navigation/native';
+import * as Updates from 'expo-updates';
 import { Ionicons } from '@expo/vector-icons';
 import { Button } from '../components/Button';
 import { Colors } from '../constants/colors';
@@ -28,6 +29,7 @@ import { mapERPWebsiteItemToProduct } from '../services/mappers';
 import { getProductDiscount } from '../utils/pricingRules';
 import { useUserSession } from '../context/UserContext';
 import { Toast } from '../components/Toast';
+import { CartAnimation } from '../components/CartAnimation';
 import { LoadingScreen } from '../components/LoadingScreen';
 
 const { width, height } = Dimensions.get('window');
@@ -52,6 +54,13 @@ export const ProductDetailsScreen: React.FC = () => {
   // Toast state
   const [toastVisible, setToastVisible] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
+  
+  // Cart animation state
+  const [showCartAnimation, setShowCartAnimation] = useState(false);
+  const [animationStartPos, setAnimationStartPos] = useState({ x: 0, y: 0 });
+  const [animationEndPos, setAnimationEndPos] = useState({ x: 0, y: 0 });
+  const productImageRef = useRef<View>(null);
+  const addToCartButtonRef = useRef<TouchableOpacity>(null);
   
   // Pull-to-refresh state
   const [refreshing, setRefreshing] = useState(false);
@@ -315,13 +324,37 @@ export const ProductDetailsScreen: React.FC = () => {
       // This is what we need to add to the cart
       const itemCode = rawWebsiteItem?.item_code || product?.itemCode || productId;
       
-      console.log('Adding to cart:', { itemCode, quantity, productId, rawWebsiteItem: rawWebsiteItem?.item_code, productItemCode: product?.itemCode });
+      // Build description with selected size if available
+      const description = selectedSize ? `Size: ${selectedSize.name}` : '';
       
-      const success = await addItemToCart(itemCode, quantity);
+      console.log('Adding to cart:', { itemCode, quantity, description, productId, rawWebsiteItem: rawWebsiteItem?.item_code, productItemCode: product?.itemCode });
+      
+      const success = await addItemToCart(itemCode, quantity, description);
       
       if (success) {
-        setToastMessage('Item added to cart!');
-        setToastVisible(true);
+        // Measure positions for animation
+        if (productImageRef.current) {
+          productImageRef.current.measure((x, y, width, height, pageX, pageY) => {
+            // Start position: center of product image
+            const startX = pageX + width / 2 - 25; // 25 is half of animation item width
+            const startY = pageY + height / 2 - 25;
+            
+            // End position: top right corner (where cart icon typically is)
+            // Cart icon is usually at top right, accounting for header padding
+            // Header has padding, and cart icon is in the rightIcons section
+            const endX = width - 50; // Approximate position of cart icon from right
+            const endY = 60; // Approximate position from top (accounting for safe area and header padding)
+            
+            setAnimationStartPos({ x: startX, y: startY });
+            setAnimationEndPos({ x: endX, y: endY });
+            setShowCartAnimation(true);
+          });
+        } else {
+          // Fallback: use center of screen as start, top right as end
+          setAnimationStartPos({ x: width / 2 - 25, y: height / 2 - 25 });
+          setAnimationEndPos({ x: width - 50, y: 60 });
+          setShowCartAnimation(true);
+        }
       } else {
         Alert.alert('Error', 'Failed to add item to cart. Please try again.');
       }
@@ -471,7 +504,7 @@ export const ProductDetailsScreen: React.FC = () => {
         : ['https://via.placeholder.com/400x600/F2F2F7/8E8E93?text=No+Image']);
     
     return (
-      <View style={styles.imageContainer}>
+      <View style={styles.imageContainer} ref={productImageRef}>
         <FlatList
           ref={carouselRef}
           data={images}
@@ -1382,12 +1415,40 @@ export const ProductDetailsScreen: React.FC = () => {
     );
   };
 
-  // Loading state
+  // Function to reload the full page by navigating to Splash screen, then reloading the app
+  const handleFullReload = useCallback(async () => {
+    // Navigate to Splash screen first to show SIAMAE
+    navigation.dispatch(
+      CommonActions.reset({
+        index: 0,
+        routes: [{ name: 'Splash' }],
+      })
+    );
+    
+    // Wait a moment for Splash to appear, then reload the entire app
+    setTimeout(async () => {
+      try {
+        // Try to reload the app using expo-updates
+        await Updates.reloadAsync();
+      } catch (error) {
+        // If reload fails (e.g., in development mode), reset navigation to Main
+        console.log('Updates.reloadAsync not available, using navigation reset');
+        navigation.dispatch(
+          CommonActions.reset({
+            index: 0,
+            routes: [{ name: 'Main' }],
+          })
+        );
+      }
+    }, 1500); // Show splash for 1.5 seconds before reload
+  }, [navigation]);
+
+  // Loading state - show LoadingScreen first
   if (loading) {
     return <LoadingScreen />;
   }
 
-  // Error state
+  // Error state - only show if not loading and there's an error or no product
   if (error || !product) {
     return (
       <SafeAreaView style={styles.container}>
@@ -1398,7 +1459,7 @@ export const ProductDetailsScreen: React.FC = () => {
           <View style={styles.errorActions}>
             <TouchableOpacity
               style={[styles.retryButton, styles.retryButtonPrimary]}
-              onPress={retry}
+              onPress={handleFullReload}
             >
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                 <Ionicons name="refresh" size={20} color={Colors.WHITE} />
@@ -1646,11 +1707,12 @@ export const ProductDetailsScreen: React.FC = () => {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <Toast
-        message={toastMessage}
-        type="success"
-        visible={toastVisible}
-        onHide={() => setToastVisible(false)}
+      <CartAnimation
+        visible={showCartAnimation}
+        startPosition={animationStartPos}
+        endPosition={animationEndPos}
+        productImage={product?.images?.[0] || product?.image}
+        onComplete={() => setShowCartAnimation(false)}
       />
       {renderTopNavigation()}
       {renderTabs()}
@@ -1761,6 +1823,13 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.WHITE,
     borderBottomWidth: 1,
     borderBottomColor: Colors.BORDER,
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
   },
   navBackButton: {
     padding: Spacing.PADDING_XS,
@@ -1795,6 +1864,13 @@ const styles = StyleSheet.create({
   tabsContainer: {
     flexDirection: 'row',
     backgroundColor: Colors.WHITE,
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
     borderBottomWidth: 1,
     borderBottomColor: Colors.BORDER,
   },

@@ -9,11 +9,13 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useRoute } from '@react-navigation/native';
+import { useRoute, CommonActions } from '@react-navigation/native';
 import { Colors } from '../constants/colors';
 import { useSearchProducts } from '../hooks/erpnext';
 import { ProductCard } from '../components/ProductCard';
+import { ProductCardSkeletonList } from '../components/ProductCardSkeletonList';
 import { useNavigation } from '@react-navigation/native';
+import * as Updates from 'expo-updates';
 import { Spacing } from '../constants/spacing';
 import { Header } from '../components/Header';
 import { PriceFilter, SortOption } from '../components/PriceFilter';
@@ -52,23 +54,41 @@ export const SearchScreen: React.FC = () => {
     }
   }, [searchResults, sortOption]);
   
-  // Handle pull-to-refresh
+  // Handle pull-to-refresh - reload the entire page
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    // The useSearchProducts hook will automatically refetch when searchQuery changes
-    setTimeout(() => {
+    try {
+      // Navigate to Splash screen first to show SIAMAE
+      navigation.dispatch(
+        CommonActions.reset({
+          index: 0,
+          routes: [{ name: 'Splash' }],
+        })
+      );
+      
+      // Wait a moment for Splash to appear, then reload the entire app
+      setTimeout(async () => {
+        try {
+          await Updates.reloadAsync();
+        } catch (error) {
+          console.log('Updates.reloadAsync not available, using navigation reset');
+          navigation.dispatch(
+            CommonActions.reset({
+              index: 0,
+              routes: [{ name: 'Main' }],
+            })
+          );
+        }
+      }, 1500);
+    } catch (error) {
+      console.error('Error refreshing data:', error);
       setRefreshing(false);
-    }, 1000);
-  }, [searchQuery]);
+    }
+  }, [navigation]);
 
   const renderSearchResults = () => {
     if (loading) {
-      return (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={Colors.SHEIN_PINK} />
-          <Text style={styles.loadingText}>Searching...</Text>
-          </View>
-      );
+      return <ProductCardSkeletonList count={6} numColumns={2} />;
     }
 
     if (error) {

@@ -214,7 +214,49 @@ const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
     paddingBottom: 20,
-    
+    paddingTop: 40,
+    justifyContent: 'center',
+  },
+  backButtonTop: {
+    position: 'absolute',
+    top: 50,
+    left: 20,
+    zIndex: 10,
+    padding: 8,
+  },
+  header: {
+    paddingHorizontal: 20,
+    paddingTop: 40,
+    paddingBottom: 24,
+    alignItems: 'center',
+  },
+  successIconContainer: {
+    marginBottom: 24,
+  },
+  formContainer: {
+    paddingHorizontal: 20,
+    marginBottom: 24,
+    alignItems: 'center',
+  },
+  title: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: Colors.BLACK,
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  subtitle: {
+    fontSize: 14,
+    color: Colors.TEXT_SECONDARY,
+    textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 20,
+  },
+  inputContainer: {
+    width: '100%',
+    marginBottom: 20,
+  },
+  label: {
     fontSize: 14,
     fontWeight: '500',
     color: Colors.TEXT_SECONDARY,
@@ -229,6 +271,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     fontSize: 14,
     color: Colors.BLACK,
+    width: '100%',
   },
   primaryButton: {
     backgroundColor: Colors.BLACK,
@@ -236,6 +279,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     alignItems: 'center',
     marginBottom: 16,
+    width: '100%',
   },
   primaryButtonDisabled: {
     opacity: 0.6,
@@ -253,6 +297,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     alignItems: 'center',
     marginBottom: 16,
+    width: '100%',
   },
   secondaryButtonText: {
     color: Colors.BLACK,
