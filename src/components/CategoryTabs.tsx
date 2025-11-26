@@ -92,7 +92,7 @@ export const CategoryTabs: React.FC<CategoryTabsProps> = ({
             onPress={handleMenuPress}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
-            <Ionicons name="menu" size={24} color={Colors.BLACK} />
+            <Ionicons name="menu" size={24} color={Colors.WHITE} />
           </TouchableOpacity>
         </View>
       )}
@@ -110,9 +110,10 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   containerScrolled: {
-    backgroundColor: ' #bc8474',
+    backgroundColor: Colors.WINE,
     marginTop: 0,
     paddingTop: 0,
+    overflow: 'hidden',
   },
   scrollView: {
     flex: 1,
@@ -148,7 +149,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   tabTextRed: {
-    color: Colors.BLACK,
+    color: Colors.WHITE,
     fontSize: Typography.FONT_SIZE_MD,
     fontWeight: '800',
     textShadowColor: 'transparent',
@@ -160,7 +161,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   tabTextActiveRed: {
-    color: Colors.BLACK,
+    color: Colors.WHITE,
     fontSize: Typography.FONT_SIZE_MD,
     fontWeight: '900',
     textShadowColor: 'transparent',
@@ -168,11 +169,11 @@ const styles = StyleSheet.create({
     textShadowRadius: 0,
   },
   tabTextScrolled: {
-    color: Colors.BLACK,
+    color: Colors.WHITE,
     textShadowColor: 'transparent',
   },
   tabTextActiveScrolled: {
-    color: Colors.BLACK,
+    color: Colors.WHITE,
     textShadowColor: 'transparent',
   },
   menuIconContainer: {

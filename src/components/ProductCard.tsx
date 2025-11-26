@@ -175,7 +175,7 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({
           <Ionicons
             name={isWishlisted ? 'heart' : 'heart-outline'}
               size={16}
-            color={isWishlisted ? Colors.VIBRANT_PINK : Colors.WHITE}
+            color={isWishlisted ? Colors.WINE : Colors.GOLD}
           />
         </TouchableOpacity>
         )}
@@ -291,7 +291,13 @@ const styles = StyleSheet.create({
     borderRadius: Spacing.BORDER_RADIUS_MD,
     marginBottom: Spacing.MARGIN_SM,
     overflow: 'hidden', // Prevent any content from overflowing
-    ...Spacing.SHADOW_SM,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    elevation: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.5)',
   },
   
   imageContainer: {
@@ -300,6 +306,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: Spacing.BORDER_RADIUS_MD,
     borderTopRightRadius: Spacing.BORDER_RADIUS_MD,
     overflow: 'hidden',
+    backgroundColor: Colors.LIGHT_GRAY,
   },
   
   image: {
@@ -319,97 +326,126 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: Spacing.MARGIN_XS,
     right: Spacing.MARGIN_XS,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 4,
   },
   
   cartButton: {
     position: 'absolute',
     bottom: Spacing.MARGIN_XS,
     right: Spacing.MARGIN_XS,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: Colors.VIBRANT_PINK,
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: Colors.VIBRANT_PINK,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    elevation: 6,
   },
   
   discountBadge: {
     position: 'absolute',
-    top: Spacing.MARGIN_XS,
-    left: Spacing.MARGIN_XS,
+    top: Spacing.MARGIN_SM,
+    left: Spacing.MARGIN_SM,
     backgroundColor: Colors.VIBRANT_PINK,
-    paddingHorizontal: Spacing.PADDING_XS,
-    paddingVertical: 2,
+    paddingHorizontal: Spacing.PADDING_SM,
+    paddingVertical: 4,
     borderRadius: Spacing.BORDER_RADIUS_SM,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 3,
   },
   
   discountText: {
     color: Colors.WHITE,
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: Typography.FONT_WEIGHT_BOLD,
+    letterSpacing: 0.3,
   },
   
   newBadge: {
     position: 'absolute',
-    bottom: Spacing.MARGIN_XS,
-    left: Spacing.MARGIN_XS,
+    bottom: Spacing.MARGIN_SM,
+    left: Spacing.MARGIN_SM,
     backgroundColor: Colors.ELECTRIC_BLUE,
-    paddingHorizontal: Spacing.PADDING_XS,
-    paddingVertical: 2,
+    paddingHorizontal: Spacing.PADDING_SM,
+    paddingVertical: 4,
     borderRadius: Spacing.BORDER_RADIUS_SM,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 3,
   },
   
   newText: {
     color: Colors.WHITE,
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: Typography.FONT_WEIGHT_BOLD,
+    letterSpacing: 0.3,
   },
   
   content: {
     width: '100%',
     flexShrink: 1,
     overflow: 'hidden',
+    paddingVertical: Spacing.PADDING_SM,
   },
   
   brand: {
     fontSize: Typography.FONT_SIZE_XS,
-    color: Colors.TEXT_SECONDARY,
-    fontWeight: Typography.FONT_WEIGHT_MEDIUM,
-    marginBottom: 2,
+    color: Colors.SHEIN_RED,
+    fontWeight: Typography.FONT_WEIGHT_BOLD,
+    marginBottom: 4,
+    letterSpacing: 0.3,
   },
   
   company: {
     fontSize: 10,
     color: Colors.TEXT_SECONDARY,
     fontWeight: Typography.FONT_WEIGHT_REGULAR,
-    marginBottom: 2,
+    marginBottom: 4,
     fontStyle: 'italic',
   },
   
   name: {
-    fontSize: Typography.FONT_SIZE_XS,
+    fontSize: Typography.FONT_SIZE_SM,
     color: Colors.TEXT_PRIMARY,
-    fontWeight: Typography.FONT_WEIGHT_REGULAR,
+    fontWeight: Typography.FONT_WEIGHT_SEMIBOLD,
     marginBottom: Spacing.MARGIN_XS,
-    lineHeight: Typography.FONT_SIZE_XS * 1.4,
+    lineHeight: Typography.FONT_SIZE_SM * 1.4,
   },
   
   priceContainer: {
     marginBottom: Spacing.MARGIN_XS,
     width: '100%',
     overflow: 'hidden',
+    backgroundColor: 'rgba(255, 77, 109, 0.05)',
+    borderRadius: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
   },
   
   priceRow: {
     flexDirection: 'row',
     alignItems: 'center',
     width: '100%',
+    gap: 6,
   },
   
   priceTextContainer: {
@@ -417,13 +453,13 @@ const styles = StyleSheet.create({
     flexGrow: 0,
     minWidth: 0,
     maxWidth: '70%',
-    marginRight: 6,
   },
   
   price: {
     fontSize: Typography.FONT_SIZE_SM,
-    color: Colors.TEXT_PRIMARY,
+    color: Colors.VIBRANT_PINK,
     fontWeight: Typography.FONT_WEIGHT_BOLD,
+    letterSpacing: 0.3,
   },
   
   originalPriceTextContainer: {
@@ -442,12 +478,19 @@ const styles = StyleSheet.create({
   ratingContainer: {
     flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: 'rgba(212, 175, 55, 0.12)',
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+    borderRadius: 6,
+    alignSelf: 'flex-start',
   },
   
   rating: {
-    fontSize: 10,
-    color: Colors.TEXT_SECONDARY,
+    fontSize: 11,
+    color: Colors.SHEIN_RED,
     marginLeft: Spacing.MARGIN_XS,
+    fontWeight: Typography.FONT_WEIGHT_BOLD,
+    letterSpacing: 0.2,
   },
 });
 

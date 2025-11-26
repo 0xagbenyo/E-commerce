@@ -13,7 +13,9 @@ import {
 	Alert,
 	Animated,
 	Easing,
+	Linking,
 } from 'react-native';
+import { Video } from 'expo-av';
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Path } from 'react-native-svg';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -767,13 +769,13 @@ export const HomeScreen: React.FC = () => {
 	}, []); // Only run on mount
 
 	// Extract custom_flyer images from pricing rules
-	const flyerImages = useMemo(() => {
+	const flyerMedia = useMemo(() => {
 		if (!pricingRules || pricingRules.length === 0) {
-			console.log('🖼️ No pricing rules available for flyer images');
+			console.log('🖼️ No pricing rules available for flyer media');
 			return [];
 		}
 		
-		const images: string[] = [];
+		const media: Array<{type: 'image' | 'video', uri: string}> = [];
 		const baseUrl = 'https://glamora.rxcue.net';
 		
 		pricingRules.forEach((rule: any) => {
@@ -785,57 +787,64 @@ export const HomeScreen: React.FC = () => {
 			});
 			
 			if (rule.custom_flyer) {
-				// Handle both single image string and array of images
+				// Handle both single media string and array of media
 				if (Array.isArray(rule.custom_flyer)) {
-					rule.custom_flyer.forEach((img: string) => {
-						if (img && img.trim()) {
-				// Format URL - prepend base URL if it's a relative path
-				// Also fix /private/files/ to /files/ for public access
-				let formattedUrl = img.trim().startsWith('http') 
-					? img.trim() 
-					: `${baseUrl}${img.trim().startsWith('/') ? img.trim() : '/' + img.trim()}`;
-				// Replace /private/files/ with /files/ for public access
-				formattedUrl = formattedUrl.replace('/private/files/', '/files/');
-				images.push(formattedUrl);
+					rule.custom_flyer.forEach((item: string) => {
+						if (item && item.trim()) {
+							// Determine if it's a video or image
+							// Check for video extensions including .tmp (which may be video files on server)
+							const isVideo = /\.(mp4|webm|mov|tmp)$/i.test(item);
+							const type = isVideo ? 'video' : 'image';
+							
+							// Format URL - prepend base URL if it's a relative path
+							let formattedUrl = item.trim().startsWith('http') 
+								? item.trim() 
+								: `${baseUrl}${item.trim().startsWith('/') ? item.trim() : '/' + item.trim()}`;
+							// Replace /private/files/ with /files/ for public access
+							formattedUrl = formattedUrl.replace('/private/files/', '/files/');
+							media.push({ type, uri: formattedUrl });
+							console.log(`✅ Added ${type} to carousel:`, formattedUrl);
 						}
 					});
 				} else if (typeof rule.custom_flyer === 'string' && rule.custom_flyer.trim()) {
-				// Format URL - prepend base URL if it's a relative path
-				// Also fix /private/files/ to /files/ for public access
-				let formattedUrl = rule.custom_flyer.trim().startsWith('http') 
-					? rule.custom_flyer.trim() 
-					: `${baseUrl}${rule.custom_flyer.trim().startsWith('/') ? rule.custom_flyer.trim() : '/' + rule.custom_flyer.trim()}`;
-				// Replace /private/files/ with /files/ for public access
-				formattedUrl = formattedUrl.replace('/private/files/', '/files/');
-				images.push(formattedUrl);
+					const item = rule.custom_flyer.trim();
+					const isVideo = /\.(mp4|webm|mov|tmp)$/i.test(item);
+					const type = isVideo ? 'video' : 'image';
+					
+					let formattedUrl = item.startsWith('http') 
+						? item 
+						: `${baseUrl}${item.startsWith('/') ? item : '/' + item}`;
+					formattedUrl = formattedUrl.replace('/private/files/', '/files/');
+					media.push({ type, uri: formattedUrl });
+					console.log(`✅ Added ${type} to carousel:`, formattedUrl);
 				}
 			}
 		});
 		
-		console.log(`🖼️ Extracted ${images.length} flyer images:`, images);
-		return images;
+		console.log(`🖼️ Extracted ${media.length} flyer media items:`, media);
+		return media;
 	}, [pricingRules]);
 
 	// Auto-scroll flyer carousel
 	useEffect(() => {
-		if (flyerImages.length <= 1) return;
+		if (flyerMedia.length <= 1) return;
 		const interval = setInterval(() => {
 			setCurrentFlyerIndex((prevIndex) => {
-				const nextIndex = (prevIndex + 1) % flyerImages.length;
+				const nextIndex = (prevIndex + 1) % flyerMedia.length;
 				flyerCarouselRef.current?.scrollTo({
 					x: nextIndex * width,
 					animated: true,
 				});
 				return nextIndex;
 			});
-		}, 4000); // Change image every 4 seconds
+		}, 4000); // Change media every 4 seconds
 		return () => clearInterval(interval);
-	}, [flyerImages.length]);
+	}, [flyerMedia.length]);
 
 	const renderHeader = () => {
 		const backgroundColor = headerOpacity.interpolate({
 			inputRange: [0, 1],
-			outputRange: ['rgba(255, 255, 255, 0)', 'rgba(255, 255, 255, 1)'],
+			outputRange: ['rgba(255, 255, 255, 0)', Colors.WINE],
 		});
 		
 		const shadowOpacity = headerShadowOpacity.interpolate({
@@ -850,8 +859,6 @@ export const HomeScreen: React.FC = () => {
 					{ 
 						paddingTop: insets.top - Spacing.PADDING_MD,
 						backgroundColor,
-						borderBottomLeftRadius: headerBorderRadius,
-						borderBottomRightRadius: headerBorderRadius,
 						shadowOpacity,
 					},
 					isScrolledPastCarousel && styles.stickyHeaderWrapperScrolled
@@ -888,7 +895,11 @@ export const HomeScreen: React.FC = () => {
 				styles.categoryTabsOverlay,
 				isScrolledPastCarousel && [
 					styles.categoryTabsOverlayScrolled,
-					{ top: headerHeight }
+					{ 
+						top: headerHeight,
+						borderBottomLeftRadius: 20,
+						borderBottomRightRadius: 20,
+					}
 				]
 			]}>
 				<View style={styles.categoryTabsContentWrapper}>
@@ -905,7 +916,7 @@ export const HomeScreen: React.FC = () => {
 	};
 
 	const renderFlyerCarousel = () => {
-		if (flyerImages.length === 0) {
+		if (flyerMedia.length === 0) {
 			// Show a placeholder or default image if no flyers
 			return (
 				<View style={styles.flyerCarouselContainer}>
@@ -932,27 +943,57 @@ export const HomeScreen: React.FC = () => {
 						setCurrentFlyerIndex(newIndex);
 					}}
 				>
-					{flyerImages.map((imageUri, index) => (
+					{flyerMedia.map((item: any, index: number) => (
 						<View key={index} style={styles.flyerImageContainer}>
-							<Image
-								source={{ uri: imageUri }}
-								style={styles.flyerImage}
-								resizeMode="cover"
-								onError={(error) => {
-									console.error(`🖼️ Error loading flyer image ${index}:`, imageUri, error.nativeEvent.error);
-								}}
-								onLoad={() => {
-									console.log(`🖼️ Successfully loaded flyer image ${index}:`, imageUri);
-								}}
-							/>
+							{item.type === 'video' ? (
+								<Video
+									source={{ uri: item.uri }}
+									style={styles.flyerImage}
+									shouldPlay
+									isLooping={false}
+									useNativeControls={false}
+									onError={(error: any) => {
+										console.error(`🎬 Error loading flyer video ${index}:`, item.uri, error);
+									}}
+									onLoad={() => {
+										console.log(`🎬 Successfully loaded flyer video ${index}:`, item.uri);
+									}}
+									onPlaybackStatusUpdate={(status: any) => {
+										if (status.didJustFinish) {
+											console.log(`🎬 Video ${index} finished, moving to next slide`);
+											// Move to next slide when video ends
+											const nextIndex = (index + 1) % flyerMedia.length;
+											setCurrentFlyerIndex(nextIndex);
+											flyerCarouselRef.current?.scrollTo({
+												x: nextIndex * width,
+												animated: true,
+											});
+										}
+									}}
+								/>
+							) : (
+								<View style={styles.flyerImageWrapper}>
+									<Image
+										source={{ uri: item.uri }}
+										style={styles.flyerImage}
+										resizeMode="cover"
+										onError={(error: any) => {
+											console.error(`🖼️ Error loading flyer image ${index}:`, item.uri, error.nativeEvent.error);
+										}}
+										onLoad={() => {
+											console.log(`🖼️ Successfully loaded flyer image ${index}:`, item.uri);
+										}}
+									/>
+								</View>
+							)}
 						</View>
 					))}
 				</ScrollView>
 				{/* Thin black overlay on carousel */}
 				<View style={styles.carouselOverlay} />
-				{flyerImages.length > 1 && (
+				{flyerMedia.length > 1 && (
 					<View style={styles.flyerIndicators}>
-						{flyerImages.map((_, index) => (
+						{flyerMedia.map((_: any, index: number) => (
 							<View
 								key={index}
 								style={[
@@ -1038,12 +1079,12 @@ export const HomeScreen: React.FC = () => {
 			return null;
 		}
 		
-		// Display all 30 categories in a grid (6 rows x 5 columns)
+		// Display categories in a grid (2 rows x 4 columns = 8 categories)
 		return (
 			<View style={styles.categoryImagesSection}>
 				<FlatList
 					data={randomCategories}
-					numColumns={5}
+					numColumns={4}
 					scrollEnabled={false}
 					showsVerticalScrollIndicator={false}
 					contentContainerStyle={styles.categoryImagesGrid}
@@ -2203,7 +2244,7 @@ export const HomeScreen: React.FC = () => {
 		renderForYouItem,
 		renderNewInItem,
 		renderDealItem,
-		flyerImages,
+		flyerMedia,
 		forYouProducts,
 		dealProducts,
 		forYouLoading,
@@ -2245,7 +2286,7 @@ export const HomeScreen: React.FC = () => {
 			'latestCarousel': 280,
 			'newArrivals': 200,
 			'topCustomerAward': 200, // Increased to account for carousel
-			'superDeals': 150,
+			'superDeals': 120,
 			'pricingRule': 150, // Dynamic pricing rule sections
 			'filterTabs': 50,
 			'mainProducts': 200,
@@ -2420,12 +2461,10 @@ export const HomeScreen: React.FC = () => {
 		// When scrollY >= filterTabsY, we've scrolled past the filter tabs
 		const filterTabsY = sectionLayouts.current['filterTabs'];
 		if (filterTabsY !== undefined && filterTabsY > 0) {
-			// Set sticky when we've scrolled past the filter tabs position
-			// The filter tabs height is approximately 50px
-			const filterTabsHeight = 50;
-			const threshold = 10; // Small threshold for smooth transition
-			// When scrollY exceeds filterTabsY + filterTabsHeight, we've scrolled past
-			const shouldBeSticky = scrollY > filterTabsY + filterTabsHeight - threshold;
+			// Set sticky when we've scrolled to where the filter tabs are
+			// Small threshold before the actual position to make it smooth
+			const threshold = 10;
+			const shouldBeSticky = scrollY >= filterTabsY - threshold;
 			setIsScrolledPastFilterTabs(shouldBeSticky);
 		} else {
 			// If filter tabs position hasn't been measured yet, keep it false
@@ -2442,19 +2481,21 @@ export const HomeScreen: React.FC = () => {
 	const renderStickyFilterTabs = () => {
 		if (!isScrolledPastFilterTabs) return null;
 		
-		// Calculate position below header and category tabs when scrolled
-		const headerHeight = isScrolledPastCarousel 
-			? Math.max(insets.top - Spacing.PADDING_MD, 0) + (Spacing.PADDING_LG + 5) + 42 + Spacing.PADDING_SM
-			: 100;
-		const categoryTabsHeight = 50;
-		const stickyTop = headerHeight + categoryTabsHeight - 8;
-
-	return (
+		// Calculate position below header and category tabs:
+		// Header: insets.top - 16 + (24 + 5) + 42 + 8 = insets.top + 63
+		// Category Tabs: ~50px (with padding)
+		// Total: insets.top + 113
+		const topPosition = Math.max(insets.top - Spacing.PADDING_MD, 0) + (Spacing.PADDING_LG + 5) + 42 + Spacing.PADDING_SM + 50;
+		
+		return (
 			<View 
 				style={[
 					styles.filterTabs,
 					styles.filterTabsSticky,
-					{ top: stickyTop }
+					{ 
+						top: topPosition,
+						backgroundColor: Colors.WINE
+					}
 				]}
 			>
 				{filterTabs.map((tab) => {
@@ -2477,12 +2518,13 @@ export const HomeScreen: React.FC = () => {
 								<Ionicons 
 									name={tab.icon as any} 
 									size={16} 
-									color={selectedFilter === tab.name ? Colors.WHITE : Colors.BLACK} 
+									color={selectedFilter === tab.name ? Colors.GOLD : Colors.WHITE} 
 								/>
 							)}
 							<Text style={[
 								styles.filterTabText,
-								selectedFilter === tab.name && styles.filterTabTextActive
+								{ color: selectedFilter === tab.name ? Colors.GOLD : Colors.WHITE },
+								selectedFilter === tab.name && styles.filterTabTextActiveStickyWhite
 							]}>
 								{tab.name}
 							</Text>
@@ -2494,9 +2536,9 @@ export const HomeScreen: React.FC = () => {
 	};
 
 	return (
-		<View style={styles.container} pointerEvents="box-none">
-			{/* Sticky filter tabs overlay - outside SafeAreaView for proper positioning */}
-			{renderStickyFilterTabs()}
+		<View style={styles.container}>
+			{/* Sticky filter tabs overlay - positioned absolutely over scrollable content */}
+			{isScrolledPastFilterTabs && renderStickyFilterTabs()}
 			<CartAnimation
 				visible={showCartAnimation}
 				startPosition={animationStartPos}
@@ -2568,7 +2610,7 @@ const styles = StyleSheet.create({
 	},
 	stickyHeaderWrapper: {
 		backgroundColor: 'transparent',
-		zIndex: 2000,
+		zIndex: 2002,
 		position: 'absolute',
 		top: 0,
 		left: 0,
@@ -2592,17 +2634,16 @@ const styles = StyleSheet.create({
 		left: 0,
 		right: 0,
 		width: width,
-		zIndex: 1999,
+		zIndex: 2001,
 		backgroundColor: 'transparent',
 	},
 	categoryTabsOverlayScrolled: {
-		backgroundColor: Colors.WHITE,
+		backgroundColor: Colors.WINE,
 		top: 0, // Will be calculated dynamically based on header height
 		marginTop: 0,
 		paddingTop: 0,
 		marginBottom: 0,
-		borderBottomLeftRadius: 20,
-		borderBottomRightRadius: 20,
+		overflow: 'hidden',
 		shadowColor: '#000',
 		shadowOffset: { width: 0, height: 4 },
 		shadowOpacity: 0.15,
@@ -2622,10 +2663,18 @@ const styles = StyleSheet.create({
 	flyerImageContainer: {
 		width: width,
 		height: 350,
+		backgroundColor: Colors.LIGHT_GRAY,
+		justifyContent: 'center',
+		alignItems: 'center',
 	},
 	flyerImage: {
 		width: '100%',
 		height: '100%',
+	},
+	flyerImageWrapper: {
+		width: '100%',
+		height: '100%',
+		overflow: 'hidden',
 	},
 	carouselOverlay: {
 		position: 'absolute',
@@ -2633,7 +2682,7 @@ const styles = StyleSheet.create({
 		left: 0,
 		right: 0,
 		bottom: 0,
-		backgroundColor: 'rgba(0, 0, 0, 0.3)',
+		backgroundColor: 'rgba(0, 0, 0, 0.25)',
 		zIndex: 2,
 	},
 	flyerPlaceholder: {
@@ -2643,24 +2692,46 @@ const styles = StyleSheet.create({
 		justifyContent: 'center',
 		alignItems: 'center',
 	},
+	videoPlaceholder: {
+		width: '100%',
+		height: '100%',
+		backgroundColor: Colors.BLACK,
+		justifyContent: 'center',
+		alignItems: 'center',
+	},
+	videoPlayButton: {
+		justifyContent: 'center',
+		alignItems: 'center',
+	},
 	flyerIndicators: {
 		position: 'absolute',
-		bottom: 12,
+		bottom: 16,
 		left: 0,
 		right: 0,
 		flexDirection: 'row',
 		justifyContent: 'center',
-		gap: 6,
+		gap: 8,
+		zIndex: 10,
 	},
 	flyerIndicator: {
-		width: 6,
-		height: 6,
-		borderRadius: 3,
-		backgroundColor: 'rgba(255, 255, 255, 0.5)',
+		width: 8,
+		height: 8,
+		borderRadius: 4,
+		backgroundColor: 'rgba(255, 255, 255, 0.6)',
+		shadowColor: '#000',
+		shadowOffset: { width: 0, height: 1 },
+		shadowOpacity: 0.3,
+		shadowRadius: 2,
+		elevation: 2,
 	},
 	flyerIndicatorActive: {
 		backgroundColor: Colors.WHITE,
-		width: 20,
+		width: 24,
+		shadowColor: '#000',
+		shadowOffset: { width: 0, height: 2 },
+		shadowOpacity: 0.4,
+		shadowRadius: 4,
+		elevation: 3,
 	},
 	topCustomerSection: {
 		marginBottom: 0,
@@ -2681,8 +2752,12 @@ const styles = StyleSheet.create({
 	trendingItemsSection: {
 		width: '100%',
 		marginBottom: 0,
-		backgroundColor: Colors.LIGHT_GRAY,
-		paddingVertical: Spacing.PADDING_MD,
+		backgroundColor: 'rgba(114, 47, 55, 0.04)',
+		paddingVertical: Spacing.PADDING_XS,
+		borderTopWidth: 2,
+		borderTopColor: 'rgba(212, 175, 55, 0.15)',
+		borderBottomWidth: 2,
+		borderBottomColor: 'rgba(212, 175, 55, 0.1)',
 	},
 	trendingTitleContainer: {
 		flexDirection: 'row',
@@ -2691,8 +2766,12 @@ const styles = StyleSheet.create({
 		paddingHorizontal: Spacing.SCREEN_PADDING,
 		paddingVertical: Spacing.PADDING_XS,
 		width: '100%',
-		backgroundColor: Colors.WHITE,
-		marginBottom: Spacing.MARGIN_SM,
+		backgroundColor: Colors.WINE,
+		marginBottom: Spacing.MARGIN_XS,
+		borderBottomWidth: 2,
+		borderBottomColor: Colors.GOLD,
+		borderRadius: 12,
+		marginHorizontal: Spacing.SCREEN_PADDING,
 	},
 	titleWithIcon: {
 		flexDirection: 'row',
@@ -2700,10 +2779,10 @@ const styles = StyleSheet.create({
 		gap: Spacing.MARGIN_XS,
 	},
 	trendingTitleText: {
-		fontSize: Typography.FONT_SIZE_SM,
-		fontWeight: Typography.FONT_WEIGHT_SEMIBOLD,
-		color: Colors.BLACK,
-		letterSpacing: 0.5,
+		fontSize: Typography.FONT_SIZE_XS,
+		fontWeight: Typography.FONT_WEIGHT_BOLD,
+		color: Colors.WHITE,
+		letterSpacing: 0.3,
 		textTransform: 'uppercase',
 	},
 	superDealsTitleGradient: {
@@ -2717,13 +2796,15 @@ const styles = StyleSheet.create({
 		marginBottom: Spacing.MARGIN_XS,
 	},
 	trendingProductsList: {
-		paddingLeft: Spacing.SCREEN_PADDING,
-		paddingTop: Spacing.PADDING_SM,
-		paddingRight: Spacing.SCREEN_PADDING,
+		paddingLeft: 0,
+		paddingTop: Spacing.PADDING_XS,
+		paddingRight: 0,
+		paddingHorizontal: 0,
 	},
 	trendingProductCard: {
-		width: (width - Spacing.SCREEN_PADDING * 3) / 2,
-		marginRight: Spacing.MARGIN_SM,
+		width: (width - Spacing.MARGIN_SM) / 2,
+		marginRight: Spacing.MARGIN_SM / 2,
+		marginLeft: Spacing.MARGIN_SM / 2,
 	},
 	trendingLoadingContainer: {
 		paddingVertical: Spacing.PADDING_MD,
@@ -2782,13 +2863,18 @@ const styles = StyleSheet.create({
 		flexDirection: 'row',
 		alignItems: 'center',
 		justifyContent: 'space-between',
-		backgroundColor: Colors.FLASH_SALE_RED,
-		paddingVertical: Spacing.PADDING_SM,
+		backgroundColor: Colors.GOLD,
+		paddingVertical: Spacing.PADDING_MD,
 		paddingHorizontal: Spacing.PADDING_MD,
-		borderRadius: 8,
-		minHeight: 50,
-		borderWidth: 1,
-		borderColor: Colors.FLASH_SALE_RED,
+		borderRadius: 12,
+		minHeight: 56,
+		borderWidth: 2,
+		borderColor: Colors.WINE,
+		shadowColor: Colors.WINE,
+		shadowOffset: { width: 0, height: 4 },
+		shadowOpacity: 0.2,
+		shadowRadius: 10,
+		elevation: 5,
 	},
 	shippingBannerContent: {
 		flex: 1,
@@ -2798,23 +2884,30 @@ const styles = StyleSheet.create({
 		fontSize: Typography.FONT_SIZE_SM,
 		color: Colors.BLACK,
 		fontWeight: Typography.FONT_WEIGHT_BOLD,
-		marginBottom: 2,
+		marginBottom: 3,
+		letterSpacing: 0.3,
 	},
 	shippingSubtext: {
 		fontSize: Typography.FONT_SIZE_XS,
-		color: Colors.BLACK,
+		color: 'rgba(0, 0, 0, 0.7)',
+		letterSpacing: 0.2,
 	},
 	topCustomerBanner: {
 		flexDirection: 'row',
 		alignItems: 'center',
 		justifyContent: 'space-between',
-		backgroundColor: Colors.FLASH_SALE_RED,
-		paddingVertical: Spacing.PADDING_SM,
+		backgroundColor: Colors.WINE,
+		paddingVertical: Spacing.PADDING_MD,
 		paddingHorizontal: Spacing.PADDING_MD,
-		borderRadius: 8,
-		minHeight: 50,
-		borderWidth: 1,
-		borderColor: Colors.FLASH_SALE_RED,
+		borderRadius: 12,
+		minHeight: 56,
+		borderWidth: 2,
+		borderColor: Colors.GOLD,
+		shadowColor: Colors.WINE,
+		shadowOffset: { width: 0, height: 4 },
+		shadowOpacity: 0.25,
+		shadowRadius: 10,
+		elevation: 6,
 	},
 	topCustomerBannerContent: {
 		flex: 1,
@@ -2851,8 +2944,9 @@ const styles = StyleSheet.create({
 	},
 	topCustomerBannerSubtext: {
 		fontSize: Typography.FONT_SIZE_XS,
-		color: Colors.BLACK,
+		color: 'rgba(255, 255, 255, 0.85)',
 		fontWeight: Typography.FONT_WEIGHT_MEDIUM,
+		letterSpacing: 0.2,
 	},
 	topCustomerRight: {
 		flexDirection: 'row',
@@ -2862,18 +2956,25 @@ const styles = StyleSheet.create({
 	},
 	topCustomerBannerLabel: {
 		fontSize: Typography.FONT_SIZE_XS,
-		color: Colors.BLACK,
-		fontWeight: Typography.FONT_WEIGHT_BOLD,
+		color: 'rgba(255, 255, 255, 0.9)',
+		fontWeight: Typography.FONT_WEIGHT_SEMIBOLD,
 		marginBottom: 2,
+		letterSpacing: 0.2,
 	},
 	topCustomerBannerName: {
 		fontSize: Typography.FONT_SIZE_SM,
-		color: Colors.BLACK,
+		color: Colors.WHITE,
 		fontWeight: Typography.FONT_WEIGHT_BOLD,
+		letterSpacing: 0.3,
 	},
 	categoryImagesSection: {
-		paddingVertical: Spacing.PADDING_MD,
+		paddingVertical: Spacing.PADDING_LG,
 		paddingHorizontal: Spacing.SCREEN_PADDING,
+		backgroundColor: 'rgba(139, 58, 66, 0.05)',
+		borderTopWidth: 2,
+		borderTopColor: 'rgba(139, 58, 66, 0.1)',
+		borderBottomWidth: 2,
+		borderBottomColor: 'rgba(114, 47, 55, 0.1)',
 	},
 	categoryImagesGrid: {
 		paddingBottom: Spacing.PADDING_SM,
@@ -2884,17 +2985,24 @@ const styles = StyleSheet.create({
 	},
 	categoryImageItem: {
 		alignItems: 'center',
-		width: (width - Spacing.SCREEN_PADDING * 2) / 5,
+		width: (width - Spacing.SCREEN_PADDING * 2) / 4,
 	},
 	categoryImageContainer: {
-		width: 50,
-		height: 50,
-		borderRadius: 25,
+		width: 56,
+		height: 56,
+		borderRadius: 28,
 		backgroundColor: Colors.LIGHT_GRAY,
 		justifyContent: 'center',
 		alignItems: 'center',
 		overflow: 'hidden',
 		marginBottom: Spacing.MARGIN_XS,
+		borderWidth: 2,
+		borderColor: Colors.WINE_LIGHT,
+		shadowColor: Colors.WINE,
+		shadowOffset: { width: 0, height: 2 },
+		shadowOpacity: 0.15,
+		shadowRadius: 4,
+		elevation: 3,
 	},
 	categoryImage: {
 		width: '100%',
@@ -2908,15 +3016,20 @@ const styles = StyleSheet.create({
 		backgroundColor: Colors.LIGHT_GRAY,
 	},
 	categoryImageName: {
-		fontSize: 10,
+		fontSize: Typography.FONT_SIZE_XS,
 		color: Colors.TEXT_PRIMARY,
 		textAlign: 'center',
-		fontWeight: Typography.FONT_WEIGHT_MEDIUM,
-		lineHeight: 12,
+		fontWeight: Typography.FONT_WEIGHT_SEMIBOLD,
+		lineHeight: 13,
+		letterSpacing: 0.1,
 	},
 	section: {
-		paddingVertical: 16,
-		backgroundColor: Colors.LIGHT_GRAY,
+		paddingVertical: Spacing.PADDING_LG,
+		backgroundColor: 'rgba(139, 45, 71, 0.1)',
+		borderTopWidth: 1,
+		borderTopColor: 'rgba(114, 47, 55, 0.08)',
+		borderBottomWidth: 1,
+		borderBottomColor: 'rgba(212, 175, 55, 0.08)',
 	},
 	sectionHeader: {
 		flexDirection: 'row',
@@ -2948,11 +3061,15 @@ const styles = StyleSheet.create({
 		flexDirection: 'row',
 		alignItems: 'center',
 		justifyContent: 'space-between',
-		paddingHorizontal: Spacing.SCREEN_PADDING,
+		paddingHorizontal: Spacing.PADDING_MD,
 		paddingVertical: Spacing.PADDING_XS,
 		width: '100%',
-		backgroundColor: Colors.WHITE,
-		marginBottom: Spacing.MARGIN_SM,
+		backgroundColor: Colors.GOLD,
+		marginBottom: Spacing.MARGIN_XS,
+		borderBottomWidth: 2,
+		borderBottomColor: Colors.WINE,
+		borderRadius: 12,
+		marginHorizontal: -Spacing.SCREEN_PADDING,
 	},
 	superDealsTitleLeft: {
 		flexDirection: 'row',
@@ -2960,23 +3077,23 @@ const styles = StyleSheet.create({
 		gap: Spacing.MARGIN_XS,
 	},
 	superDealsTitle: {
-		fontSize: Typography.FONT_SIZE_SM,
-		fontWeight: Typography.FONT_WEIGHT_SEMIBOLD,
-		color: Colors.BLACK,
-		letterSpacing: 0.5,
+		fontSize: Typography.FONT_SIZE_XS,
+		fontWeight: Typography.FONT_WEIGHT_BOLD,
+		color: Colors.WINE,
+		letterSpacing: 0.3,
 		textTransform: 'uppercase',
 	},
 	superDealsDiscount: {
-		fontSize: Typography.FONT_SIZE_SM,
-		fontWeight: Typography.FONT_WEIGHT_SEMIBOLD,
-		color: Colors.FLASH_SALE_RED,
-		letterSpacing: 0.5,
+		fontSize: Typography.FONT_SIZE_XS,
+		fontWeight: Typography.FONT_WEIGHT_BOLD,
+		color: Colors.SHEIN_RED,
+		letterSpacing: 0.3,
 	},
 	superDealsSaveText: {
-		fontSize: Typography.FONT_SIZE_SM,
-		color: Colors.TEXT_SECONDARY,
-		fontWeight: Typography.FONT_WEIGHT_MEDIUM,
-		letterSpacing: 0.3,
+		fontSize: Typography.FONT_SIZE_XS,
+		color: Colors.WINE,
+		fontWeight: Typography.FONT_WEIGHT_BOLD,
+		letterSpacing: 0.2,
 	},
 	sectionTitle: {
 		fontSize: 12,
@@ -2984,13 +3101,16 @@ const styles = StyleSheet.create({
 		color: Colors.BLACK,
 	},
 	sectionSubtitle: {
-		fontSize: 14,
-		color: Colors.TEXT_SECONDARY,
+		fontSize: Typography.FONT_SIZE_SM,
+		color: Colors.WINE,
+		fontWeight: Typography.FONT_WEIGHT_BOLD,
+		letterSpacing: 0.3,
 	},
 	viewMoreText: {
-		fontSize: 14,
-		color: Colors.SHEIN_PINK,
-		fontWeight: '500',
+		fontSize: Typography.FONT_SIZE_SM,
+		color: Colors.WINE,
+		fontWeight: Typography.FONT_WEIGHT_BOLD,
+		letterSpacing: 0.3,
 	},
 	viewMoreTextWhite: {
 		fontSize: 12,
@@ -2998,50 +3118,58 @@ const styles = StyleSheet.create({
 		fontWeight: '500',
 	},
 	productsList: {
-		paddingHorizontal: 16,
+		paddingHorizontal: 0,
 	},
 	productCard: {
-		width: 100,
-		marginRight: 12,
+		width: 80,
+		marginRight: Spacing.MARGIN_XS,
+		marginLeft: Spacing.MARGIN_XS,
+		alignItems: 'center',
+		borderWidth: 1.5,
+		borderColor: Colors.WINE_LIGHT,
+		borderRadius: 8,
+		paddingVertical: Spacing.PADDING_XS,
+		paddingHorizontal: Spacing.PADDING_XS,
 	},
 	productImage: {
-		width: 100,
-		height: 120,
+		width: 60,
+		height: 60,
 		backgroundColor: Colors.LIGHT_GRAY,
-		borderRadius: 8,
+		borderRadius: 6,
 		justifyContent: 'center',
 		alignItems: 'center',
-		marginBottom: 8,
+		marginBottom: 4,
 		position: 'relative',
+		alignSelf: 'center',
 	},
 	productEmoji: {
 		fontSize: 40,
 	},
 	discountTag: {
 		position: 'absolute',
-		top: 8,
-		left: 8,
+		top: 4,
+		left: 4,
 		backgroundColor: Colors.FLASH_SALE_RED,
-		paddingHorizontal: 6,
-		paddingVertical: 2,
-		borderRadius: 4,
+		paddingHorizontal: 4,
+		paddingVertical: 1,
+		borderRadius: 3,
 	},
 	discountText: {
-		fontSize: 12,
+		fontSize: 8,
 		color: Colors.WHITE,
 		fontWeight: 'bold',
 	},
 	flashSaleTag: {
 		position: 'absolute',
-		top: 8,
-		left: 8,
+		top: 4,
+		left: 4,
 		backgroundColor: Colors.FLASH_SALE_RED,
-		paddingHorizontal: 6,
-		paddingVertical: 2,
-		borderRadius: 4,
+		paddingHorizontal: 4,
+		paddingVertical: 1,
+		borderRadius: 3,
 	},
 	flashSaleText: {
-		fontSize: 10,
+		fontSize: 8,
 		color: Colors.WHITE,
 		fontWeight: 'bold',
 	},
@@ -3059,14 +3187,14 @@ const styles = StyleSheet.create({
 		borderRadius: 8,
 	},
 	productName: {
-		fontSize: 12,
+		fontSize: 9,
 		color: Colors.TEXT_PRIMARY,
 		textAlign: 'center',
-		marginBottom: 4,
-		minHeight: 32,
+		marginBottom: 2,
+		minHeight: 18,
 	},
 	productPrice: {
-		fontSize: 14,
+		fontSize: 11,
 		fontWeight: '500',
 		color: Colors.BLACK,
 		textAlign: 'center',
@@ -3079,25 +3207,25 @@ const styles = StyleSheet.create({
 		maxWidth: '100%',
 	},
 	originalPrice: {
-		fontSize: 12,
+		fontSize: 9,
 		color: Colors.TEXT_SECONDARY,
 		textDecorationLine: 'line-through',
 		textAlign: 'center',
-		marginLeft: 4,
+		marginLeft: 2,
 		flexShrink: 1,
 		maxWidth: '50%',
 	},
 	filterTabs: {
 		flexDirection: 'row',
-		paddingHorizontal: 16,
-		paddingVertical: 12,
-		borderBottomWidth: 1,
-		borderBottomColor: Colors.BORDER,
+		paddingHorizontal: Spacing.SCREEN_PADDING,
+		paddingVertical: Spacing.PADDING_XS,
+		borderBottomWidth: 2,
+		borderBottomColor: 'rgba(212, 175, 55, 0.2)',
 		backgroundColor: Colors.WHITE,
-		minHeight: 50,
+		minHeight: 40,
 	},
 	filterTabsNormal: {
-		marginTop: -8, // Move up by 8px when not sticky
+		marginTop: -8,
 	},
 	filterTabsSticky: {
 		position: 'absolute',
@@ -3105,34 +3233,49 @@ const styles = StyleSheet.create({
 		right: 0,
 		width: '100%',
 		zIndex: 2000,
-		backgroundColor: Colors.WHITE,
-		borderBottomLeftRadius: 25,
-		borderBottomRightRadius: 25,
-		shadowColor: '#000',
-		shadowOffset: { width: 0, height: 6 },
-		shadowOpacity: 0.2,
-		shadowRadius: 15,
-		elevation: 10,
+		backgroundColor: Colors.WINE,
+		shadowColor: Colors.WINE,
+		shadowOffset: { width: 0, height: 4 },
+		shadowOpacity: 0.15,
+		shadowRadius: 12,
+		elevation: 8,
+		overflow: 'hidden',
 	},
 	filterTab: {
 		flexDirection: 'row',
 		alignItems: 'center',
-		paddingHorizontal: 16,
-		paddingVertical: 8,
-		marginRight: 12,
+		paddingHorizontal: Spacing.PADDING_SM,
+		paddingVertical: Spacing.PADDING_XS,
+		marginRight: Spacing.MARGIN_XS,
 		borderRadius: 20,
-		gap: 4,
+		gap: 6,
+		borderWidth: 1.5,
+		borderColor: Colors.GOLD,
+		backgroundColor: 'rgba(212, 175, 55, 0.06)',
+		shadowColor: Colors.GOLD,
+		shadowOffset: { width: 0, height: 2 },
+		shadowOpacity: 0.1,
+		shadowRadius: 4,
+		elevation: 2,
 	},
 	filterTabActive: {
-		backgroundColor: Colors.DARK_GRAY,
+		backgroundColor: Colors.WINE,
+		borderColor: Colors.WINE,
+		shadowColor: Colors.WINE,
+		shadowOpacity: 0.25,
+		elevation: 4,
 	},
 	filterTabText: {
-		fontSize: 14,
+		fontSize: Typography.FONT_SIZE_XS,
 		color: Colors.BLACK,
-		fontWeight: '500',
+		fontWeight: Typography.FONT_WEIGHT_BOLD,
+		letterSpacing: 0.2,
 	},
 	filterTabTextActive: {
 		color: Colors.WHITE,
+	},
+	filterTabTextActiveStickyWhite: {
+		color: Colors.GOLD,
 	},
 	mainProducts: {
 		paddingHorizontal: 16,
@@ -3253,8 +3396,11 @@ const styles = StyleSheet.create({
 	},
 	forYouProductsSection: {
 		paddingHorizontal: 16,
-		paddingTop: 16,
+		paddingTop: Spacing.PADDING_LG,
 		paddingBottom: 100,
+		backgroundColor: Colors.LIGHT_GRAY,
+		borderTopWidth: 2,
+		borderTopColor: 'rgba(114, 47, 55, 0.1)',
 	},
 	forYouProductsList: {
 		paddingHorizontal: Spacing.SCREEN_PADDING,
@@ -3271,8 +3417,11 @@ const styles = StyleSheet.create({
 	},
 	newInProductsSection: {
 		paddingHorizontal: 16,
-		paddingTop: 16,
+		paddingTop: Spacing.PADDING_LG,
 		paddingBottom: 100,
+		backgroundColor: 'rgba(212, 175, 55, 0.04)',
+		borderTopWidth: 2,
+		borderTopColor: 'rgba(212, 175, 55, 0.2)',
 	},
 	newInProductsList: {
 		paddingHorizontal: Spacing.SCREEN_PADDING,
@@ -3289,8 +3438,11 @@ const styles = StyleSheet.create({
 	},
 	dealProductsSection: {
 		paddingHorizontal: 16,
-		paddingTop: 16,
+		paddingTop: Spacing.PADDING_LG,
 		paddingBottom: 100,
+		backgroundColor: 'rgba(114, 47, 55, 0.04)',
+		borderTopWidth: 2,
+		borderTopColor: 'rgba(114, 47, 55, 0.15)',
 	},
 	dealProductsList: {
 		paddingHorizontal: Spacing.SCREEN_PADDING,

@@ -512,27 +512,38 @@ export const CategoriesScreen: React.FC = () => {
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Picks for You</Text>
         </View>
-        <View style={styles.childCategoriesGrid}>
-          {childCategories.map((category: any, index: number) => {
-            const image = childImages[category.name];
-            const categoryName = category.item_group_name || category.name || 'Category';
-            
-            return (
-              <AnimatedCategoryItem
-                key={category.name || category.item_group_name || `category-${index}`}
-                category={category}
-                image={image}
-                categoryName={categoryName}
-                index={index}
-                onPress={() => {
-                  (navigation as any).navigate('CategoryProducts', {
-                    categoryName: category.name,
-                    parentName: selectedCategory,
-                  });
-                }}
-              />
-            );
-          })}
+        <View style={styles.childCategoriesGridContainer}>
+          <FlatList
+            data={childCategories}
+            numColumns={4}
+            scrollEnabled={true}
+            horizontal={false}
+            showsVerticalScrollIndicator={false}
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.childCategoriesGridList}
+            columnWrapperStyle={styles.childCategoriesRow}
+            renderItem={({ item, index }) => {
+              const image = childImages[item.name];
+              const categoryName = item.item_group_name || item.name || 'Category';
+              
+              return (
+                <AnimatedCategoryItem
+                  key={item.name || item.item_group_name || `category-${index}`}
+                  category={item}
+                  image={image}
+                  categoryName={categoryName}
+                  index={index}
+                  onPress={() => {
+                    (navigation as any).navigate('CategoryProducts', {
+                      categoryName: item.name,
+                      parentName: selectedCategory,
+                    });
+                  }}
+                />
+              );
+            }}
+            keyExtractor={(item) => item.name || item.item_group_name || `category-${Math.random()}`}
+          />
         </View>
       </View>
     );
@@ -702,29 +713,33 @@ const styles = StyleSheet.create({
     color: Colors.TEXT_SECONDARY,
     textAlign: 'center',
   },
-  childCategoriesGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-around',
+  childCategoriesGridContainer: {
+    height: 200,
     paddingHorizontal: 8,
+  },
+  childCategoriesGridList: {
+    paddingHorizontal: 4,
+  },
+  childCategoriesRow: {
+    justifyContent: 'space-around',
   },
   childCategoryItem: {
     alignItems: 'center',
     marginBottom: 16,
-    width: '25%',
+    width: (width * 0.65 - 16) / 4,
     paddingHorizontal: 4,
   },
   childCategoryCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     backgroundColor: Colors.LIGHT_GRAY,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 6,
     overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: Colors.BORDER,
+    borderWidth: 2,
+    borderColor: Colors.WINE_LIGHT,
   },
   childCategoryImage: {
     width: '100%',
@@ -735,10 +750,11 @@ const styles = StyleSheet.create({
     fontSize: 28,
   },
   childCategoryName: {
-    fontSize: 10,
+    fontSize: 9,
     color: Colors.TEXT_SECONDARY,
     textAlign: 'center',
     fontWeight: '500',
+    lineHeight: 12,
   },
   backButton: {
     flexDirection: 'row',

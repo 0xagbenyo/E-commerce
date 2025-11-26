@@ -51,18 +51,18 @@ export const Header: React.FC<HeaderProps> = ({
   // Determine if we're on Home screen - Home screen has special transparent styling
   const isHomeScreen = currentRouteName === 'Home';
   
-  // For non-Home screens, use white background with black text
-  // For Home screen, use transparent when not scrolled, white when scrolled
-  const headerBackgroundColor = !isHomeScreen ? Colors.WHITE : 'transparent';
-  const headerTopBackgroundColor = !isHomeScreen ? Colors.WHITE : 'transparent';
+  // For non-Home screens, use wine background with white text
+  // For Home screen, use transparent when not scrolled, wine when scrolled
+  const headerBackgroundColor = !isHomeScreen ? Colors.WINE : (isScrolled ? Colors.WINE : 'transparent');
+  const headerTopBackgroundColor = !isHomeScreen ? Colors.WINE : (isScrolled ? Colors.WINE : 'transparent');
   
   // Icon color logic:
-  // - Other screens: black (on white background)
+  // - Other screens: white (on wine background)
   // - Home screen, not scrolled: white (on transparent, over carousel)
-  // - Home screen, scrolled: black (on white background)
+  // - Home screen, scrolled: white (on wine background)
   const iconColor = !isHomeScreen 
-    ? Colors.BLACK 
-    : (isScrolled ? Colors.BLACK : Colors.WHITE);
+    ? Colors.WHITE 
+    : (isScrolled ? Colors.WHITE : Colors.WHITE);
 
   // Use controlled value if provided, otherwise use local state
   const searchValue = controlledSearchValue !== undefined ? controlledSearchValue : localSearchValue;
@@ -276,7 +276,7 @@ export const Header: React.FC<HeaderProps> = ({
                 onPress={currentRouteName === 'Search' ? handleSearchSubmit : handleSearchPress}
                 hitSlop={{ top: 5, bottom: 5, left: 5, right: 5 }}
               >
-                <Ionicons name="search" size={18} color={!isHomeScreen ? Colors.BLACK : (isScrolled ? Colors.BLACK : Colors.WHITE)} />
+                <Ionicons name="search" size={18} color={Colors.WINE} />
               </TouchableOpacity>
             </View>
           </TouchableOpacity>
@@ -312,17 +312,17 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
     width: '100%',
     marginBottom: 0,
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
     overflow: 'hidden',
   },
   headerScrolled: {
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
     elevation: 8,
   },
   appNameRow: {
@@ -370,14 +370,19 @@ const styles = StyleSheet.create({
   searchContainer: {
     flex: 1,
     flexDirection: 'row',
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-    borderRadius: 20,
-    paddingHorizontal: Spacing.PADDING_SM,
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    borderRadius: 24,
+    paddingHorizontal: Spacing.PADDING_MD,
     paddingVertical: Spacing.PADDING_XS,
-    minHeight: 32,
+    minHeight: 36,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
+    borderColor: 'rgba(200, 200, 200, 0.2)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 3,
   },
   searchInput: {
     flex: 1,

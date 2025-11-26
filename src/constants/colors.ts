@@ -9,6 +9,12 @@ export const Colors = {
   SHEIN_ORANGE: '#FF6B35',
   SHEIN_RED: '#FF3B30',
   
+  // Wine & Gold Colors (New)
+  WINE: '#591115',
+  WINE_LIGHT: '#8B2D47',
+  GOLD: '#ECBE07',
+  GOLD_LIGHT: '#F5D76E',
+  
   // Accent Colors
   VIBRANT_PINK: '#FF4D6D',
   ELECTRIC_BLUE: '#007AFF',
@@ -45,8 +51,22 @@ export const Colors = {
   PROMO_ORANGE: '#FF6B35',
   FLASH_SALE_RED: '#FF3B30',
   FREE_SHIPPING_GREEN: '#34C759',
-  GOLD: '#FFD700',
+  GOLD_ACCENT: '#FFD700',
   ROYAL_BLUE: '#6B8CE8',
+  
+  // Gradient Colors for UI Enhancement
+  GRADIENT_PINK_START: '#FF4D6D',
+  GRADIENT_PINK_END: '#FF6B9D',
+  GRADIENT_BLUE_START: '#007AFF',
+  GRADIENT_BLUE_END: '#5AC8FA',
+  GRADIENT_ORANGE_START: '#FF6B35',
+  GRADIENT_ORANGE_END: '#FF8C42',
+  GRADIENT_WINE_START: '#591115',
+  GRADIENT_WINE_END: '#8B2D47',
+  GRADIENT_DARK_START: 'rgba(0, 0, 0, 0.5)',
+  GRADIENT_DARK_END: 'rgba(0, 0, 0, 0.1)',
+  GRADIENT_LIGHT_START: 'rgba(255, 255, 255, 0.1)',
+  GRADIENT_LIGHT_END: 'rgba(255, 255, 255, 0)',
 } as const;
 
 export type ColorKeys = keyof typeof Colors;
