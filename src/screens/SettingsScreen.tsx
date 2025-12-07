@@ -9,9 +9,12 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
 import { Colors } from '../constants/colors';
+import { Spacing } from '../constants/spacing';
 
 export const SettingsScreen: React.FC = () => {
+  const navigation = useNavigation();
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [emailNotifications, setEmailNotifications] = useState(true);
   const [darkMode, setDarkMode] = useState(false);
@@ -20,7 +23,7 @@ export const SettingsScreen: React.FC = () => {
     <View style={styles.header}>
       <TouchableOpacity 
         style={styles.backButton}
-        onPress={() => console.log('Back pressed')}
+        onPress={() => (navigation as any).goBack()}
       >
         <Ionicons name="arrow-back" size={24} color={Colors.BLACK} />
       </TouchableOpacity>
@@ -42,12 +45,17 @@ export const SettingsScreen: React.FC = () => {
     subtitle?: string,
     onPress?: () => void,
     showArrow = true,
-    rightComponent?: React.ReactNode
+    rightComponent?: React.ReactNode,
+    iconColor: string = Colors.WINE
   ) => (
-    <TouchableOpacity style={styles.settingItem} onPress={onPress}>
+    <TouchableOpacity 
+      style={styles.settingItem} 
+      onPress={onPress}
+      activeOpacity={onPress ? 0.7 : 1}
+    >
       <View style={styles.settingLeft}>
         <View style={styles.settingIcon}>
-          <Ionicons name={icon as any} size={20} color={Colors.BLACK} />
+          <Ionicons name={icon as any} size={20} color={iconColor} />
         </View>
         <View style={styles.settingContent}>
           <Text style={styles.settingTitle}>{title}</Text>
@@ -56,7 +64,7 @@ export const SettingsScreen: React.FC = () => {
       </View>
       <View style={styles.settingRight}>
         {rightComponent}
-        {showArrow && (
+        {showArrow && onPress && (
           <Ionicons name="chevron-forward" size={16} color={Colors.TEXT_SECONDARY} />
         )}
       </View>
@@ -73,25 +81,37 @@ export const SettingsScreen: React.FC = () => {
               'person-outline',
               'Profile Information',
               'Edit your personal details',
-              () => {}
+              () => (navigation as any).navigate('EditProfile'),
+              true,
+              undefined,
+              Colors.WINE
             )}
             {renderSettingItem(
               'location-outline',
               'Shipping Addresses',
               'Manage your delivery addresses',
-              () => {}
+              () => (navigation as any).navigate('AddressBook'),
+              true,
+              undefined,
+              Colors.GOLD
             )}
             {renderSettingItem(
               'card-outline',
               'Payment Methods',
               'Manage your payment options',
-              () => {}
+              () => {},
+              true,
+              undefined,
+              Colors.WINE
             )}
             {renderSettingItem(
               'shield-checkmark-outline',
               'Security',
               'Password and account security',
-              () => {}
+              () => {},
+              true,
+              undefined,
+              Colors.GOLD
             )}
           </>
         ))}
@@ -107,9 +127,10 @@ export const SettingsScreen: React.FC = () => {
               <Switch
                 value={notificationsEnabled}
                 onValueChange={setNotificationsEnabled}
-                trackColor={{ false: Colors.LIGHT_GRAY, true: Colors.SHEIN_PINK }}
+                trackColor={{ false: Colors.LIGHT_GRAY, true: Colors.GOLD }}
                 thumbColor={Colors.WHITE}
-              />
+              />,
+              Colors.WINE
             )}
             {renderSettingItem(
               'mail-outline',
@@ -120,9 +141,10 @@ export const SettingsScreen: React.FC = () => {
               <Switch
                 value={emailNotifications}
                 onValueChange={setEmailNotifications}
-                trackColor={{ false: Colors.LIGHT_GRAY, true: Colors.SHEIN_PINK }}
+                trackColor={{ false: Colors.LIGHT_GRAY, true: Colors.GOLD }}
                 thumbColor={Colors.WHITE}
-              />
+              />,
+              Colors.GOLD
             )}
             {renderSettingItem(
               'moon-outline',
@@ -133,21 +155,28 @@ export const SettingsScreen: React.FC = () => {
               <Switch
                 value={darkMode}
                 onValueChange={setDarkMode}
-                trackColor={{ false: Colors.LIGHT_GRAY, true: Colors.SHEIN_PINK }}
+                trackColor={{ false: Colors.LIGHT_GRAY, true: Colors.GOLD }}
                 thumbColor={Colors.WHITE}
-              />
+              />,
+              Colors.WINE
             )}
             {renderSettingItem(
               'language-outline',
               'Language',
               'English (US)',
-              () => {}
+              () => {},
+              true,
+              undefined,
+              Colors.GOLD
             )}
             {renderSettingItem(
               'cash-outline',
               'Currency',
               'Ghanaian Cedi (GH₵)',
-              () => {}
+              () => {},
+              true,
+              undefined,
+              Colors.WINE
             )}
           </>
         ))}
@@ -158,25 +187,37 @@ export const SettingsScreen: React.FC = () => {
               'help-circle-outline',
               'Help Center',
               'Get help and find answers',
-              () => {}
+              () => {},
+              true,
+              undefined,
+              Colors.GOLD
             )}
             {renderSettingItem(
               'chatbubble-outline',
               'Contact Us',
               'Reach out to our support team',
-              () => {}
+              () => {},
+              true,
+              undefined,
+              Colors.WINE
             )}
             {renderSettingItem(
               'document-text-outline',
               'Terms of Service',
               'Read our terms and conditions',
-              () => {}
+              () => {},
+              true,
+              undefined,
+              Colors.GOLD
             )}
             {renderSettingItem(
               'shield-outline',
               'Privacy Policy',
               'Learn about data protection',
-              () => {}
+              () => {},
+              true,
+              undefined,
+              Colors.WINE
             )}
           </>
         ))}
@@ -188,19 +229,27 @@ export const SettingsScreen: React.FC = () => {
               'App Version',
               'SIAMAE v1.0.0',
               undefined,
-              false
+              false,
+              undefined,
+              Colors.WINE
             )}
             {renderSettingItem(
               'star-outline',
               'Rate App',
               'Share your feedback',
-              () => {}
+              () => {},
+              true,
+              undefined,
+              Colors.GOLD
             )}
             {renderSettingItem(
               'share-outline',
               'Share App',
               'Tell friends about SIAMAE',
-              () => {}
+              () => {},
+              true,
+              undefined,
+              Colors.WINE
             )}
           </>
         ))}
@@ -210,6 +259,7 @@ export const SettingsScreen: React.FC = () => {
             <Ionicons name="log-out-outline" size={20} color={Colors.ERROR} />
             <Text style={styles.logoutText}>Log Out</Text>
           </TouchableOpacity>
+          <View style={styles.footerAccent} />
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -245,19 +295,21 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   sectionTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: Colors.BLACK,
+    fontSize: 13,
+    fontWeight: '600',
+    color: Colors.GOLD,
     marginBottom: 8,
-    paddingHorizontal: 16,
-    paddingTop: 16,
+    marginLeft: 16,
+    marginTop: 8,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   settingItem: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 16,
+    paddingVertical: 12,
     backgroundColor: Colors.WHITE,
     borderBottomWidth: 1,
     borderBottomColor: Colors.BORDER,
@@ -271,10 +323,12 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: Colors.LIGHT_GRAY,
+    backgroundColor: '#FFF5E6',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
+    borderWidth: 1.5,
+    borderColor: Colors.GOLD,
   },
   settingContent: {
     flex: 1,
@@ -312,5 +366,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
     color: Colors.ERROR,
+  },
+  footerAccent: {
+    height: 2,
+    backgroundColor: Colors.GOLD,
+    marginTop: 12,
+    borderRadius: 1,
+    opacity: 0.3,
   },
 });

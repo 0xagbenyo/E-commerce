@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { Platform } from 'react-native';
+import { Platform, View } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 
 // Screens
@@ -30,6 +31,10 @@ import { InvoiceDetailsScreen } from '../screens/InvoiceDetailsScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
 import { WishlistScreen } from '../screens/WishlistScreen';
 import { EditProfileScreen } from '../screens/EditProfileScreen';
+import { AddressBookScreen } from '../screens/AddressBookScreen';
+import { EditAddressScreen } from '../screens/EditAddressScreen';
+import { CreateBundleScreen } from '../screens/CreateBundleScreen';
+import { ViewBundleScreen } from '../screens/ViewBundleScreen';
 
 // Types
 import { RootStackParamList, AuthStackParamList, MainTabParamList } from '../types';
@@ -56,37 +61,53 @@ const AuthNavigator = () => {
 
 // Main Tab Navigator
 const MainTabNavigator = () => {
+  const insets = useSafeAreaInsets();
+
   return (
     <MainTab.Navigator
       screenOptions={({ route }) => ({
         tabBarIcon: ({ focused, color, size }) => {
           let iconName: keyof typeof Ionicons.glyphMap;
+          let iconColor = color;
 
           if (route.name === 'Home') {
             iconName = focused ? 'home' : 'home-outline';
+            iconColor = focused ? Colors.WINE : '#FF6B9D';
           } else if (route.name === 'Categories') {
             iconName = focused ? 'search' : 'search-outline';
+            iconColor = focused ? Colors.WINE : '#00BCD4';
           } else if (route.name === 'New') {
             iconName = focused ? 'sparkles' : 'sparkles-outline';
+            iconColor = focused ? Colors.WINE : '#FFD700';
           } else if (route.name === 'Bag') {
             iconName = focused ? 'bag' : 'bag-outline';
+            iconColor = focused ? Colors.WINE : '#4CAF50';
           } else if (route.name === 'Profile') {
             iconName = focused ? 'person' : 'person-outline';
+            iconColor = focused ? Colors.WINE : '#9C27B0';
           } else {
             iconName = 'home-outline';
           }
 
-          return <Ionicons name={iconName} size={size} color={color} />;
+          return <Ionicons name={iconName} size={20} color={iconColor} />;
         },
         tabBarActiveTintColor: Colors.BLACK,
         tabBarInactiveTintColor: Colors.TEXT_SECONDARY,
+        tabBarLabelStyle: {
+          fontSize: 9,
+          marginTop: 2,
+          fontWeight: '700',
+        },
         tabBarStyle: {
           backgroundColor: Colors.WHITE,
           borderTopColor: Colors.BORDER,
           borderTopWidth: 1,
-          paddingBottom: Platform.OS === 'ios' ? 20 : 8,
-          paddingTop: 8,
-          height: Platform.OS === 'ios' ? 88 : 60,
+          paddingBottom: Platform.OS === 'ios' ? 32 : (insets.bottom === 0 ? 26 : insets.bottom + 18),
+          paddingTop: Platform.OS === 'ios' ? 8 : 6,
+          height: Platform.OS === 'ios' ? 84 : (insets.bottom === 0 ? 80 : 80 + insets.bottom),
+        },
+        sceneContainerStyle: {
+          paddingBottom: Platform.OS === 'android' && insets.bottom > 0 ? 80 + insets.bottom : Platform.OS === 'android' ? 80 : 0,
         },
         headerShown: false,
       })}
@@ -199,6 +220,31 @@ export const AppNavigator = () => {
         <Stack.Screen 
           name="EditProfile" 
           component={EditProfileScreen}
+          options={{ presentation: 'card' }}
+        />
+        <Stack.Screen 
+          name="CreateBundle" 
+          component={CreateBundleScreen}
+          options={{ presentation: 'card' }}
+        />
+        <Stack.Screen 
+          name="ViewBundle" 
+          component={ViewBundleScreen}
+          options={{ presentation: 'card' }}
+        />
+        <Stack.Screen 
+          name="Settings" 
+          component={SettingsScreen}
+          options={{ presentation: 'card' }}
+        />
+        <Stack.Screen 
+          name="AddressBook" 
+          component={AddressBookScreen}
+          options={{ presentation: 'card' }}
+        />
+        <Stack.Screen 
+          name="EditAddress" 
+          component={EditAddressScreen}
           options={{ presentation: 'card' }}
         />
         <Stack.Screen name="Splash" component={SplashScreen} />

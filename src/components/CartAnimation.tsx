@@ -133,7 +133,9 @@ export const CartAnimation: React.FC<CartAnimationProps> = ({
         />
       ) : (
         <View style={styles.fallbackIcon}>
-          <Text style={styles.iconText}>🛒</Text>
+          <Text style={styles.iconText} allowFontScaling={false}>
+            🛒
+          </Text>
         </View>
       )}
     </Animated.View>

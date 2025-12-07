@@ -29,7 +29,7 @@ interface CategoryTabsProps {
 export const CategoryTabs: React.FC<CategoryTabsProps> = ({
   selectedCategory,
   onSelectCategory,
-  categories = ['All', 'Women', 'Kids', 'Men', 'Curve'],
+  categories = ['All', 'Women', 'Kids', 'Men', 'Curve', 'Shoes', 'Electronics', 'Jewelry and Accessories', 'Sports', 'Bags', 'Toys', 'Office'],
   variant = 'default',
   showMenuIcon = false,
   onMenuPress,
@@ -78,6 +78,7 @@ export const CategoryTabs: React.FC<CategoryTabsProps> = ({
                 selectedCategory === category && (isRedVariant ? styles.tabTextActiveRed : styles.tabTextActive),
                 isScrolled && isRedVariant && styles.tabTextScrolled,
                 isScrolled && isRedVariant && selectedCategory === category && styles.tabTextActiveScrolled,
+                selectedCategory === category && !isRedVariant && activeColor && { color: Colors.WHITE },
               ]}
             >
               {category}

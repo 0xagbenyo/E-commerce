@@ -773,8 +773,11 @@ class ERPNextClient {
       const orderByClause = orderBy || 'ranking desc';
       url += `&order_by=${encodeURIComponent(orderByClause)}`;
 
+      console.log('[getWebsiteItems] URL:', url);
       const response = await this.client.get(url);
       const websiteItems = response.data.data;
+      
+      console.log('[getWebsiteItems] Returned items count:', websiteItems?.length || 0);
       
       // Fetch prices and stock for items in parallel
       // Use Promise.allSettled to handle failures gracefully
@@ -2413,17 +2416,23 @@ class ERPNextClient {
 
   // ADDRESSES
   async createAddress(addressData: {
+    address_title: string;
     address_type: string;
     address_line1: string;
     address_line2?: string;
     city: string;
-    state: string;
-    postal_code: string;
+    county?: string;
+    state?: string;
+    pincode: string;
     country: string;
     phone?: string;
-    email?: string;
+    email_id?: string;
+    fax?: string;
+    tax_category?: string;
     is_primary_address?: number;
     is_shipping_address?: number;
+    disabled?: number;
+    is_your_company_address?: number;
     links?: Array<{
       link_doctype: string;
       link_name: string;
@@ -2431,6 +2440,152 @@ class ERPNextClient {
   }): Promise<any> {
     try {
       const response = await this.client.post(`${API_VERSION}/Address`, addressData);
+      return response.data.data;
+    } catch (error) {
+      throw this.handleError(error);
+    }
+  }
+
+  async getOrCreateCustomer(userEmail: string, fullName?: string): Promise<any> {
+    try {
+      // First, try to find an existing customer with this email
+      const response = await this.client.get(`${API_VERSION}/Customer`, {
+        params: {
+          fields: JSON.stringify(['name', 'customer_name', 'email_id']),
+          filters: JSON.stringify([
+            ['email_id', '=', userEmail]
+          ]),
+          limit_page_length: 1,
+        },
+      });
+
+      if (response.data.data && response.data.data.length > 0) {
+        // Customer exists, return it
+        return response.data.data[0];
+      }
+
+      // Customer doesn't exist, create one
+      // Generate customer name: "User Name-email@domain.com"
+      const customerNameValue = fullName 
+        ? `${fullName.trim()}-${userEmail}` 
+        : userEmail;
+
+      const newCustomer = {
+        name: customerNameValue,
+        customer_name: fullName || userEmail,
+        customer_type: 'Individual',
+        email_id: userEmail,
+      };
+
+      const createResponse = await this.client.post(`${API_VERSION}/Customer`, newCustomer);
+      if (createResponse.data.data) {
+        return createResponse.data.data;
+      }
+      
+      throw new Error('Failed to create customer');
+    } catch (error) {
+      // If customer creation fails but customer might already exist by name, try to fetch it
+      try {
+        const fallbackResponse = await this.client.get(`${API_VERSION}/Customer`, {
+          params: {
+            fields: JSON.stringify(['name', 'customer_name', 'email_id']),
+            limit_page_length: 1,
+          },
+        });
+        if (fallbackResponse.data.data && fallbackResponse.data.data.length > 0) {
+          return fallbackResponse.data.data[0];
+        }
+      } catch (fallbackError) {
+        // Ignore fallback error
+      }
+      throw this.handleError(error);
+    }
+  }
+
+  async getAddresses(customerName: string): Promise<any[]> {
+    try {
+      // Fetch all addresses, then filter client-side for those linked to this customer
+      const response = await this.client.get(`${API_VERSION}/Address`, {
+        params: {
+          fields: JSON.stringify(['name', 'address_title', 'address_type', 'address_line1', 'address_line2', 'city', 'county', 'state', 'country', 'pincode', 'email_id', 'phone', 'fax', 'tax_category', 'is_primary_address', 'is_shipping_address', 'disabled', 'is_your_company_address', 'links']),
+          limit_page_length: 500,
+        },
+      });
+      
+      const allAddresses = response.data.data || [];
+      
+      // Filter addresses that are linked to this customer
+      const linkedAddresses = allAddresses.filter((address: any) => {
+        if (!address.links || !Array.isArray(address.links)) {
+          return false;
+        }
+        return address.links.some((link: any) => 
+          link.link_doctype === 'Customer' && link.link_name === customerName
+        );
+      });
+      
+      return linkedAddresses;
+    } catch (error) {
+      console.warn('Error fetching addresses:', error);
+      return [];
+    }
+  }
+
+  async getAddressesByEmail(userEmail: string): Promise<any[]> {
+    try {
+      // Fetch all addresses, then filter by email_id field
+      const response = await this.client.get(`${API_VERSION}/Address`, {
+        params: {
+          fields: JSON.stringify(['name', 'address_title', 'address_type', 'address_line1', 'address_line2', 'city', 'county', 'state', 'country', 'pincode', 'email_id', 'phone', 'fax', 'tax_category', 'is_primary_address', 'is_shipping_address', 'disabled', 'is_your_company_address', 'links']),
+          limit_page_length: 500,
+        },
+      });
+      
+      const allAddresses = response.data.data || [];
+      
+      console.log('All addresses from API:', allAddresses);
+      console.log('Looking for email:', userEmail);
+      
+      // Filter addresses that have this email_id
+      const addressesByEmail = allAddresses.filter((address: any) => {
+        // Check email_id field directly
+        if (address.email_id === userEmail) {
+          return true;
+        }
+        
+        // Also check if email matches in links (customer links might use email)
+        if (address.links && Array.isArray(address.links)) {
+          const hasEmailLink = address.links.some((link: any) => 
+            link.link_name === userEmail
+          );
+          if (hasEmailLink) {
+            return true;
+          }
+        }
+        
+        return false;
+      });
+      
+      console.log('Filtered addresses by email:', addressesByEmail);
+      return addressesByEmail;
+    } catch (error) {
+      console.warn('Error fetching addresses by email:', error);
+      return [];
+    }
+  }
+
+  async updateAddress(addressName: string, addressData: any): Promise<any> {
+    try {
+      const response = await this.client.put(`${API_VERSION}/Address/${addressName}`, addressData);
+      return response.data.data;
+    } catch (error) {
+      throw this.handleError(error);
+    }
+  }
+
+  async deleteAddress(addressName: string): Promise<any> {
+    try {
+      const response = await this.client.delete(`${API_VERSION}/Address/${addressName}`);
       return response.data.data;
     } catch (error) {
       throw this.handleError(error);

@@ -77,37 +77,23 @@ export const EditProfileScreen: React.FC = () => {
           },
         },
       ]);
-    } catch (error: any) {
-      console.error('Error updating profile:', error);
-      Alert.alert('Error', error?.message || 'Failed to update profile. Please try again.');
+    } catch (error) {
+      console.error('Error saving profile:', error);
+      Alert.alert('Error', 'Failed to update profile');
     } finally {
       setSaving(false);
     }
   };
 
   const getUserDisplayName = () => {
-    if (userDetails) {
-      if (userDetails.full_name) return userDetails.full_name;
-      if (userDetails.first_name || userDetails.last_name) {
-        return `${userDetails.first_name || ''} ${userDetails.last_name || ''}`.trim();
-      }
-    }
-    return user?.fullName || user?.email || 'User';
+    return userDetails?.full_name || user?.email || 'User';
   };
 
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => (navigation as any).goBack()} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color={Colors.BLACK} />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Edit Profile</Text>
-          <View style={styles.placeholder} />
-        </View>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color=" #bc8474" />
-          <Text style={styles.loadingText}>Loading profile...</Text>
+        <View style={styles.loaderContainer}>
+          <ActivityIndicator size="large" color={Colors.GOLD} />
         </View>
       </SafeAreaView>
     );
@@ -190,20 +176,45 @@ export const EditProfileScreen: React.FC = () => {
             </View>
           </View>
 
-          {/* Save Button */}
+          {/* Shipping Addresses Info */}
+          <View style={styles.infoCard}>
+            <View style={styles.infoCardContent}>
+              <Ionicons name="information-circle" size={24} color={Colors.GOLD} />
+              <View style={styles.infoTextContainer}>
+                <Text style={styles.infoTitle}>Manage Your Addresses</Text>
+                <Text style={styles.infoSubtitle}>
+                  Go to Settings to add, edit, or delete your shipping addresses.
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => (navigation as any).navigate('Settings')}
+                style={styles.infoButton}
+              >
+                <Ionicons name="arrow-forward" size={18} color={Colors.WHITE} />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <View style={{ height: 20 }} />
+        </ScrollView>
+
+        {/* Save Button */}
+        <View style={styles.saveButtonContainer}>
           <TouchableOpacity
-            style={[styles.saveButton, saving && styles.saveButtonDisabled]}
+            style={[styles.saveButton, saving && { opacity: 0.6 }]}
             onPress={handleSave}
             disabled={saving}
-            activeOpacity={0.8}
           >
             {saving ? (
               <ActivityIndicator size="small" color={Colors.WHITE} />
             ) : (
-              <Text style={styles.saveButtonText}>Save Changes</Text>
+              <>
+                <Ionicons name="checkmark" size={20} color={Colors.WHITE} />
+                <Text style={styles.saveButtonText}>Save Changes</Text>
+              </>
             )}
           </TouchableOpacity>
-        </ScrollView>
+        </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -217,106 +228,134 @@ const styles = StyleSheet.create({
   keyboardView: {
     flex: 1,
   },
+  loaderContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: Spacing.SCREEN_PADDING,
-    paddingVertical: Spacing.PADDING_MD,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: Colors.BORDER,
-    backgroundColor: Colors.WHITE,
   },
   backButton: {
-    padding: 4,
+    padding: 8,
+    marginLeft: -8,
   },
   headerTitle: {
     fontSize: 18,
-    fontWeight: 'bold',
+    fontWeight: '600',
     color: Colors.BLACK,
   },
   placeholder: {
     width: 32,
   },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: Spacing.PADDING_XL,
-  },
-  loadingText: {
-    marginTop: Spacing.MARGIN_MD,
-    fontSize: 16,
-    color: Colors.TEXT_SECONDARY,
-  },
   scrollView: {
     flex: 1,
   },
   scrollContent: {
-    padding: Spacing.PADDING_SM,
-    paddingBottom: Spacing.PADDING_LG,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 100,
   },
   card: {
     backgroundColor: Colors.WHITE,
-    borderRadius: 8,
-    padding: Spacing.PADDING_SM,
-    marginBottom: Spacing.MARGIN_SM,
-    ...Spacing.SHADOW_MD,
-  },
-  sectionTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: ' #bc8474', // Burgundy
-    marginBottom: Spacing.MARGIN_SM,
-  },
-  inputContainer: {
-    marginBottom: Spacing.MARGIN_SM,
-  },
-  label: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: Colors.TEXT_PRIMARY,
-    marginBottom: Spacing.MARGIN_XS,
-  },
-  input: {
-    backgroundColor: Colors.WHITE,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
     borderWidth: 1,
     borderColor: Colors.BORDER,
-    borderRadius: 6,
-    paddingHorizontal: Spacing.PADDING_SM,
-    paddingVertical: Spacing.PADDING_SM,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.BLACK,
+    marginBottom: 16,
+  },
+  inputContainer: {
+    marginBottom: 16,
+  },
+  label: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: Colors.BLACK,
+    marginBottom: 8,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: Colors.BORDER,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     fontSize: 14,
     color: Colors.BLACK,
-    minHeight: 40,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   inputDisabled: {
     backgroundColor: Colors.LIGHT_GRAY,
-    borderColor: Colors.BORDER,
-    flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
   },
   disabledText: {
-    flex: 1,
+    color: Colors.TEXT_SECONDARY,
     fontSize: 14,
+  },
+  infoCard: {
+    backgroundColor: '#FFF5E6',
+    borderRadius: 12,
+    padding: 16,
+    borderLeftWidth: 4,
+    borderLeftColor: Colors.GOLD,
+  },
+  infoCardContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  infoTextContainer: {
+    flex: 1,
+  },
+  infoTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.BLACK,
+    marginBottom: 4,
+  },
+  infoSubtitle: {
+    fontSize: 12,
     color: Colors.TEXT_SECONDARY,
   },
-  saveButton: {
-    backgroundColor: ' #bc8474', // Burgundy
-    borderRadius: 6,
-    paddingVertical: Spacing.PADDING_SM,
-    alignItems: 'center',
-    marginTop: Spacing.MARGIN_SM,
-    minHeight: 40,
+  infoButton: {
+    backgroundColor: Colors.GOLD,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     justifyContent: 'center',
+    alignItems: 'center',
   },
-  saveButtonDisabled: {
-    opacity: 0.6,
+  saveButtonContainer: {
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+    backgroundColor: Colors.BACKGROUND,
+    borderTopWidth: 1,
+    borderTopColor: Colors.BORDER,
+  },
+  saveButton: {
+    backgroundColor: Colors.GOLD,
+    borderRadius: 12,
+    paddingVertical: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
   },
   saveButtonText: {
     color: Colors.WHITE,
-    fontSize: 14,
-    fontWeight: 'bold',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
-

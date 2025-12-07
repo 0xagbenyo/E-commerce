@@ -16,8 +16,10 @@ import { RootStackParamList } from '../types';
 import type { NavigationProp } from '@react-navigation/native';
 import * as Updates from 'expo-updates';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Colors } from '../constants/colors';
 import { Spacing } from '../constants/spacing';
+import { Typography } from '../constants/typography';
 import { CategoryTabs } from '../components/CategoryTabs';
 import { ProductCard } from '../components/ProductCard';
 import { LoadingScreen } from '../components/LoadingScreen';
@@ -147,33 +149,13 @@ export const NewScreen: React.FC = () => {
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      // Navigate to Splash screen first to show SIAMAE
-      navigation.dispatch(
-        CommonActions.reset({
-          index: 0,
-          routes: [{ name: 'Splash' }],
-        })
-      );
-      
-      // Wait a moment for Splash to appear, then reload the entire app
-      setTimeout(async () => {
-        try {
-          await Updates.reloadAsync();
-        } catch (error) {
-          console.log('Updates.reloadAsync not available, using navigation reset');
-          navigation.dispatch(
-            CommonActions.reset({
-              index: 0,
-              routes: [{ name: 'Main' }],
-            })
-          );
-        }
-      }, 1500);
+      await refreshNewArrivals();
     } catch (error) {
       console.error('Error refreshing data:', error);
+    } finally {
       setRefreshing(false);
     }
-  }, [navigation]);
+  }, []);
   
   // Check if page is initially loading (fresh load - no data loaded yet)
   const isInitialLoading = ((!allNewArrivals || allNewArrivals.length === 0) && newArrivalsLoading) && 
@@ -334,13 +316,26 @@ export const NewScreen: React.FC = () => {
     if (displayArrivals.length === 0 && !newArrivalsLoading) {
       return (
         <View style={styles.emptyContainer}>
-          <Ionicons name="cube-outline" size={64} color={Colors.TEXT_SECONDARY} />
-          <Text style={styles.emptyText}>No new arrivals found</Text>
+          <LinearGradient
+            colors={['rgba(157, 34, 53, 0.1)', 'rgba(157, 34, 53, 0.05)']}
+            style={styles.emptyIconWrapper}
+          >
+            <Ionicons name="cube-outline" size={64} color={Colors.WINE} />
+          </LinearGradient>
+          <Text style={styles.emptyText}>No items found</Text>
           <Text style={styles.emptySubtext}>
             {selectedCategory === 'All' 
               ? 'Check back soon for new products!' 
-              : `No new arrivals in ${selectedCategory} category`}
+              : `No new arrivals in ${selectedCategory} category yet`}
           </Text>
+          {selectedCategory !== 'All' && (
+            <TouchableOpacity 
+              style={styles.emptyButton}
+              onPress={() => handleCategorySelect('All')}
+            >
+              <Text style={styles.emptyButtonText}>View All Items</Text>
+            </TouchableOpacity>
+          )}
         </View>
       );
     }
@@ -356,8 +351,8 @@ export const NewScreen: React.FC = () => {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            tintColor="#acc5e1"
-            colors={["#acc5e1"]}
+            tintColor={Colors.WINE}
+            colors={[Colors.WINE]}
           />
         }
         renderItem={renderProductItem}
@@ -390,15 +385,42 @@ export const NewScreen: React.FC = () => {
         visible={toastVisible}
         onHide={() => setToastVisible(false)}
       />
+      
       <Header />
-      <CategoryTabs 
-        selectedCategory={selectedCategory}
-        onSelectCategory={handleCategorySelect}
-        activeColor="#acc5e1"
-      />
-      <View style={styles.filterContainer}>
-        <PriceFilter onSortChange={setSortOption} currentSort={sortOption} />
+      
+      {/* Modern White Header */}
+      <View style={styles.modernHeader}>
+        <View style={styles.modernHeaderContent}>
+          <View>
+            <Text style={styles.headerTitle}>New Arrivals</Text>
+            <Text style={styles.headerSubtitle}>Discover the latest collections</Text>
+          </View>
+          <View style={styles.headerIconBackground}>
+            <Ionicons name="sparkles" size={28} color={Colors.WINE} />
+          </View>
+        </View>
       </View>
+
+      {/* Category Tabs */}
+      <View style={styles.tabsContainer}>
+        <CategoryTabs 
+          selectedCategory={selectedCategory}
+          onSelectCategory={handleCategorySelect}
+          activeColor={Colors.WINE}
+        />
+      </View>
+
+      {/* Filter Bar */}
+      <View style={styles.filterBar}>
+        <PriceFilter onSortChange={setSortOption} currentSort={sortOption} />
+        <View style={styles.resultCounter}>
+          <Text style={styles.resultText}>
+            {displayArrivals.length} {displayArrivals.length === 1 ? 'item' : 'items'}
+          </Text>
+        </View>
+      </View>
+
+      {/* Products Grid */}
       {renderProducts()}
     </SafeAreaView>
   );
@@ -409,9 +431,74 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Colors.BACKGROUND,
   },
+  modernHeader: {
+    paddingHorizontal: Spacing.PADDING_LG,
+    paddingVertical: Spacing.PADDING_LG,
+    marginHorizontal: Spacing.PADDING_MD,
+    marginTop: Spacing.PADDING_MD,
+    marginBottom: Spacing.PADDING_LG,
+    borderRadius: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    elevation: 8,
+    backgroundColor: Colors.WHITE,
+  },
+  modernHeaderContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  headerTitle: {
+    fontSize: Typography.FONT_SIZE_LG,
+    fontWeight: Typography.FONT_WEIGHT_BOLD,
+    color: Colors.TEXT_PRIMARY,
+    marginBottom: Spacing.MARGIN_XS,
+    letterSpacing: 0.3,
+  },
+  headerSubtitle: {
+    fontSize: Typography.FONT_SIZE_SM,
+    color: Colors.TEXT_SECONDARY,
+    fontWeight: Typography.FONT_WEIGHT_REGULAR,
+  },
+  headerIconBackground: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: Colors.LIGHT_GRAY,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tabsContainer: {
+    paddingHorizontal: Spacing.PADDING_MD,
+    marginBottom: Spacing.PADDING_MD,
+  },
+  filterBar: {
+    paddingHorizontal: Spacing.PADDING_MD,
+    paddingVertical: Spacing.PADDING_SM,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: Colors.WHITE,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.LIGHT_GRAY,
+    marginBottom: Spacing.PADDING_MD,
+  },
+  resultCounter: {
+    paddingHorizontal: Spacing.PADDING_SM,
+    paddingVertical: 6,
+    backgroundColor: Colors.LIGHT_GRAY,
+    borderRadius: 12,
+  },
+  resultText: {
+    fontSize: Typography.FONT_SIZE_XS,
+    color: Colors.TEXT_SECONDARY,
+    fontWeight: Typography.FONT_WEIGHT_SEMIBOLD,
+    letterSpacing: 0.2,
+  },
   productsList: {
     paddingHorizontal: Spacing.SCREEN_PADDING,
-    paddingTop: Spacing.PADDING_MD,
     paddingBottom: Spacing.PADDING_XL,
   },
   productRow: {
@@ -420,7 +507,7 @@ const styles = StyleSheet.create({
   },
   productCard: {
     width: (width - Spacing.SCREEN_PADDING * 2 - Spacing.MARGIN_SM) / 2,
-    marginBottom: 0, // Row spacing handled by columnWrapperStyle
+    marginBottom: 0,
   },
   loadingContainer: {
     flex: 1,
@@ -440,11 +527,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  emptyIconWrapper: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: Spacing.MARGIN_LG,
+  },
   emptyText: {
-    fontSize: 18,
-    fontWeight: '600',
+    fontSize: 20,
+    fontWeight: Typography.FONT_WEIGHT_BOLD,
     color: Colors.TEXT_PRIMARY,
-    marginTop: Spacing.MARGIN_MD,
     marginBottom: Spacing.MARGIN_SM,
     textAlign: 'center',
   },
@@ -452,12 +546,20 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: Colors.TEXT_SECONDARY,
     textAlign: 'center',
+    marginBottom: Spacing.MARGIN_LG,
+    lineHeight: 20,
   },
-  filterContainer: {
-    paddingHorizontal: Spacing.PADDING_MD,
-    paddingVertical: Spacing.PADDING_SM,
-    backgroundColor: Colors.WHITE,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.FLASH_SALE_RED, // Burgundy border
+  emptyButton: {
+    paddingHorizontal: Spacing.PADDING_LG,
+    paddingVertical: Spacing.PADDING_MD,
+    backgroundColor: Colors.WINE,
+    borderRadius: 12,
+    marginTop: Spacing.MARGIN_MD,
+  },
+  emptyButtonText: {
+    color: Colors.WHITE,
+    fontSize: Typography.FONT_SIZE_SM,
+    fontWeight: Typography.FONT_WEIGHT_BOLD,
+    letterSpacing: 0.3,
   },
 });

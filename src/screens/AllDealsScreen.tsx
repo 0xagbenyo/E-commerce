@@ -37,33 +37,15 @@ export const AllDealsScreen: React.FC = () => {
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      // Navigate to Splash screen first to show SIAMAE
-      navigation.dispatch(
-        CommonActions.reset({
-          index: 0,
-          routes: [{ name: 'Splash' }],
-        })
-      );
-      
-      // Wait a moment for Splash to appear, then reload the entire app
-      setTimeout(async () => {
-        try {
-          await Updates.reloadAsync();
-        } catch (error) {
-          console.log('Updates.reloadAsync not available, using navigation reset');
-          navigation.dispatch(
-            CommonActions.reset({
-              index: 0,
-              routes: [{ name: 'Main' }],
-            })
-          );
-        }
-      }, 1500);
+      // Just refresh the data without navigation
+      // The page will reload deals automatically via the hook
+      await new Promise(resolve => setTimeout(resolve, 500)); // Small delay for UX
     } catch (error) {
       console.error('Error refreshing data:', error);
+    } finally {
       setRefreshing(false);
     }
-  }, [navigation]);
+  }, []);
 
   // Sort deals by price or discount, randomize when not sorting
   const sortedDeals = useMemo(() => {

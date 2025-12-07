@@ -22,7 +22,6 @@ import { useFocusEffect, useNavigation, CommonActions } from '@react-navigation/
 import * as Updates from 'expo-updates';
 import { LoadingScreen } from '../components/LoadingScreen';
 import { getERPNextClient } from '../services/erpnext';
-import { ModernAlert } from '../components/ModernAlert';
 
 export const CartScreen: React.FC = () => {
   const navigation = useNavigation();
@@ -76,30 +75,10 @@ export const CartScreen: React.FC = () => {
   const onRefresh = async () => {
     setRefreshing(true);
     try {
-      // Navigate to Splash screen first to show SIAMAE
-      navigation.dispatch(
-        CommonActions.reset({
-          index: 0,
-          routes: [{ name: 'Splash' }],
-        })
-      );
-      
-      // Wait a moment for Splash to appear, then reload the entire app
-      setTimeout(async () => {
-        try {
-          await Updates.reloadAsync();
-        } catch (error) {
-          console.log('Updates.reloadAsync not available, using navigation reset');
-          navigation.dispatch(
-            CommonActions.reset({
-              index: 0,
-              routes: [{ name: 'Main' }],
-            })
-          );
-        }
-      }, 1500);
+      await refresh();
     } catch (error) {
       console.error('Error refreshing cart:', error);
+    } finally {
       setRefreshing(false);
     }
   };
@@ -376,6 +355,14 @@ export const CartScreen: React.FC = () => {
     const itemTotalPrice = product.price * effectiveQuantity;
     const itemTotalOriginalPrice = product.originalPrice ? product.originalPrice * effectiveQuantity : null;
     
+    // Check if this item is out of stock
+    const isOutOfStock = problematicItems.some(p => p.itemCode === item.itemCode);
+    const outOfStockItem = problematicItems.find(p => p.itemCode === item.itemCode);
+    
+    // Extract available stock from the reason text (e.g., "only 5 available")
+    const availableStock = outOfStockItem?.reason.match(/only (\d+) available/) ? 
+      outOfStockItem.reason.match(/only (\d+) available/)?.[1] : null;
+    
     const handleImagePress = () => {
       // Navigate to product details using product.id
       const productId = product.id || item.productId;
@@ -385,12 +372,23 @@ export const CartScreen: React.FC = () => {
     };
 
     return (
-      <View style={styles.cartItem}>
+      <View style={[styles.cartItem, isOutOfStock && styles.cartItemOutOfStock]}>
+        {isOutOfStock && (
+          <View style={styles.outOfStockOverlay}>
+            <Ionicons name="alert-circle" size={28} color={Colors.WHITE} />
+            <Text style={styles.outOfStockText}>Out of Stock</Text>
+            {availableStock && (
+              <View style={styles.availableStockBadge}>
+                <Text style={styles.availableStockText}>{availableStock} available</Text>
+              </View>
+            )}
+          </View>
+        )}
         <View style={styles.itemHeader}>
           <Text style={styles.brandName}>{product.brand || product.company || 'SIAMAE'}</Text>
         </View>
         
-        <View style={styles.itemContent}>
+        <View style={[styles.itemContent, isOutOfStock && styles.itemContentDisabled]}>
           <TouchableOpacity 
             style={styles.radioButton}
             onPress={() => {
@@ -429,7 +427,7 @@ export const CartScreen: React.FC = () => {
           
           <View style={styles.priceContainer}>
               {isUpdating ? (
-                <ActivityIndicator size="small" color="#acc5e1" style={styles.priceLoading} />
+                <ActivityIndicator size="small" color={Colors.WINE} style={styles.priceLoading} />
               ) : (
                 <>
                   <Text style={styles.itemPrice}>{formatPrice(itemTotalPrice)}</Text>
@@ -456,7 +454,7 @@ export const CartScreen: React.FC = () => {
             </TouchableOpacity>
             <View style={styles.quantityBox}>
                 {isUpdating ? (
-                  <ActivityIndicator size="small" color="#acc5e1" />
+                  <ActivityIndicator size="small" color={Colors.WINE} />
                 ) : (
                   <TextInput
                     style={styles.quantityInput}
@@ -569,8 +567,8 @@ export const CartScreen: React.FC = () => {
             <RefreshControl
               refreshing={refreshing}
               onRefresh={onRefresh}
-              tintColor="#acc5e1"
-              colors={["#acc5e1"]}
+              tintColor={Colors.WINE}
+              colors={[Colors.WINE]}
             />
           }
         >
@@ -584,7 +582,8 @@ export const CartScreen: React.FC = () => {
       {cartItems.length > 0 && (
         <View style={styles.checkoutBar}>
           <View style={styles.totalContainer}>
-            <Text style={styles.totalLabel}>GH₵{total.toFixed(2)}</Text>
+            <Text style={styles.totalLabel}>Total Amount</Text>
+            <Text style={styles.totalAmount}>GH₵{total.toFixed(2)}</Text>
           </View>
           <TouchableOpacity 
             style={[styles.checkoutButton, isValidatingCheckout && styles.checkoutButtonDisabled]}
@@ -594,24 +593,14 @@ export const CartScreen: React.FC = () => {
             {isValidatingCheckout ? (
               <ActivityIndicator size="small" color={Colors.WHITE} />
             ) : (
-              <Text style={styles.checkoutButtonText}>Checkout</Text>
+              <>
+                <Ionicons name="bag-check-outline" size={18} color={Colors.WHITE} />
+                <Text style={styles.checkoutButtonText}>Checkout</Text>
+              </>
             )}
           </TouchableOpacity>
         </View>
       )}
-
-      {/* Modern Alert Modal */}
-      <ModernAlert
-        visible={showStockAlert}
-        title="Items Need Attention"
-        message="The following items in your cart are out of stock or don't have enough quantity available. Please remove these items before proceeding to checkout."
-        items={problematicItems.map(item => ({
-          name: item.name,
-          reason: item.reason,
-        }))}
-        onClose={() => setShowStockAlert(false)}
-        buttonText="Got It"
-      />
     </SafeAreaView>
   );
 };
@@ -620,11 +609,11 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.BACKGROUND,
-    paddingTop: Spacing.PADDING_XL
   },
   header: {
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 50,
+    paddingBottom: 12,
     borderBottomWidth: 1,
     borderBottomColor: Colors.BORDER,
     backgroundColor: Colors.WHITE,
@@ -640,7 +629,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 6,
+    marginBottom: 4,
+    marginTop: 20,
   },
   headerLeft: {
     flexDirection: 'row',
@@ -691,7 +681,7 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   filterTabActive: {
-    backgroundColor: Colors.DARK_GRAY,
+    backgroundColor: Colors.WINE,
   },
   filterTabText: {
     fontSize: 12,
@@ -706,6 +696,45 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: Colors.BORDER,
+    position: 'relative',
+  },
+  cartItemOutOfStock: {
+    backgroundColor: 'rgba(220, 38, 38, 0.05)',
+    borderLeftWidth: 4,
+    borderLeftColor: Colors.SHEIN_RED,
+  },
+  outOfStockOverlay: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    width: 70,
+    height: 75,
+    backgroundColor: 'rgba(220, 38, 38, 0.8)',
+    borderRadius: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 5,
+    flexDirection: 'column',
+    gap: 4,
+  },
+  outOfStockText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: Colors.WHITE,
+    textAlign: 'center',
+  },
+  availableStockBadge: {
+    backgroundColor: Colors.WHITE,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 4,
+    marginTop: 2,
+  },
+  availableStockText: {
+    fontSize: 9,
+    fontWeight: '600',
+    color: Colors.SHEIN_RED,
+    textAlign: 'center',
   },
   itemHeader: {
     flexDirection: 'row',
@@ -733,6 +762,11 @@ const styles = StyleSheet.create({
   itemContent: {
     flexDirection: 'row',
     gap: 8,
+    position: 'relative',
+    zIndex: 10,
+  },
+  itemContentDisabled: {
+    opacity: 1,
   },
   itemImage: {
     width: 60,
@@ -955,34 +989,58 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   checkoutBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
     paddingHorizontal: 12,
-    paddingVertical: 12,
+    paddingVertical: 10,
+    backgroundColor: Colors.WHITE,
     borderTopWidth: 1,
     borderTopColor: Colors.BORDER,
-    backgroundColor: Colors.WHITE,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 5,
   },
   totalContainer: {
-    flex: 1,
+    marginBottom: 8,
+    backgroundColor: Colors.LIGHT_GRAY,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: Colors.WINE,
   },
   totalLabel: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: Colors.BLACK,
+    fontSize: 12,
+    color: Colors.TEXT_SECONDARY,
+    marginBottom: 2,
+    fontWeight: '500',
+  },
+  totalAmount: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: Colors.WINE,
   },
   checkoutButton: {
-    backgroundColor: Colors.DARK_GRAY,
-    paddingHorizontal: 24,
+    backgroundColor: Colors.SUCCESS,
+    paddingHorizontal: 20,
     paddingVertical: 10,
-    borderRadius: 6,
+    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    shadowColor: Colors.SUCCESS,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 6,
   },
   checkoutButtonDisabled: {
     opacity: 0.6,
   },
   checkoutButtonText: {
     fontSize: 14,
-    fontWeight: 'bold',
+    fontWeight: '700',
     color: Colors.WHITE,
   },
 });

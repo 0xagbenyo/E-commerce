@@ -37,13 +37,14 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({
   variant = 'medium',
   pricingDiscount = 0,
 }) => {
-  // Safety check for product
-  if (!product) {
+  // Safety check for product - return nothing if product is invalid
+  if (!product || !product.id || !product.name) {
     return null;
   }
 
   const formatPrice = (price: number) => {
-    return `GH₵${price.toFixed(2)}`;
+    const numPrice = typeof price === 'number' ? price : 0;
+    return `GH₵${numPrice.toFixed(2)}`;
   };
 
   const calculateDiscount = () => {
@@ -51,7 +52,7 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({
     if (pricingDiscount && typeof pricingDiscount === 'number' && pricingDiscount > 0) {
       return Math.round(pricingDiscount);
     }
-    if (product?.originalPrice && product?.price && product.originalPrice > product.price) {
+    if (product?.originalPrice && typeof product.originalPrice === 'number' && product?.price && typeof product.price === 'number' && product.originalPrice > product.price) {
       return Math.round(((product.originalPrice - product.price) / product.originalPrice) * 100);
     }
     return 0;
@@ -67,21 +68,21 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({
     if (discount > 0) {
       // If we have a pricing rule discount, calculate the new price from current price
       if (pricingDiscount && typeof pricingDiscount === 'number' && pricingDiscount > 0) {
-        const discountedPrice = product.price * (1 - discount / 100);
+        const discountedPrice = (typeof product.price === 'number' ? product.price : 0) * (1 - discount / 100);
         return {
           displayPrice: discountedPrice,
-          originalPrice: product.price, // Current price becomes the "original"
+          originalPrice: typeof product.price === 'number' ? product.price : 0, // Current price becomes the "original"
         };
       }
       // Otherwise use the existing price structure
       return {
-        displayPrice: product.price,
-        originalPrice: product.originalPrice,
+        displayPrice: typeof product.price === 'number' ? product.price : 0,
+        originalPrice: typeof product.originalPrice === 'number' ? product.originalPrice : 0,
       };
     }
     return {
-      displayPrice: product.price,
-      originalPrice: product.originalPrice,
+      displayPrice: typeof product.price === 'number' ? product.price : 0,
+      originalPrice: typeof product.originalPrice === 'number' ? product.originalPrice : 0,
     };
   };
 
@@ -92,18 +93,18 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({
     switch (variant) {
       case 'tall':
         return {
-          imageHeight: cardWidth * 1.0, // Reduced height
+          imageHeight: cardWidth * 0.85, // Shorter height
           contentPadding: Spacing.PADDING_SM, // Reduced content space
         };
       case 'short':
         return {
-          imageHeight: cardWidth * 0.9, // Reduced height
+          imageHeight: cardWidth * 0.75, // Shorter height
           contentPadding: Spacing.PADDING_SM, // Reduced content space
         };
       case 'medium':
       default:
         return {
-          imageHeight: cardWidth * 0.95, // Reduced height
+          imageHeight: cardWidth * 0.8, // Shorter height
           contentPadding: Spacing.PADDING_SM, // Reduced content space
         };
     }
@@ -167,17 +168,17 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({
         
         {/* Wishlist Button */}
         {onWishlistPress && (
-        <TouchableOpacity
-          style={styles.wishlistButton}
-          onPress={() => onWishlistPress(product.id)}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          <Ionicons
-            name={isWishlisted ? 'heart' : 'heart-outline'}
+          <TouchableOpacity
+            style={styles.wishlistButton}
+            onPress={() => onWishlistPress(product.id)}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Ionicons
+              name={isWishlisted ? 'heart' : 'heart-outline'}
               size={16}
-            color={isWishlisted ? Colors.WINE : Colors.GOLD}
-          />
-        </TouchableOpacity>
+              color={isWishlisted ? Colors.WINE : Colors.GOLD}
+            />
+          </TouchableOpacity>
         )}
 
         {/* Cart Button */}
@@ -197,14 +198,14 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({
         )}
 
         {/* Discount Badge */}
-        {discount > 0 && (
+        {discount > 0 && typeof discount === 'number' && (
           <View style={styles.discountBadge}>
-            <Text style={styles.discountText}>-{discount}%</Text>
+            <Text style={styles.discountText}>-{Math.round(discount)}%</Text>
           </View>
         )}
 
         {/* New Badge */}
-        {product.isNew && (
+        {product.isNew === true && (
           <View style={styles.newBadge}>
             <Text style={styles.newText}>NEW</Text>
           </View>
@@ -212,27 +213,27 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({
       </View>
 
       <View style={[styles.content, { padding: contentPadding }]}>
-        {product.brand ? (
+        {product.brand && typeof product.brand === 'string' && (
           <Text style={styles.brand} numberOfLines={1} ellipsizeMode="tail">
-          {product.brand}
-        </Text>
-        ) : null}
+            {product.brand}
+          </Text>
+        )}
         
-        {product.company && variant !== 'short' ? (
+        {product.company && variant !== 'short' && typeof product.company === 'string' && (
           <Text style={styles.company} numberOfLines={1} ellipsizeMode="tail">
             {product.company}
           </Text>
-        ) : null}
+        )}
         
-        {product.name ? (
-        <Text 
-          style={styles.name} 
-          numberOfLines={variant === 'tall' ? 3 : variant === 'short' ? 1 : 2}
+        {product.name && typeof product.name === 'string' && (
+          <Text 
+            style={styles.name} 
+            numberOfLines={variant === 'tall' ? 3 : variant === 'short' ? 1 : 2}
             ellipsizeMode="tail"
-        >
-          {product.name}
-        </Text>
-        ) : null}
+          >
+            {product.name}
+          </Text>
+        )}
 
         <View style={styles.priceContainer}>
           <View style={styles.priceRow} pointerEvents="none">
@@ -243,7 +244,7 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({
                 ellipsizeMode="tail"
               >
                 {formatPrice(displayPrice || 0)}
-          </Text>
+              </Text>
             </View>
             {originalPrice && originalPrice > (displayPrice || 0) && (
               <View style={styles.originalPriceTextContainer}>
@@ -253,21 +254,21 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({
                   ellipsizeMode="tail"
                 >
                   {formatPrice(originalPrice)}
-            </Text>
+                </Text>
               </View>
-          )}
+            )}
           </View>
         </View>
 
         {/* Rating - only show for tall and medium variants */}
-        {product.rating && product.rating > 0 && variant !== 'short' ? (
+        {product.rating && typeof product.rating === 'number' && product.rating > 0 && variant !== 'short' && (
           <View style={styles.ratingContainer}>
             <Ionicons name="star" size={10} color={Colors.WARNING} />
             <Text style={styles.rating}>
-              {product.rating.toFixed(1)} ({product.reviewCount || 0})
+              {product.rating.toFixed(1)} ({typeof product.reviewCount === 'number' ? product.reviewCount : 0})
             </Text>
           </View>
-        ) : null}
+        )}
       </View>
     </TouchableOpacity>
   );
@@ -408,8 +409,8 @@ const styles = StyleSheet.create({
   },
   
   brand: {
-    fontSize: Typography.FONT_SIZE_XS,
-    color: Colors.SHEIN_RED,
+    fontSize: 9,
+    color: Colors.WINE,
     fontWeight: Typography.FONT_WEIGHT_BOLD,
     marginBottom: 4,
     letterSpacing: 0.3,
@@ -424,11 +425,11 @@ const styles = StyleSheet.create({
   },
   
   name: {
-    fontSize: Typography.FONT_SIZE_SM,
+    fontSize: 11,
     color: Colors.TEXT_PRIMARY,
     fontWeight: Typography.FONT_WEIGHT_SEMIBOLD,
     marginBottom: Spacing.MARGIN_XS,
-    lineHeight: Typography.FONT_SIZE_SM * 1.4,
+    lineHeight: 11 * 1.4,
   },
   
   priceContainer: {
@@ -456,8 +457,8 @@ const styles = StyleSheet.create({
   },
   
   price: {
-    fontSize: Typography.FONT_SIZE_SM,
-    color: Colors.VIBRANT_PINK,
+    fontSize: 11,
+    color: Colors.WINE,
     fontWeight: Typography.FONT_WEIGHT_BOLD,
     letterSpacing: 0.3,
   },

@@ -10,7 +10,7 @@ import {
   ActivityIndicator,
   RefreshControl,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../constants/colors';
 import { Spacing } from '../constants/spacing';
@@ -26,6 +26,7 @@ import { useUserSession } from '../context/UserContext';
 const { width } = Dimensions.get('window');
 
 export const WishlistScreen: React.FC = () => {
+  const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
@@ -141,15 +142,18 @@ export const WishlistScreen: React.FC = () => {
         <View style={styles.headerActions}>
           <TouchableOpacity 
             style={styles.viewModeButton}
-            onPress={() => setViewMode(viewMode === 'grid' ? 'list' : 'grid')}
+            onPress={() => (navigation as any).navigate('CreateBundle')}
           >
             <Ionicons 
-              name={viewMode === 'grid' ? 'list' : 'grid'} 
-              size={16} 
+              name="layers" 
+              size={20} 
               color={Colors.BLACK} 
             />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.searchButton}>
+          <TouchableOpacity 
+            style={styles.searchButton}
+            onPress={() => navigation.navigate('Search' as never)}
+          >
             <Ionicons name="search" size={16} color={Colors.BLACK} />
           </TouchableOpacity>
         </View>
@@ -273,7 +277,9 @@ export const WishlistScreen: React.FC = () => {
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom', 'left', 'right']}>
-      {renderHeader()}
+      <View style={[styles.headerContainer, { marginTop: -insets.top }]}>
+        {renderHeader()}
+      </View>
       {loading && renderLoadingState()}
       {error && !loading && renderErrorState()}
       {!loading && !error && wishlistItems.length === 0 && renderEmptyState()}
@@ -307,8 +313,11 @@ export const WishlistScreen: React.FC = () => {
 
 const styles = StyleSheet.create({
   container: {
-    paddingTop: Spacing.PADDING_XL,
+    paddingTop: 0,
     flex: 1,
+    backgroundColor: Colors.BACKGROUND,
+  },
+  headerContainer: {
     backgroundColor: Colors.BACKGROUND,
   },
   header: {
@@ -321,6 +330,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 12,
     paddingVertical: 8,
+    paddingTop: 100,
   },
   headerLeft: {
     flexDirection: 'row',

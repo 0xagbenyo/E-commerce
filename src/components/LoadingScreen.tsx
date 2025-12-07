@@ -91,6 +91,7 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({
                 color: getLetterColor(index),
               },
             ]}
+            allowFontScaling={false}
           >
             {letter === ' ' ? '\u00A0' : letter}
           </Animated.Text>

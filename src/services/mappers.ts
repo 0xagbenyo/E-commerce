@@ -573,6 +573,14 @@ export const mapERPSalesOrderToOrder = (erpOrder: any): Order => {
   const shippingAddr = mapERPAddressToUserAddress(erpOrder.shipping_address_doc);
   const billingAddr = mapERPAddressToUserAddress(erpOrder.billing_address_doc);
 
+  console.log('📦 Raw ERPNext order shipping address data:', {
+    name: erpOrder.name,
+    shipping_address_name: erpOrder.shipping_address_name,
+    shipping_address_doc: erpOrder.shipping_address_doc,
+    shipping_address_doc_keys: erpOrder.shipping_address_doc ? Object.keys(erpOrder.shipping_address_doc) : null,
+    mapped_shippingAddr: shippingAddr,
+  });
+
   // Create default address if not found
   const defaultAddress: UserAddress = {
     id: erpOrder.name,
@@ -589,11 +597,19 @@ export const mapERPSalesOrderToOrder = (erpOrder: any): Order => {
     isDefault: true,
   };
 
+  const status = mapERPOrderStatusFromDocstatus(erpOrder.docstatus, erpOrder.status);
+  console.log('📦 Mapping ERPNext order:', {
+    name: erpOrder.name,
+    docstatus: erpOrder.docstatus,
+    workflow_status: erpOrder.status,
+    mappedStatus: status,
+  });
+
   return {
     id: erpOrder.name,
     userId: erpOrder.custom_customer_id || '',
     orderNumber: erpOrder.name,
-    status: mapERPOrderStatusFromDocstatus(erpOrder.docstatus, erpOrder.status),
+    status: status,
     items: (erpOrder.items || []).map((item: any) => 
       mapERPSalesOrderItemToOrderItem(item)
     ),

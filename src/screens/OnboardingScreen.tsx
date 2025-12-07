@@ -219,7 +219,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28,
     fontWeight: 'bold',
-    color: '#2C2C2C', // Dark grey/black
+    color: 'Colors.DARK_GREY', // Dark grey/black
     textAlign: 'center',
     lineHeight: 34,
   },
@@ -243,7 +243,7 @@ const styles = StyleSheet.create({
   },
   description: {
     fontSize: 16,
-    color: '#6B6B6B', // Light grey
+    color: 'Colors.MEDIUM_GREY', // Light grey
     textAlign: 'center',
     lineHeight: 24,
   },
@@ -265,7 +265,7 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#FF6B6B', // Soft pink/coral
+    backgroundColor: 'Colors.CORAL_PINK', // Soft pink/coral
     marginHorizontal: 4,
   },
   buttonContainer: {
@@ -280,10 +280,10 @@ const styles = StyleSheet.create({
   skipText: {
     fontSize: 16,
     fontWeight: '500',
-    color: '#2C2C2C', // Dark grey
+    color: 'Colors.DARK_GREY', // Dark grey
   },
   nextButton: {
-    backgroundColor: '#FF6B6B', // Soft pink/coral
+    backgroundColor: 'Colors.CORAL_PINK', // Soft pink/coral
     paddingVertical: 16,
     paddingHorizontal: 32,
     borderRadius: 25,
@@ -294,7 +294,7 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
   startButton: {
-    backgroundColor: '#FF6B6B', // Soft pink/coral
+    backgroundColor: 'Colors.CORAL_PINK', // Soft pink/coral
     paddingVertical: 16,
     paddingHorizontal: 60,
     borderRadius: 25,
@@ -306,3 +306,4 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
 });
+

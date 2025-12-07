@@ -149,7 +149,7 @@ export const CategoriesScreen: React.FC = () => {
   const { user } = useUserSession();
   const { wishlistItems, refresh: refreshWishlist } = useWishlist(user?.email || null);
   const { toggleWishlist } = useWishlistActions(refreshWishlist);
-  const { data: parentCategories, loading: categoriesLoading, refresh: refreshCategories } = useCategories();
+  const { data: parentCategories, loading: categoriesLoading } = useCategories();
   const { data: pricingRules = [], loading: pricingRulesLoading } = usePricingRules();
   
   // Pull-to-refresh state
@@ -320,33 +320,14 @@ export const CategoriesScreen: React.FC = () => {
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      // Navigate to Splash screen first to show SIAMAE
-      navigation.dispatch(
-        CommonActions.reset({
-          index: 0,
-          routes: [{ name: 'Splash' }],
-        })
-      );
-      
-      // Wait a moment for Splash to appear, then reload the entire app
-      setTimeout(async () => {
-        try {
-          await Updates.reloadAsync();
-        } catch (error) {
-          console.log('Updates.reloadAsync not available, using navigation reset');
-          navigation.dispatch(
-            CommonActions.reset({
-              index: 0,
-              routes: [{ name: 'Main' }],
-            })
-          );
-      }
-      }, 1500);
+      // Refresh wishlist when user pulls to refresh
+      if (refreshWishlist) refreshWishlist();
     } catch (error) {
       console.error('Error refreshing data:', error);
+    } finally {
       setRefreshing(false);
     }
-  }, [navigation]);
+  }, [refreshWishlist]);
 
 
   const renderSidebar = () => {
@@ -365,11 +346,11 @@ export const CategoriesScreen: React.FC = () => {
       <ScrollView showsVerticalScrollIndicator={false}>
             {parentOnly && parentOnly.length > 0 ? (
               parentOnly.map((category) => {
-                const categoryName = category.name || category.item_group_name || '';
+                const categoryName = category.name || '';
                 if (!categoryName) return null;
                 return (
           <TouchableOpacity
-                    key={category.name || category.item_group_name}
+                    key={category.name}
             style={[
               styles.sidebarItem,
                       selectedCategory === category.name && styles.sidebarItemActive
@@ -524,7 +505,7 @@ export const CategoriesScreen: React.FC = () => {
             columnWrapperStyle={styles.childCategoriesRow}
             renderItem={({ item, index }) => {
               const image = childImages[item.name];
-              const categoryName = item.item_group_name || item.name || 'Category';
+              const categoryName = item.name || 'Category';
               
               return (
                 <AnimatedCategoryItem
@@ -714,7 +695,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   childCategoriesGridContainer: {
-    height: 200,
     paddingHorizontal: 8,
   },
   childCategoriesGridList: {

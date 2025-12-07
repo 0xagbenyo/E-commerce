@@ -166,6 +166,7 @@ export const SearchScreen: React.FC = () => {
         onBackPress={() => {
           (navigation as any).goBack();
         }}
+        headerBackgroundColor={Colors.WHITE}
       />
       {renderSearchResults()}
     </SafeAreaView>

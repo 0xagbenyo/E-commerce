@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,9 +9,10 @@ import {
   ActivityIndicator,
   Alert,
   TextInput,
+  FlatList,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../constants/colors';
 import { Spacing } from '../constants/spacing';
@@ -29,6 +30,27 @@ import {
 const mtnMomoImage = require('../assets/images/mtn momo.png');
 const telecelCashImage = require('../assets/images/telecel cash.png');
 
+interface Address {
+  name?: string;
+  address_title: string;
+  address_type: 'Billing' | 'Shipping';
+  address_line1: string;
+  address_line2?: string;
+  city: string;
+  county?: string;
+  state?: string;
+  country: string;
+  pincode: string;
+  email_id?: string;
+  phone: string;
+  fax?: string;
+  tax_category?: string;
+  is_primary_address?: boolean;
+  is_shipping_address?: boolean;
+  disabled?: boolean;
+  is_your_company_address?: boolean;
+}
+
 export const CheckoutScreen: React.FC = () => {
   const navigation = useNavigation();
   const { user } = useUserSession();
@@ -40,6 +62,49 @@ export const CheckoutScreen: React.FC = () => {
   const [quantityInputs, setQuantityInputs] = useState<{ [key: string]: string }>({});
   const [showStockAlert, setShowStockAlert] = useState(false);
   const [problematicItems, setProblematicItems] = useState<Array<{ name: string; reason: string; itemCode: string }>>([]);
+  
+  // Address state
+  const [addresses, setAddresses] = useState<Address[]>([]);
+  const [selectedAddress, setSelectedAddress] = useState<Address | null>(null);
+  const [addressLoading, setAddressLoading] = useState(false);
+  const [showAddressSelector, setShowAddressSelector] = useState(false);
+
+  // Fetch addresses on mount
+  useEffect(() => {
+    if (user?.email) {
+      fetchAddresses(user.email);
+    }
+  }, [user?.email]);
+
+  // Refresh addresses when screen comes into focus (e.g., when returning from EditAddressScreen)
+  useFocusEffect(
+    React.useCallback(() => {
+      if (user?.email) {
+        fetchAddresses(user.email);
+      }
+    }, [user?.email])
+  );
+
+  const fetchAddresses = async (email: string) => {
+    try {
+      setAddressLoading(true);
+      const client = getERPNextClient();
+      console.log('Fetching addresses for email:', email);
+      const fetchedAddresses = await client.getAddressesByEmail(email);
+      console.log('Fetched addresses:', fetchedAddresses);
+      setAddresses(fetchedAddresses || []);
+      
+      // Auto-select primary address if available (checking for 1 since API returns numeric)
+      const primaryAddress = fetchedAddresses?.find(addr => addr.is_primary_address === 1);
+      if (primaryAddress) {
+        setSelectedAddress(primaryAddress);
+      }
+    } catch (error) {
+      console.error('Error fetching addresses:', error);
+    } finally {
+      setAddressLoading(false);
+    }
+  };
 
   const formatPrice = (price: number) => {
     return `GH₵${price.toFixed(2)}`;
@@ -495,6 +560,12 @@ export const CheckoutScreen: React.FC = () => {
   };
 
   const handlePlaceOrder = async () => {
+    // Validate address selection first
+    if (!selectedAddress) {
+      Alert.alert('Address Required', 'Please select or add a shipping address to continue');
+      return;
+    }
+
     if (!selectedPayment) {
       Alert.alert('Payment Required', 'Please select a payment method');
       return;
@@ -595,6 +666,7 @@ export const CheckoutScreen: React.FC = () => {
           company: company,
           transaction_date: transactionDate.toISOString().split('T')[0], // Today's date in YYYY-MM-DD format
           delivery_date: deliveryDate.toISOString().split('T')[0], // 2 weeks from today in YYYY-MM-DD format
+          shipping_address_name: selectedAddress.name, // Use selected address name
           items: orderItems,
         };
 
@@ -714,28 +786,86 @@ export const CheckoutScreen: React.FC = () => {
   );
 
   const renderShippingAddress = () => {
-    // Mock address - in real app, fetch from user profile
-    const address = {
-      name: user?.fullName || 'Deborah Agbenyo',
-      id: '257420075',
-      address: 'University of Mines and Technology, Essikado Sekondi-Takorad Ghana 0000',
-    };
+    if (addressLoading) {
+      return (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Address</Text>
+          <ActivityIndicator size="small" color={Colors.GOLD} />
+        </View>
+      );
+    }
 
+    // No addresses found - show add address prompt
+    if (!addresses || addresses.length === 0) {
+      return (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Address</Text>
+          <TouchableOpacity
+            style={styles.emptyAddressContainer}
+            onPress={() => {
+              navigation.navigate('EditAddress', { returnTo: 'Checkout' });
+            }}
+          >
+            <Ionicons name="add-circle" size={18} color={Colors.GOLD} />
+            <Text style={styles.emptyAddressText}>Add Shipping Address</Text>
+          </TouchableOpacity>
+          <View style={styles.decorativeLine} />
+        </View>
+      );
+    }
+
+    // Address selector
     return (
       <View style={styles.section}>
-        <View style={styles.addressContainer}>
-          <Ionicons name="location" size={16} color={Colors.BLACK} />
-          <View style={styles.addressDetails}>
-            <View style={styles.addressHeader}>
-              <Text style={styles.addressName}>{address.name}</Text>
-              <Text style={styles.addressId}>{address.id}</Text>
-            </View>
-            <Text style={styles.addressText}>{address.address}</Text>
-          </View>
-          <TouchableOpacity>
-            <Ionicons name="chevron-forward" size={16} color={Colors.TEXT_SECONDARY} />
+        <View style={styles.sectionHeaderWithButton}>
+          <Text style={styles.sectionTitle}>Address</Text>
+          <TouchableOpacity
+            onPress={() => {
+              navigation.navigate('EditAddress', { returnTo: 'Checkout' });
+            }}
+            style={styles.addButtonSmall}
+          >
+            <Ionicons name="add" size={16} color={Colors.GOLD} />
           </TouchableOpacity>
         </View>
+
+        <FlatList
+          scrollEnabled={false}
+          data={addresses}
+          keyExtractor={(item, index) => item.name || `address-${index}`}
+          renderItem={({ item, index }) => (
+            <TouchableOpacity
+              style={[
+                styles.addressItem,
+                selectedAddress?.name === item.name && styles.addressItemSelected,
+              ]}
+              onPress={() => setSelectedAddress(item)}
+            >
+              <View style={styles.addressItemCheckbox}>
+                {selectedAddress?.name === item.name && (
+                  <Ionicons name="checkmark-circle" size={18} color={Colors.GOLD} />
+                )}
+                {selectedAddress?.name !== item.name && (
+                  <View style={styles.addressItemCheckboxEmpty} />
+                )}
+              </View>
+              <View style={styles.addressItemContent}>
+                <View style={styles.addressTitleRow}>
+                  <Text style={styles.addressItemTitle} numberOfLines={1}>{item.address_title}</Text>
+                  {item.is_primary_address === 1 && (
+                    <View style={styles.primaryBadge}>
+                      <Text style={styles.primaryBadgeText}>Primary</Text>
+                    </View>
+                  )}
+                </View>
+                <Text style={styles.addressItemText} numberOfLines={2}>
+                  {item.address_line1}
+                  {item.address_line2 ? `, ${item.address_line2}` : ''} · {item.city}, {item.state || item.county}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          )}
+        />
         <View style={styles.decorativeLine} />
       </View>
     );
@@ -1000,9 +1130,12 @@ export const CheckoutScreen: React.FC = () => {
 
       <View style={styles.footer}>
         <TouchableOpacity
-          style={[styles.continueButton, !selectedPayment && styles.continueButtonDisabled]}
+          style={[
+            styles.continueButton,
+            (!selectedPayment || !selectedAddress) && styles.continueButtonDisabled,
+          ]}
           onPress={handlePlaceOrder}
-          disabled={!selectedPayment || isPlacingOrder}
+          disabled={!selectedPayment || !selectedAddress || isPlacingOrder}
         >
           {isPlacingOrder ? (
             <ActivityIndicator size="small" color={Colors.WHITE} />
@@ -1399,5 +1532,97 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: Colors.TEXT_SECONDARY,
     marginTop: 16,
+  },
+  // Address selector styles
+  emptyAddressContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    backgroundColor: '#FFFBF5',
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: Colors.GOLD,
+    marginBottom: 8,
+    gap: 8,
+  },
+  emptyAddressText: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: Colors.GOLD,
+  },
+  sectionHeaderWithButton: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  addButtonSmall: {
+    width: 28,
+    height: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: Colors.GOLD,
+  },
+  addressItem: {
+    flexDirection: 'row',
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    marginBottom: 6,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: Colors.BORDER,
+    backgroundColor: Colors.WHITE,
+  },
+  addressItemSelected: {
+    borderColor: Colors.GOLD,
+    backgroundColor: '#FFFBF5',
+  },
+  addressItemCheckbox: {
+    width: 24,
+    height: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 8,
+  },
+  addressItemCheckboxEmpty: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 2,
+    borderColor: Colors.BORDER,
+  },
+  addressItemContent: {
+    flex: 1,
+  },
+  addressTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 2,
+  },
+  addressItemTitle: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: Colors.BLACK,
+    flex: 1,
+  },
+  primaryBadge: {
+    backgroundColor: Colors.WINE,
+    paddingVertical: 2,
+    paddingHorizontal: 6,
+    borderRadius: 3,
+  },
+  primaryBadgeText: {
+    fontSize: 9,
+    fontWeight: '600',
+    color: Colors.WHITE,
+  },
+  addressItemText: {
+    fontSize: 10,
+    color: Colors.TEXT_SECONDARY,
+    lineHeight: 14,
   },
 });

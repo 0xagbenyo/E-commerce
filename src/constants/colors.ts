@@ -10,9 +10,9 @@ export const Colors = {
   SHEIN_RED: '#FF3B30',
   
   // Wine & Gold Colors (New)
-  WINE: '#591115',
+  WINE: '#710F1C',
   WINE_LIGHT: '#8B2D47',
-  GOLD: '#ECBE07',
+  GOLD: '#CF6275',
   GOLD_LIGHT: '#F5D76E',
   
   // Accent Colors
@@ -61,7 +61,7 @@ export const Colors = {
   GRADIENT_BLUE_END: '#5AC8FA',
   GRADIENT_ORANGE_START: '#FF6B35',
   GRADIENT_ORANGE_END: '#FF8C42',
-  GRADIENT_WINE_START: '#591115',
+  GRADIENT_WINE_START: '#710F1C',
   GRADIENT_WINE_END: '#8B2D47',
   GRADIENT_DARK_START: 'rgba(0, 0, 0, 0.5)',
   GRADIENT_DARK_END: 'rgba(0, 0, 0, 0.1)',

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -9,18 +9,20 @@ import {
   ActivityIndicator,
   RefreshControl,
   Alert,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Colors } from '../constants/colors';
+import { Spacing } from '../constants/spacing';
+import { ProductCard } from '../components/ProductCard';
 import { useUserSession } from '../context/UserContext';
 import { useWishlist } from '../hooks/erpnext';
 import { useShoppingCart } from '../hooks/erpnext';
 import { useOrders } from '../hooks/erpnext';
-import { usePricingRules } from '../hooks/erpnext';
 import { getERPNextClient } from '../services/erpnext';
-import { mapERPWebsiteItemToProduct } from '../services/mappers';
+import { mapERPWebsiteItemToProduct, Product } from '../services/mappers';
 
 const services = [
   { id: '1', label: 'Customer Service', icon: 'headset-outline' },
@@ -69,83 +71,140 @@ export const ProfileScreen: React.FC = () => {
   const { data: orders } = useOrders(user?.email || '', undefined);
   const orderCount = orders?.length || 0;
   
-  // Fetch pricing rules for discount banner
-  const { data: pricingRules = [] } = usePricingRules();
+  // State for infinity scroll items
+  const [scrollItems, setScrollItems] = useState<Product[]>([]);
+  const [scrollItemsLoading, setScrollItemsLoading] = useState(false);
+  const [hasMoreScrollItems, setHasMoreScrollItems] = useState(true);
+  const [scrollItemsOffset, setScrollItemsOffset] = useState(0);
+  const initialFetchRef = useRef(false);
   
-  // Get the latest/active pricing rule
-  const latestPricingRule = pricingRules && pricingRules.length > 0 ? pricingRules[0] : null;
-  const discountPercent = latestPricingRule?.discount_percentage || (latestPricingRule as any)?.discount_percentage || 0;
-  
-  // State for pricing rule products
-  const [pricingRuleProducts, setPricingRuleProducts] = useState<any[]>([]);
-  
-  // Fetch products for the latest pricing rule
+  // Fetch infinity scroll items with randomization
   useEffect(() => {
-    const fetchPricingRuleProducts = async () => {
-      if (!latestPricingRule || discountPercent === 0) {
-        setPricingRuleProducts([]);
-        return;
-      }
+    const fetchScrollItems = async () => {
+      if (initialFetchRef.current) return;
       
       try {
+        initialFetchRef.current = true;
+        setScrollItemsLoading(true);
         const client = getERPNextClient();
-        const ruleAny = latestPricingRule as any;
-        const products: any[] = [];
         
-        // Fetch products by item codes
-        if (ruleAny.items && Array.isArray(ruleAny.items) && ruleAny.items.length > 0) {
-          for (const item of ruleAny.items) {
+        // Fetch items just like HomeScreen does - no offset, no filters
+        const itemsPerPage = 12;
+        
+        console.log('ProfileScreen: Fetching scroll items');
+        const items = await client.getWebsiteItems(undefined, itemsPerPage, 0);
+        
+        console.log('ProfileScreen: Fetched items:', items?.length || 0);
+        
+        if (items && items.length > 0) {
+          // Shuffle the fetched items for more randomness
+          const shuffledItems = items.sort(() => Math.random() - 0.5);
+          const products = shuffledItems.map((item: any) => {
             try {
-              const itemCode = item.item_code || item.item;
-              if (itemCode) {
-                let websiteItem;
-                try {
-                  websiteItem = await client.getWebsiteItem(itemCode);
-                } catch (error) {
-                  // Try search fallback
-                  const searchResults = await client.searchWebsiteItems(itemCode);
-                  if (searchResults && searchResults.length > 0) {
-                    websiteItem = searchResults[0];
-                  }
-                }
-                if (websiteItem) {
-                  const product = mapERPWebsiteItemToProduct(websiteItem);
-                  products.push(product);
-                }
-              }
-            } catch (error) {
-              // Skip items that can't be found
-              continue;
+              const product = mapERPWebsiteItemToProduct(item);
+              console.log('ProfileScreen: Mapped product:', product?.id, product?.name);
+              return product;
+            } catch (err) {
+              console.error('ProfileScreen: Error mapping item:', err, 'item:', item);
+              return null;
             }
-          }
-        }
-        
-        // Fetch products by item groups
-        if (ruleAny.item_groups && Array.isArray(ruleAny.item_groups) && ruleAny.item_groups.length > 0) {
-          for (const group of ruleAny.item_groups) {
-            try {
-              const groupName = group.item_group || group.name;
-              if (groupName) {
-                const groupItems = await client.getItemsByGroup(groupName, 10);
-                const groupProducts = groupItems.map((item: any) => mapERPWebsiteItemToProduct(item));
-                products.push(...groupProducts);
-              }
-            } catch (error) {
-              // Skip groups that can't be found
-              continue;
+          });
+          
+          console.log('ProfileScreen: Mapped products sample:', products.slice(0, 2));
+          
+          // Filter out invalid products
+          const validProducts = products.filter(p => {
+            const isValid = p && p.id;
+            if (!isValid) {
+              console.log('ProfileScreen: Filtered out product:', p);
             }
+            return isValid;
+          });
+          
+          console.log('ProfileScreen: Valid products:', validProducts.length);
+          setScrollItems(validProducts);
+          setScrollItemsOffset(itemsPerPage);
+          
+          // Check if there are more items to load
+          if (items.length < itemsPerPage) {
+            setHasMoreScrollItems(false);
           }
+        } else {
+          console.log('ProfileScreen: No items returned from API');
+          setHasMoreScrollItems(false);
         }
-        
-        setPricingRuleProducts(products);
       } catch (error) {
-        console.error('Error fetching pricing rule products:', error);
-        setPricingRuleProducts([]);
+        console.error('ProfileScreen: Error fetching scroll items:', error);
+        setHasMoreScrollItems(false);
+      } finally {
+        setScrollItemsLoading(false);
       }
     };
     
-    fetchPricingRuleProducts();
-  }, [latestPricingRule, discountPercent]);
+    fetchScrollItems();
+  }, []);
+  
+  const loadMoreScrollItems = () => {
+    if (scrollItemsLoading || !hasMoreScrollItems) return;
+    
+    const loadMore = async () => {
+      try {
+        setScrollItemsLoading(true);
+        const client = getERPNextClient();
+        
+        const itemsPerPage = 12;
+        const items = await client.getWebsiteItems(undefined, itemsPerPage, scrollItemsOffset);
+        
+        if (items && items.length > 0) {
+          const shuffledItems = items.sort(() => Math.random() - 0.5);
+          const products = shuffledItems.map((item: any) => mapERPWebsiteItemToProduct(item));
+          
+          // Filter out invalid products and duplicates
+          setScrollItems(prev => {
+            const existingIds = new Set(prev.map(p => p.id));
+            const validNewProducts = products.filter(p => p && p.id && !existingIds.has(p.id));
+            return [...prev, ...validNewProducts];
+          });
+          
+          setScrollItemsOffset(prev => prev + itemsPerPage);
+          
+          if (items.length < itemsPerPage) {
+            setHasMoreScrollItems(false);
+          }
+        } else {
+          setHasMoreScrollItems(false);
+        }
+      } catch (error) {
+        console.error('Error loading more items:', error);
+        setHasMoreScrollItems(false);
+      } finally {
+        setScrollItemsLoading(false);
+      }
+    };
+    
+    loadMore();
+  };
+
+  // Randomize items when screen comes into focus
+  useFocusEffect(
+    React.useCallback(() => {
+      if (scrollItems.length > 0) {
+        // Shuffle the current items for visual variety
+        setScrollItems(prev => {
+          const shuffled = [...prev].sort(() => Math.random() - 0.5);
+          return shuffled;
+        });
+      }
+      // Don't reset itemsFetched here - let the useEffect handle initial fetch
+    }, [scrollItems.length])
+  );
+
+  // Handle infinite scroll - load more items when reaching bottom
+  const handleScrollEndReached = () => {
+    if (!scrollItemsLoading && hasMoreScrollItems && scrollItems.length > 0) {
+      loadMoreScrollItems();
+    }
+  };
   
   // Handle pull-to-refresh
   const onRefresh = async () => {
@@ -161,6 +220,12 @@ export const ProfileScreen: React.FC = () => {
       // Refresh wishlist and cart
       if (refreshWishlist) refreshWishlist();
       if (refreshCart) refreshCart();
+      
+      // Reset explore items to fetch new random ones
+      setScrollItems([]);
+      setScrollItemsOffset(0);
+      setHasMoreScrollItems(true);
+      initialFetchRef.current = false;
     } catch (error) {
       console.error('Error refreshing profile:', error);
     } finally {
@@ -257,35 +322,6 @@ export const ProfileScreen: React.FC = () => {
   );
   };
 
-
-  const renderPricingRuleBanner = () => {
-    // Only show banner if there's an active pricing rule with a discount
-    if (!latestPricingRule || discountPercent === 0) {
-      return null;
-    }
-    
-    const handleBannerPress = () => {
-      // Navigate to AllDeals screen with the pricing rule products
-      (navigation as any).navigate('AllDeals', { 
-        deals: pricingRuleProducts
-      });
-    };
-    
-    return (
-        <TouchableOpacity 
-        style={styles.pricingRuleBanner}
-        onPress={handleBannerPress}
-        activeOpacity={0.8}
-        >
-        <Ionicons name="pricetag" size={16} color={Colors.SHEIN_PINK} />
-        <Text style={styles.pricingRuleBannerText}>
-          Get {discountPercent}% Off - Tap to view deals!
-        </Text>
-        <Ionicons name="chevron-forward" size={14} color={Colors.SHEIN_PINK} />
-        </TouchableOpacity>
-  );
-  };
-
   const renderOrdersSection = () => (
     <View style={styles.section}>
       <View style={styles.sectionHeader}>
@@ -351,6 +387,65 @@ export const ProfileScreen: React.FC = () => {
     </View>
   );
 
+  const renderScrollItemsSection = () => {
+    // Show nothing if no items and not loading and we've finished fetching
+    if (scrollItems.length === 0 && !scrollItemsLoading && initialFetchRef.current) {
+      console.log('ProfileScreen: No items to show');
+      return null;
+    }
+
+    console.log('ProfileScreen: Rendering scroll items section, items:', scrollItems.length, 'loading:', scrollItemsLoading);
+
+    return (
+      <View style={styles.section}>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Explore Items</Text>
+        </View>
+        {scrollItemsLoading && scrollItems.length === 0 ? (
+          // Loading state
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color={Colors.SHEIN_PINK} />
+            <Text style={styles.loadingText}>Loading explore items...</Text>
+          </View>
+        ) : (
+          <FlatList
+            scrollEnabled={false}
+            nestedScrollEnabled={false}
+            data={scrollItems}
+            renderItem={({ item, index }) => {
+              if (!item || !item.id) {
+                console.log('ProfileScreen: Invalid item at index', index);
+                return null;
+              }
+              console.log('ProfileScreen: Rendering item', item.id, item.name);
+              return (
+                <ProductCard
+                  product={item}
+                  onPress={(productId) => (navigation as any).navigate('ProductDetails', { productId })}
+                  style={styles.scrollItemCard}
+                />
+              );
+            }}
+            keyExtractor={(item, index) => `scroll-item-${item.id}-${index}`}
+            numColumns={2}
+            columnWrapperStyle={styles.flatListColumnWrapper}
+            ListFooterComponent={
+              scrollItemsLoading && scrollItems.length > 0 ? (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="small" color={Colors.SHEIN_PINK} />
+                </View>
+              ) : null
+            }
+          />
+        )}
+      </View>
+    );
+  };
+
+  const handleCreateBundle = async () => {
+    // Function removed - bundle creation moved to dedicated CreateBundleScreen
+  };
+
   const handleLogout = () => {
     Alert.alert(
       'Log Out',
@@ -398,6 +493,29 @@ export const ProfileScreen: React.FC = () => {
   );
   };
 
+  const renderCreateBundleSection = () => {
+    if (!user?.email) {
+      return null;
+    }
+
+    return (
+      <View style={styles.section}>
+        <TouchableOpacity 
+          style={styles.createBundleButton}
+          onPress={() => (navigation as any).navigate('CreateBundle')}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="gift-outline" size={18} color={Colors.WHITE} />
+          <View style={styles.createBundleContent}>
+            <Text style={styles.createBundleTitle}>Create Bundle</Text>
+            <Text style={styles.createBundleSubtitle}>Package items together</Text>
+          </View>
+          <Ionicons name="arrow-forward" size={18} color={Colors.WHITE} />
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
 
   return (
     <SafeAreaView style={styles.container}>
@@ -411,13 +529,22 @@ export const ProfileScreen: React.FC = () => {
             colors={[Colors.SHEIN_PINK]}
           />
         }
+        onScroll={(event) => {
+          const { layoutMeasurement, contentOffset, contentSize } = event.nativeEvent;
+          const paddingToBottom = 200; // Load more when 200px from bottom
+          if (layoutMeasurement.height + contentOffset.y >= contentSize.height - paddingToBottom) {
+            handleScrollEndReached();
+          }
+        }}
+        scrollEventThrottle={400}
       >
         {renderHeader()}
-        {renderPricingRuleBanner()}
         {renderOrdersSection()}
         {renderActivitiesSection()}
         {renderServicesSection()}
         {renderLogoutSection()}
+        {renderCreateBundleSection()}
+        {renderScrollItemsSection()}
       </ScrollView>
     </SafeAreaView>
   );
@@ -765,6 +892,320 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: Colors.ERROR,
+  },
+  createBundleContainer: {
+    paddingHorizontal: 16,
+  },
+  createBundleButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.WINE,
+    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    gap: 10,
+  },
+  createBundleContent: {
+    flex: 1,
+  },
+  createBundleTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: Colors.WHITE,
+  },
+  createBundleSubtitle: {
+    fontSize: 11,
+    color: 'rgba(255, 255, 255, 0.8)',
+    marginTop: 2,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContainer: {
+    backgroundColor: Colors.WHITE,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '85%',
+    paddingTop: 16,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.BORDER,
+  },
+  modalTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: Colors.BLACK,
+  },
+  modalContent: {
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+  },
+  bundleDropdownForm: {
+    backgroundColor: Colors.LIGHT_GRAY,
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 8,
+    gap: 12,
+  },
+  formGroup: {
+    marginBottom: 16,
+  },
+  label: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: Colors.BLACK,
+    marginBottom: 6,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: Colors.BORDER,
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 14,
+    color: Colors.BLACK,
+    backgroundColor: Colors.BACKGROUND,
+  },
+  textArea: {
+    height: 80,
+    textAlignVertical: 'top',
+  },
+  modalFooter: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: Colors.BORDER,
+  },
+  cancelButton: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 6,
+    alignItems: 'center',
+    backgroundColor: Colors.BORDER,
+  },
+  cancelButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.TEXT_SECONDARY,
+  },
+  submitButton: {
+    flex: 1,
+    backgroundColor: Colors.WINE,
+    paddingVertical: 10,
+    borderRadius: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  submitButtonDisabled: {
+    opacity: 0.6,
+  },
+  submitButtonText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: Colors.WHITE,
+  },
+  dropdownFooter: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 8,
+  },
+  itemsTableHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  addItemButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  addItemButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: Colors.WINE,
+  },
+  itemSearchContainer: {
+    marginBottom: 8,
+  },
+  searchDropdown: {
+    backgroundColor: Colors.WHITE,
+    borderWidth: 1,
+    borderColor: Colors.BORDER,
+    borderRadius: 6,
+    marginTop: 4,
+    maxHeight: 200,
+  },
+  searchResultItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.BORDER,
+    gap: 8,
+  },
+  searchResultImage: {
+    width: 40,
+    height: 40,
+    borderRadius: 4,
+    backgroundColor: Colors.LIGHT_GRAY,
+  },
+  searchResultImageContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 4,
+    overflow: 'hidden',
+    backgroundColor: Colors.LIGHT_GRAY,
+  },
+  searchResultImagePlaceholder: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  searchResultContent: {
+    flex: 1,
+  },
+  searchResultName: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: Colors.BLACK,
+  },
+  searchResultCode: {
+    fontSize: 10,
+    color: Colors.TEXT_SECONDARY,
+    marginTop: 2,
+  },
+  searchResultText: {
+    fontSize: 12,
+    color: Colors.BLACK,
+  },
+  itemsTable: {
+    borderWidth: 1,
+    borderColor: Colors.BORDER,
+    borderRadius: 4,
+    marginTop: 8,
+    backgroundColor: Colors.WHITE,
+  },
+  tableHeaderRow: {
+    flexDirection: 'row',
+    backgroundColor: Colors.LIGHT_GRAY,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.BORDER,
+  },
+  tableHeaderCell: {
+    paddingHorizontal: 6,
+    paddingVertical: 6,
+    fontSize: 11,
+    fontWeight: '700',
+    color: Colors.BLACK,
+  },
+  tableRow: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.BORDER,
+    alignItems: 'center',
+  },
+  tableCell: {
+    paddingHorizontal: 6,
+    paddingVertical: 8,
+    fontSize: 11,
+    color: Colors.BLACK,
+  },
+  noColumn: {
+    flex: 0.4,
+    textAlign: 'center',
+  },
+  itemColumn: {
+    flex: 1.2,
+  },
+  qtyColumn: {
+    flex: 0.8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    justifyContent: 'center',
+  },
+  descColumn: {
+    flex: 0.8,
+  },
+  actionColumn: {
+    flex: 0.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  qtyInput: {
+    width: 24,
+    textAlign: 'center',
+    fontSize: 11,
+    color: Colors.BLACK,
+  },
+  descInput: {
+    borderWidth: 1,
+    borderColor: Colors.BORDER,
+    backgroundColor: Colors.BACKGROUND,
+    borderRadius: 2,
+    paddingHorizontal: 4,
+  },
+  emptyItemsMessage: {
+    padding: 12,
+    alignItems: 'center',
+  },
+  emptyItemsText: {
+    fontSize: 12,
+    color: Colors.TEXT_SECONDARY,
+  },
+  scrollItemsList: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  scrollItemsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 12,
+  },
+  flatListColumnWrapper: {
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  scrollItemCard: {
+    width: '48%',
+  },
+  loadingContainer: {
+    width: 60,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 12,
+    alignSelf: 'center',
+  },
+  loadMoreButton: {
+    marginHorizontal: 16,
+    marginVertical: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    backgroundColor: Colors.WINE,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  loadMoreButtonText: {
+    color: Colors.WHITE,
+    fontSize: 14,
+    fontWeight: '600',
   },
 });
 

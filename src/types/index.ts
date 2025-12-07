@@ -227,6 +227,8 @@ export type RootStackParamList = {
   InvoiceDetails: { invoiceId: string };
   EditProfile: undefined;
   Settings: undefined;
+  CreateBundle: undefined;
+  ViewBundle: { bundle: any };
 };
 
 export type AuthStackParamList = {

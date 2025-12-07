@@ -48,11 +48,14 @@ export const OrderHistoryScreen: React.FC = () => {
       hasMore,
       error: error?.message,
       customerId: customerId,
+      selectedFilter,
+      filteredCount: filteredOrders?.length || 0,
     });
     if (orders && orders.length > 0) {
       console.log('📦 First order:', orders[0]);
+      console.log('📦 All order statuses:', orders.map(o => ({ id: o.id, status: o.status })));
     }
-  }, [orders, loading, loadingMore, hasMore, error, customerId]);
+  }, [orders, loading, loadingMore, hasMore, error, customerId, selectedFilter, filteredOrders]);
 
   // Handle infinite scroll
   const handleEndReached = useCallback(() => {
@@ -170,6 +173,7 @@ export const OrderHistoryScreen: React.FC = () => {
   const filteredOrders = orders && selectedFilter !== 'All'
     ? orders.filter(order => {
         const status = order.status || 'pending';
+        console.log('Filtering order:', { orderNumber: order.orderNumber, status, selectedFilter });
         if (selectedFilter === 'Pending') return status === 'pending';
         if (selectedFilter === 'Processing') return status === 'processing';
         if (selectedFilter === 'To Deliver') return status === 'to_deliver';
@@ -185,7 +189,7 @@ export const OrderHistoryScreen: React.FC = () => {
         {renderHeader()}
         {renderFilterTabs()}
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color=" #bc8474" />
+          <ActivityIndicator size="large" color={Colors.WINE} />
           <Text style={styles.loadingText}>Loading orders...</Text>
         </View>
       </SafeAreaView>
@@ -224,7 +228,7 @@ export const OrderHistoryScreen: React.FC = () => {
     if (!loadingMore) return null;
     return (
       <View style={styles.footerLoader}>
-        <ActivityIndicator size="small" color=" #bc8474" />
+        <ActivityIndicator size="small" color={Colors.WINE} />
         <Text style={styles.footerLoaderText}>Loading more orders...</Text>
       </View>
     );
@@ -243,12 +247,23 @@ export const OrderHistoryScreen: React.FC = () => {
         onEndReached={handleEndReached}
         onEndReachedThreshold={0.5}
         ListFooterComponent={renderFooter}
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <Ionicons name="document-outline" size={64} color={Colors.TEXT_SECONDARY} />
+            <Text style={styles.emptyText}>No orders found</Text>
+            <Text style={styles.emptySubtext}>
+              {selectedFilter !== 'All' 
+                ? `No ${selectedFilter.toLowerCase()} orders`
+                : 'Your orders will appear here'}
+            </Text>
+          </View>
+        }
         refreshControl={
           <RefreshControl
             refreshing={loading && !loadingMore}
             onRefresh={refresh}
-            tintColor=" #bc8474"
-            colors={[" #bc8474"]}
+            tintColor={Colors.WINE}
+            colors={[Colors.WINE]}
           />
         }
         removeClippedSubviews={true}
@@ -297,17 +312,22 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     marginRight: 8,
     borderRadius: 20,
+    borderWidth: 1,
+    borderColor: Colors.BORDER,
+    backgroundColor: Colors.WHITE,
   },
   filterTabActive: {
-    backgroundColor: ' #bc8474', // Burgundy
+    backgroundColor: Colors.WINE,
+    borderColor: Colors.WINE,
   },
   filterTabText: {
-    fontSize: 14,
+    fontSize: 13,
     color: Colors.TEXT_SECONDARY,
-    fontWeight: '500',
+    fontWeight: '600',
   },
   filterTabTextActive: {
     color: Colors.WHITE,
+    fontWeight: '700',
   },
   invoicesList: {
     padding: 16,
@@ -383,8 +403,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   primaryButton: {
-    backgroundColor: ' #bc8474', // Burgundy
-    borderColor: ' #bc8474', // Burgundy
+    backgroundColor: Colors.WINE,
+    borderColor: Colors.WINE,
   },
   actionButtonText: {
     fontSize: 14,

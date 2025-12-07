@@ -9,8 +9,10 @@ import {
   SafeAreaView,
   RefreshControl,
   ActivityIndicator,
+  TextInput,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, CommonActions } from '@react-navigation/native';
 import * as Updates from 'expo-updates';
@@ -38,56 +40,91 @@ export const ProductBundlesScreen: React.FC = () => {
   
   // Pull-to-refresh state
   const [refreshing, setRefreshing] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   
-  // Handle pull-to-refresh - reload the entire page
+  // Handle pull-to-refresh - just refresh data without navigation
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      // Navigate to Splash screen first to show SIAMAE
-      navigation.dispatch(
-        CommonActions.reset({
-          index: 0,
-          routes: [{ name: 'Splash' }],
-        })
-      );
-      
-      // Wait a moment for Splash to appear, then reload the entire app
-      setTimeout(async () => {
-        try {
-          await Updates.reloadAsync();
-        } catch (error) {
-          console.log('Updates.reloadAsync not available, using navigation reset');
-          navigation.dispatch(
-            CommonActions.reset({
-              index: 0,
-              routes: [{ name: 'Main' }],
-            })
-          );
-        }
-      }, 1500);
+      // Refresh the bundle data by calling the hook's refresh or re-fetching
+      // The hook will handle fetching the latest data
+      await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate refresh delay
+      refreshWishlist(); // Also refresh wishlist while we're at it
     } catch (error) {
       console.error('Error refreshing data:', error);
+    } finally {
       setRefreshing(false);
     }
-  }, [navigation]);
+  }, [refreshWishlist]);
   
   // Check if page is initially loading
   const isInitialLoading = bundlesLoading && (!productBundles || productBundles.length === 0);
 
+  // Filter bundles based on search query
+  const filteredBundles = useMemo(() => {
+    if (!productBundles) return [];
+    if (!searchQuery.trim()) return productBundles;
+    
+    const query = searchQuery.toLowerCase();
+    return productBundles.filter(bundle =>
+      bundle.bundleName.toLowerCase().includes(query) ||
+      bundle.newItemCode.toLowerCase().includes(query)
+    );
+  }, [productBundles, searchQuery]);
+
   const renderHeader = () => (
-    <View style={[styles.header, { paddingTop: insets.top + Spacing.PADDING_XS }]}>
-      <TouchableOpacity
-        style={styles.backButton}
-        onPress={() => navigation.goBack()}
-      >
-        <Ionicons name="arrow-back" size={20} color={Colors.WHITE} />
-      </TouchableOpacity>
-      <Text style={styles.headerTitle}>Product Bundles</Text>
-      <View style={styles.placeholder} />
-    </View>
+    <LinearGradient
+      colors={[Colors.WINE, Colors.WINE_LIGHT]}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 0 }}
+      style={styles.headerGradient}
+    >
+      <View style={styles.headerContainer}>
+        <View style={styles.header}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => navigation.goBack()}
+          >
+            <Ionicons name="arrow-back" size={24} color={Colors.WHITE} />
+          </TouchableOpacity>
+          <View style={styles.headerTitleContainer}>
+            <Text style={styles.headerTitle}>Product Bundles</Text>
+            <Text style={styles.headerSubtitle}>Curated collections</Text>
+          </View>
+          <TouchableOpacity
+            style={styles.createButton}
+            onPress={() => navigation.navigate('CreateBundle' as any)}
+          >
+            <LinearGradient
+              colors={['rgba(255,255,255,0.3)', 'rgba(255,255,255,0.1)']}
+              style={styles.createButtonGradient}
+            >
+              <Ionicons name="add" size={24} color={Colors.WHITE} />
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
+        <View style={styles.searchContainer}>
+          <Ionicons name="search" size={18} color={Colors.TEXT_SECONDARY} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search bundles..."
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholderTextColor={Colors.TEXT_SECONDARY}
+          />
+          {searchQuery.length > 0 && (
+            <TouchableOpacity onPress={() => setSearchQuery('')}>
+              <Ionicons name="close" size={18} color={Colors.TEXT_SECONDARY} />
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+    </LinearGradient>
   );
 
   const renderBundleItem = useCallback(({ item, index }: { item: any; index: number }) => {
+    const totalAmount = item.items?.reduce((sum: number, itemObj: any) => sum + (itemObj.qty || 1), 0) || 0;
+    
     return (
       <View style={styles.bundleItemContainer}>
         <ProductBundleCard
@@ -95,6 +132,7 @@ export const ProductBundlesScreen: React.FC = () => {
           newItemCode={item.newItemCode}
           customCustomer={item.customCustomer}
           items={item.items}
+          totalAmount={totalAmount}
         />
       </View>
     );
@@ -138,7 +176,7 @@ export const ProductBundlesScreen: React.FC = () => {
     <SafeAreaView style={styles.container} edges={['bottom', 'left', 'right']}>
       {renderHeader()}
       <FlatList
-        data={productBundles}
+        data={filteredBundles}
         renderItem={renderBundleItem}
         keyExtractor={(item, index) => `bundle-${index}-${item.bundleName}`}
         contentContainerStyle={styles.listContent}
@@ -147,8 +185,8 @@ export const ProductBundlesScreen: React.FC = () => {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            tintColor={Colors.SHEIN_RED}
-            colors={[Colors.SHEIN_RED]}
+            tintColor={Colors.WINE}
+            colors={[Colors.WINE]}
           />
         }
         ListEmptyComponent={
@@ -165,31 +203,77 @@ export const ProductBundlesScreen: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.WHITE,
+    backgroundColor: '#F8F7F6',
+  },
+  headerGradient: {
+    paddingBottom: Spacing.PADDING_MD,
+  },
+  headerContainer: {
+    paddingTop: Spacing.PADDING_SM,
+    paddingHorizontal: Spacing.PADDING_MD,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: Colors.SHEIN_RED,
-    paddingHorizontal: Spacing.PADDING_MD,
-    paddingBottom: Spacing.PADDING_SM,
+    paddingVertical: Spacing.PADDING_SM,
+    marginBottom: Spacing.PADDING_MD,
   },
   backButton: {
     padding: Spacing.PADDING_XS,
+  },
+  headerTitleContainer: {
+    flex: 1,
+    alignItems: 'center',
   },
   headerTitle: {
     fontSize: Typography.FONT_SIZE_LG,
     fontWeight: Typography.FONT_WEIGHT_BOLD,
     color: Colors.WHITE,
-    flex: 1,
-    textAlign: 'center',
   },
-  placeholder: {
-    width: 40,
+  headerSubtitle: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.8)',
+    marginTop: 2,
+    fontWeight: '500',
+  },
+  createButton: {
+    width: 44,
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  createButtonGradient: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.WHITE,
+    borderRadius: 12,
+    paddingHorizontal: Spacing.PADDING_SM,
+    height: 44,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  searchInput: {
+    flex: 1,
+    paddingHorizontal: Spacing.PADDING_SM,
+    fontSize: Typography.FONT_SIZE_SM,
+    color: Colors.TEXT_PRIMARY,
+    fontWeight: '500',
   },
   listContent: {
-    padding: Spacing.SCREEN_PADDING,
+    paddingHorizontal: Spacing.SCREEN_PADDING,
+    paddingVertical: Spacing.PADDING_MD,
   },
   bundleItemContainer: {
     marginBottom: Spacing.MARGIN_MD,

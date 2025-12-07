@@ -19,6 +19,7 @@ interface HeaderProps {
   onBackPress?: () => void;
   customPaddingTop?: number;
   isScrolled?: boolean;
+  headerBackgroundColor?: string;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -35,6 +36,7 @@ export const Header: React.FC<HeaderProps> = ({
   onBackPress,
   customPaddingTop,
   isScrolled = false,
+  headerBackgroundColor: customHeaderBackgroundColor,
 }) => {
   const navigation = useNavigation();
   const [localSearchValue, setLocalSearchValue] = useState('');
@@ -53,16 +55,20 @@ export const Header: React.FC<HeaderProps> = ({
   
   // For non-Home screens, use wine background with white text
   // For Home screen, use transparent when not scrolled, wine when scrolled
-  const headerBackgroundColor = !isHomeScreen ? Colors.WINE : (isScrolled ? Colors.WINE : 'transparent');
-  const headerTopBackgroundColor = !isHomeScreen ? Colors.WINE : (isScrolled ? Colors.WINE : 'transparent');
+  // Unless a custom headerBackgroundColor is provided
+  const headerBackgroundColor = customHeaderBackgroundColor ?? (!isHomeScreen ? Colors.WINE : (isScrolled ? Colors.WINE : 'transparent'));
+  const headerTopBackgroundColor = customHeaderBackgroundColor ?? (!isHomeScreen ? Colors.WINE : (isScrolled ? Colors.WINE : 'transparent'));
   
   // Icon color logic:
+  // - Custom white background: black text
   // - Other screens: white (on wine background)
   // - Home screen, not scrolled: white (on transparent, over carousel)
   // - Home screen, scrolled: white (on wine background)
-  const iconColor = !isHomeScreen 
-    ? Colors.WHITE 
-    : (isScrolled ? Colors.WHITE : Colors.WHITE);
+  const iconColor = customHeaderBackgroundColor === Colors.WHITE
+    ? Colors.BLACK
+    : (!isHomeScreen 
+      ? Colors.WHITE 
+      : (isScrolled ? Colors.WHITE : Colors.WHITE));
 
   // Use controlled value if provided, otherwise use local state
   const searchValue = controlledSearchValue !== undefined ? controlledSearchValue : localSearchValue;
@@ -197,7 +203,7 @@ export const Header: React.FC<HeaderProps> = ({
       styles.header, 
       customPaddingTop !== undefined && { paddingTop: customPaddingTop },
       { backgroundColor: headerBackgroundColor },
-      !isHomeScreen && styles.headerScrolled
+      (!isHomeScreen || customHeaderBackgroundColor === Colors.WHITE) && styles.headerScrolled
     ]}>
       {/* Search and Icons Row */}
       <View style={[

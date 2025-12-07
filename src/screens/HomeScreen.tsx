@@ -69,7 +69,7 @@ const mainProducts = [
 	{ id: '2', name: 'Brown Dress and Shirt', price: 'GH₵45.00', image: '👗' },
 ];
 
-const categories = ['All', 'Women', 'Kids', 'Men', 'Curve'];
+const categories = ['All', 'Women', 'Kids', 'Men', 'Curve', 'Shoes', 'Electronics', 'Jewelry and Accessories', 'Sports', 'Bags', 'Toys', 'Office'];
 
 // Map UI category names to ERPNext item_group names
 // You may need to adjust these based on your actual ERPNext item group names
@@ -79,6 +79,13 @@ const mapCategoryToItemGroup = (category: string): string | null => {
     'Men': 'Men',
     'Kids': 'Kids',
     'Curve': 'Curve',
+    'Shoes': 'Shoes',
+    'Electronics': 'Electronics',
+    'Jewelry and Accessories': 'Jewelry and Accessories',
+    'Sports': 'Sports',
+    'Bags': 'Bags',
+    'Toys': 'Toys',
+    'Office': 'Office',
   };
   return category === 'All' ? null : (categoryMap[category] || null);
 };
@@ -423,35 +430,15 @@ export const HomeScreen: React.FC = () => {
 	const onRefresh = useCallback(async () => {
 		setRefreshing(true);
 		try {
-			// Navigate to Splash screen first to show SIAMAE
-			navigation.dispatch(
-				CommonActions.reset({
-					index: 0,
-					routes: [{ name: 'Splash' }],
-				})
-			);
-			
-			// Wait a moment for Splash to appear, then reload the entire app
-			setTimeout(async () => {
-				try {
-					// Try to reload the app using expo-updates
-					await Updates.reloadAsync();
-				} catch (error) {
-					// If reload fails (e.g., in development mode), reset navigation to Main
-					console.log('Updates.reloadAsync not available, using navigation reset');
-					navigation.dispatch(
-						CommonActions.reset({
-							index: 0,
-							routes: [{ name: 'Main' }],
-						})
-					);
-				}
-			}, 1500); // Show splash for 1.5 seconds before reload
+			// Just refresh the data without navigation
+			// The page will reload automatically via the hook
+			await new Promise(resolve => setTimeout(resolve, 500)); // Small delay for UX
 		} catch (error) {
 			console.error('Error refreshing data:', error);
+		} finally {
 			setRefreshing(false);
 		}
-	}, [navigation]);
+	}, []);
 	
 	// Products to display - only show when a specific category is selected
 	const displayedProducts = selectedCategory === 'All' 
@@ -1079,23 +1066,23 @@ export const HomeScreen: React.FC = () => {
 			return null;
 		}
 		
-		// Display categories in a grid (2 rows x 4 columns = 8 categories)
+		// Display categories in a single horizontal scrollable row
 		return (
 			<View style={styles.categoryImagesSection}>
 				<FlatList
+					key="horizontal-categories"
 					data={randomCategories}
-					numColumns={4}
-					scrollEnabled={false}
-					showsVerticalScrollIndicator={false}
+					horizontal
+					scrollEnabled={true}
+					showsHorizontalScrollIndicator={false}
 					contentContainerStyle={styles.categoryImagesGrid}
-					columnWrapperStyle={styles.categoryImagesRow}
 					renderItem={({ item }) => {
 						const image = categoryImages[item.id];
 						const categoryName = item.name || 'Category';
 						
 						return (
 							<TouchableOpacity
-								style={styles.categoryImageItem}
+								style={styles.categoryImageItemHorizontal}
 								onPress={() => {
 									(navigation as any).navigate('CategoryProducts', {
 										categoryName: item.id,
@@ -1149,61 +1136,60 @@ export const HomeScreen: React.FC = () => {
 
 		return (
 		<View style={styles.section}>
+			<View style={styles.superDealsTitleContainer}>
+				<View style={styles.superDealsTitleLeft}>
+				<Ionicons name="flash" size={12} color={Colors.WHITE} />
+					<Text style={styles.superDealsTitle}>Super Deals</Text>
+				</View>
+				<TouchableOpacity 
+					onPress={() => {
+						navigation.navigate('PricingRules');
+					}}
+				>
+					<Text style={styles.superDealsSaveText}>Save big now! {'>'}</Text>
+				</TouchableOpacity>
+			</View>
 			{allDealProducts.length > 0 && (
-					<View style={styles.superDealsTitleContainer}>
-						<View style={styles.superDealsTitleLeft}>
-						<Ionicons name="flash" size={12} color={Colors.BLACK} />
-							<Text style={styles.superDealsTitle}>Super Deals</Text>
-							<Text style={styles.superDealsDiscount}>-{avgDiscount}%</Text>
-						</View>
+				<FlatList
+					data={firstTenDeals}
+					horizontal
+					showsHorizontalScrollIndicator={false}
+					contentContainerStyle={styles.productsList}
+					renderItem={({ item }: { item: any }) => (
 						<TouchableOpacity 
-							onPress={() => {
-								navigation.navigate('PricingRules');
-							}}
+							style={styles.productCard}
+							onPress={() => (navigation as any).navigate('ProductDetails', { productId: item.id })}
 						>
-							<Text style={styles.superDealsSaveText}>Save big now! {'>'}</Text>
+							<View style={styles.productImage}>
+								{item.images && item.images.length > 0 && item.images[0] ? (
+									<Image 
+										source={{ uri: item.images[0] }} 
+										style={styles.productImageContent}
+										resizeMode="cover"
+									/>
+								) : (
+									<View style={styles.productImagePlaceholder}>
+										<Ionicons name="image-outline" size={24} color={Colors.TEXT_SECONDARY} />
+									</View>
+								)}
+								{item.discount > 0 && (
+									<View style={styles.flashSaleTag}>
+										<Text style={styles.flashSaleText}>Flash Sale</Text>
+									</View>
+								)}
+							</View>
+							<Text style={styles.productName} numberOfLines={2}>{item.name}</Text>
+							<View style={styles.priceRow}>
+								<Text style={styles.productPrice} numberOfLines={1} ellipsizeMode="tail">GH₵{(item.price * (1 - (item.discount || 0) / 100)).toFixed(2)}</Text>
+								{(item.discount || 0) > 0 && (
+									<Text style={styles.originalPrice} numberOfLines={1} ellipsizeMode="tail">GH₵{item.price.toFixed(2)}</Text>
+								)}
+							</View>
 						</TouchableOpacity>
-					</View>
+					)}
+					keyExtractor={(item) => item.id}
+				/>
 			)}
-			<FlatList
-				data={firstTenDeals}
-				horizontal
-				showsHorizontalScrollIndicator={false}
-				contentContainerStyle={styles.productsList}
-				renderItem={({ item }: { item: any }) => (
-					<TouchableOpacity 
-						style={styles.productCard}
-						onPress={() => (navigation as any).navigate('ProductDetails', { productId: item.id })}
-					>
-						<View style={styles.productImage}>
-							{item.images && item.images.length > 0 && item.images[0] ? (
-								<Image 
-									source={{ uri: item.images[0] }} 
-									style={styles.productImageContent}
-									resizeMode="cover"
-								/>
-							) : (
-								<View style={styles.productImagePlaceholder}>
-									<Ionicons name="image-outline" size={24} color={Colors.TEXT_SECONDARY} />
-								</View>
-							)}
-							{item.discount > 0 && (
-								<View style={styles.flashSaleTag}>
-									<Text style={styles.flashSaleText}>Flash Sale</Text>
-								</View>
-							)}
-						</View>
-						<Text style={styles.productName} numberOfLines={2}>{item.name}</Text>
-						<View style={styles.priceRow}>
-							<Text style={styles.productPrice} numberOfLines={1} ellipsizeMode="tail">GH₵{(item.price * (1 - (item.discount || 0) / 100)).toFixed(2)}</Text>
-							{(item.discount || 0) > 0 && (
-								<Text style={styles.originalPrice} numberOfLines={1} ellipsizeMode="tail">GH₵{item.price.toFixed(2)}</Text>
-							)}
-						</View>
-					</TouchableOpacity>
-				)}
-				keyExtractor={(item) => item.id}
-			/>
 		</View>
 	);
 	};
@@ -1952,25 +1938,13 @@ export const HomeScreen: React.FC = () => {
 			case 'topCustomerAward':
 				// Show loading state or error for debugging
 				if (topCustomersLoading) {
-					return (
-						<View style={{ padding: 20, alignItems: 'center' }}>
-							<Text style={{ color: Colors.TEXT_SECONDARY }}>Loading top customer...</Text>
-						</View>
-					);
+					return null;
 				}
 				if (topCustomersError) {
-					return (
-						<View style={{ padding: 20, alignItems: 'center' }}>
-							<Text style={{ color: Colors.ERROR }}>Error loading top customer: {topCustomersError instanceof Error ? topCustomersError.message : 'Unknown error'}</Text>
-						</View>
-					);
+					return null;
 				}
 				if (!topCustomer || !topCustomersData) {
-					return (
-						<View style={{ padding: 20, alignItems: 'center' }}>
-							<Text style={{ color: Colors.TEXT_SECONDARY }}>No top customer data available</Text>
-						</View>
-					);
+					return null;
 				}
 				return (
 					<View style={styles.topCustomerSection}>
@@ -1978,7 +1952,7 @@ export const HomeScreen: React.FC = () => {
 							<View style={styles.trendingItemsSection}>
 									<View style={styles.trendingTitleContainer}>
 										<View style={styles.titleWithIcon}>
-											<Ionicons name="trending-up" size={12} color={Colors.BLACK} />
+											<Ionicons name="trending-up" size={12} color={Colors.WHITE} />
 											<Text style={styles.trendingTitleText}>Trending Items and Combos</Text>
 										</View>
 									</View>
@@ -2494,7 +2468,6 @@ export const HomeScreen: React.FC = () => {
 					styles.filterTabsSticky,
 					{ 
 						top: topPosition,
-						backgroundColor: Colors.WINE
 					}
 				]}
 			>
@@ -2518,12 +2491,12 @@ export const HomeScreen: React.FC = () => {
 								<Ionicons 
 									name={tab.icon as any} 
 									size={16} 
-									color={selectedFilter === tab.name ? Colors.GOLD : Colors.WHITE} 
+									color={selectedFilter === tab.name ? Colors.WHITE : Colors.WINE} 
 								/>
 							)}
 							<Text style={[
 								styles.filterTabText,
-								{ color: selectedFilter === tab.name ? Colors.GOLD : Colors.WHITE },
+								{ color: selectedFilter === tab.name ? Colors.WHITE : Colors.WINE },
 								selectedFilter === tab.name && styles.filterTabTextActiveStickyWhite
 							]}>
 								{tab.name}
@@ -2638,7 +2611,7 @@ const styles = StyleSheet.create({
 		backgroundColor: 'transparent',
 	},
 	categoryTabsOverlayScrolled: {
-		backgroundColor: Colors.WINE,
+		backgroundColor: Colors.WHITE,
 		top: 0, // Will be calculated dynamically based on header height
 		marginTop: 0,
 		paddingTop: 0,
@@ -2752,7 +2725,7 @@ const styles = StyleSheet.create({
 	trendingItemsSection: {
 		width: '100%',
 		marginBottom: 0,
-		backgroundColor: 'rgba(114, 47, 55, 0.04)',
+		backgroundColor: Colors.WHITE,
 		paddingVertical: Spacing.PADDING_XS,
 		borderTopWidth: 2,
 		borderTopColor: 'rgba(212, 175, 55, 0.15)',
@@ -2779,7 +2752,7 @@ const styles = StyleSheet.create({
 		gap: Spacing.MARGIN_XS,
 	},
 	trendingTitleText: {
-		fontSize: Typography.FONT_SIZE_XS,
+		fontSize: 10,
 		fontWeight: Typography.FONT_WEIGHT_BOLD,
 		color: Colors.WHITE,
 		letterSpacing: 0.3,
@@ -2796,10 +2769,11 @@ const styles = StyleSheet.create({
 		marginBottom: Spacing.MARGIN_XS,
 	},
 	trendingProductsList: {
-		paddingLeft: 0,
+		paddingLeft: Spacing.SCREEN_PADDING,
 		paddingTop: Spacing.PADDING_XS,
-		paddingRight: 0,
+		paddingRight: Spacing.SCREEN_PADDING,
 		paddingHorizontal: 0,
+		backgroundColor: Colors.LIGHT_GRAY,
 	},
 	trendingProductCard: {
 		width: (width - Spacing.MARGIN_SM) / 2,
@@ -2864,10 +2838,10 @@ const styles = StyleSheet.create({
 		alignItems: 'center',
 		justifyContent: 'space-between',
 		backgroundColor: Colors.GOLD,
-		paddingVertical: Spacing.PADDING_MD,
-		paddingHorizontal: Spacing.PADDING_MD,
+		paddingVertical: Spacing.PADDING_SM,
+		paddingHorizontal: Spacing.PADDING_SM,
 		borderRadius: 12,
-		minHeight: 56,
+		minHeight: 44,
 		borderWidth: 2,
 		borderColor: Colors.WINE,
 		shadowColor: Colors.WINE,
@@ -2881,14 +2855,14 @@ const styles = StyleSheet.create({
 		marginRight: Spacing.MARGIN_SM,
 	},
 	shippingText: {
-		fontSize: Typography.FONT_SIZE_SM,
+		fontSize: Typography.FONT_SIZE_XS,
 		color: Colors.BLACK,
 		fontWeight: Typography.FONT_WEIGHT_BOLD,
-		marginBottom: 3,
+		marginBottom: 1,
 		letterSpacing: 0.3,
 	},
 	shippingSubtext: {
-		fontSize: Typography.FONT_SIZE_XS,
+		fontSize: 10,
 		color: 'rgba(0, 0, 0, 0.7)',
 		letterSpacing: 0.2,
 	},
@@ -2897,10 +2871,10 @@ const styles = StyleSheet.create({
 		alignItems: 'center',
 		justifyContent: 'space-between',
 		backgroundColor: Colors.WINE,
-		paddingVertical: Spacing.PADDING_MD,
-		paddingHorizontal: Spacing.PADDING_MD,
+		paddingVertical: Spacing.PADDING_SM,
+		paddingHorizontal: Spacing.PADDING_SM,
 		borderRadius: 12,
-		minHeight: 56,
+		minHeight: 44,
 		borderWidth: 2,
 		borderColor: Colors.GOLD,
 		shadowColor: Colors.WINE,
@@ -2920,9 +2894,9 @@ const styles = StyleSheet.create({
 		flex: 1,
 	},
 	trophyIconContainer: {
-		width: 28,
-		height: 28,
-		borderRadius: 14,
+		width: 24,
+		height: 24,
+		borderRadius: 12,
 		backgroundColor: Colors.WHITE,
 		justifyContent: 'center',
 		alignItems: 'center',
@@ -2943,7 +2917,7 @@ const styles = StyleSheet.create({
 		letterSpacing: 0.3,
 	},
 	topCustomerBannerSubtext: {
-		fontSize: Typography.FONT_SIZE_XS,
+		fontSize: 10,
 		color: 'rgba(255, 255, 255, 0.85)',
 		fontWeight: Typography.FONT_WEIGHT_MEDIUM,
 		letterSpacing: 0.2,
@@ -2955,14 +2929,14 @@ const styles = StyleSheet.create({
 		flexShrink: 1,
 	},
 	topCustomerBannerLabel: {
-		fontSize: Typography.FONT_SIZE_XS,
+		fontSize: 10,
 		color: 'rgba(255, 255, 255, 0.9)',
 		fontWeight: Typography.FONT_WEIGHT_SEMIBOLD,
-		marginBottom: 2,
+		marginBottom: 1,
 		letterSpacing: 0.2,
 	},
 	topCustomerBannerName: {
-		fontSize: Typography.FONT_SIZE_SM,
+		fontSize: Typography.FONT_SIZE_XS,
 		color: Colors.WHITE,
 		fontWeight: Typography.FONT_WEIGHT_BOLD,
 		letterSpacing: 0.3,
@@ -2977,7 +2951,9 @@ const styles = StyleSheet.create({
 		borderBottomColor: 'rgba(114, 47, 55, 0.1)',
 	},
 	categoryImagesGrid: {
-		paddingBottom: Spacing.PADDING_SM,
+		paddingHorizontal: Spacing.SCREEN_PADDING,
+		paddingVertical: Spacing.PADDING_SM,
+		gap: 0,
 	},
 	categoryImagesRow: {
 		justifyContent: 'space-between',
@@ -2986,6 +2962,12 @@ const styles = StyleSheet.create({
 	categoryImageItem: {
 		alignItems: 'center',
 		width: (width - Spacing.SCREEN_PADDING * 2) / 4,
+	},
+	categoryImageItemHorizontal: {
+		alignItems: 'center',
+		width: 65,
+		marginRight: 0,
+		marginLeft: 0,
 	},
 	categoryImageContainer: {
 		width: 56,
@@ -2997,7 +2979,7 @@ const styles = StyleSheet.create({
 		overflow: 'hidden',
 		marginBottom: Spacing.MARGIN_XS,
 		borderWidth: 2,
-		borderColor: Colors.WINE_LIGHT,
+		borderColor: Colors.WINE,
 		shadowColor: Colors.WINE,
 		shadowOffset: { width: 0, height: 2 },
 		shadowOpacity: 0.15,
@@ -3024,8 +3006,9 @@ const styles = StyleSheet.create({
 		letterSpacing: 0.1,
 	},
 	section: {
-		paddingVertical: Spacing.PADDING_LG,
-		backgroundColor: 'rgba(139, 45, 71, 0.1)',
+		paddingTop: 0,
+		paddingBottom: Spacing.PADDING_LG,
+		backgroundColor: 'rgba(139, 45, 71, 0.04)',
 		borderTopWidth: 1,
 		borderTopColor: 'rgba(114, 47, 55, 0.08)',
 		borderBottomWidth: 1,
@@ -3064,10 +3047,10 @@ const styles = StyleSheet.create({
 		paddingHorizontal: Spacing.PADDING_MD,
 		paddingVertical: Spacing.PADDING_XS,
 		width: '100%',
-		backgroundColor: Colors.GOLD,
+		backgroundColor: Colors.WINE,
 		marginBottom: Spacing.MARGIN_XS,
 		borderBottomWidth: 2,
-		borderBottomColor: Colors.WINE,
+		borderBottomColor: Colors.GOLD,
 		borderRadius: 12,
 		marginHorizontal: -Spacing.SCREEN_PADDING,
 	},
@@ -3077,9 +3060,9 @@ const styles = StyleSheet.create({
 		gap: Spacing.MARGIN_XS,
 	},
 	superDealsTitle: {
-		fontSize: Typography.FONT_SIZE_XS,
+		fontSize: 10,
 		fontWeight: Typography.FONT_WEIGHT_BOLD,
-		color: Colors.WINE,
+		color: Colors.WHITE,
 		letterSpacing: 0.3,
 		textTransform: 'uppercase',
 	},
@@ -3091,12 +3074,12 @@ const styles = StyleSheet.create({
 	},
 	superDealsSaveText: {
 		fontSize: Typography.FONT_SIZE_XS,
-		color: Colors.WINE,
+		color: Colors.WHITE,
 		fontWeight: Typography.FONT_WEIGHT_BOLD,
 		letterSpacing: 0.2,
 	},
 	sectionTitle: {
-		fontSize: 12,
+		fontSize: 11,
 		fontWeight: 'bold',
 		color: Colors.BLACK,
 	},
@@ -3233,7 +3216,7 @@ const styles = StyleSheet.create({
 		right: 0,
 		width: '100%',
 		zIndex: 2000,
-		backgroundColor: Colors.WINE,
+		backgroundColor: Colors.WHITE,
 		shadowColor: Colors.WINE,
 		shadowOffset: { width: 0, height: 4 },
 		shadowOpacity: 0.15,
@@ -3250,9 +3233,9 @@ const styles = StyleSheet.create({
 		borderRadius: 20,
 		gap: 6,
 		borderWidth: 1.5,
-		borderColor: Colors.GOLD,
-		backgroundColor: 'rgba(212, 175, 55, 0.06)',
-		shadowColor: Colors.GOLD,
+		borderColor: Colors.WINE,
+		backgroundColor: 'rgba(139, 45, 71, 0.06)',
+		shadowColor: Colors.WINE,
 		shadowOffset: { width: 0, height: 2 },
 		shadowOpacity: 0.1,
 		shadowRadius: 4,

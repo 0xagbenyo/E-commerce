@@ -14,7 +14,8 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useRoute, useNavigation } from '@react-navigation/native';
+import { useRoute, useNavigation, CommonActions } from '@react-navigation/native';
+import * as Updates from 'expo-updates';
 import { RootStackParamList } from '../types';
 import type { NavigationProp } from '@react-navigation/native';
 import { Colors } from '../constants/colors';
@@ -131,33 +132,13 @@ export const CategoryProductsScreen: React.FC = () => {
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      // Navigate to Splash screen first to show SIAMAE
-      navigation.dispatch(
-        CommonActions.reset({
-          index: 0,
-          routes: [{ name: 'Splash' }],
-        })
-      );
-      
-      // Wait a moment for Splash to appear, then reload the entire app
-      setTimeout(async () => {
-        try {
-          await Updates.reloadAsync();
-        } catch (error) {
-          console.log('Updates.reloadAsync not available, using navigation reset');
-          navigation.dispatch(
-            CommonActions.reset({
-              index: 0,
-              routes: [{ name: 'Main' }],
-            })
-          );
-        }
-      }, 1500);
+      await refreshProducts();
     } catch (error) {
       console.error('Error refreshing data:', error);
+    } finally {
       setRefreshing(false);
     }
-  }, [navigation]);
+  }, []);
   
   // Check if page is initially loading (fresh load - no data loaded yet)
   const isInitialLoading = (!products && productsLoading) && 
@@ -187,53 +168,18 @@ export const CategoryProductsScreen: React.FC = () => {
         const images: Record<string, string> = {};
         for (const sibling of siblings) {
           try {
-            console.log(`🖼️ Fetching images for sibling category: ${sibling.name}`);
-            // Fetch multiple products to get a better selection
-            const websiteItems = await client.getWebsiteItemsByGroup(sibling.name, 20);
-            console.log(`📦 Found ${websiteItems?.length || 0} products for ${sibling.name}`);
-            
+            // Fetch just 1 product per category (same as HomeScreen)
+            const websiteItems = await client.getWebsiteItemsByGroup(sibling.name, 1);
             if (websiteItems && websiteItems.length > 0) {
-              // Map all products
-              const products = websiteItems.map((item: any) => mapERPWebsiteItemToProduct(item));
-              console.log(`✅ Mapped ${products.length} products for ${sibling.name}`);
-              
-              // Filter products that have images
-              const productsWithImages = products.filter((product: any) => 
-                product.images && product.images.length > 0
-              );
-              console.log(`🖼️ Found ${productsWithImages.length} products with images for ${sibling.name}`);
-              
-              if (productsWithImages.length > 0) {
-                // Pick a random product from the ones with images
-                const randomIndex = Math.floor(Math.random() * productsWithImages.length);
-                const randomProduct = productsWithImages[randomIndex];
-                
-                // Get the first image from the random product
-                if (randomProduct.images && randomProduct.images.length > 0) {
-                  images[sibling.name] = randomProduct.images[0];
-                  console.log(`✅ Set image for ${sibling.name}: ${randomProduct.images[0]}`);
-                }
-              } else if (products.length > 0) {
-                // Fallback: if no products have images, just use the first product's image if available
-                const firstProduct = products[0];
-                console.log(`⚠️ No products with images for ${sibling.name}, checking first product:`, firstProduct);
-                if (firstProduct.images && firstProduct.images.length > 0) {
-                  images[sibling.name] = firstProduct.images[0];
-                  console.log(`✅ Set fallback image for ${sibling.name}: ${firstProduct.images[0]}`);
-                } else {
-                  console.log(`❌ First product has no images either for ${sibling.name}`);
-                }
-              } else {
-                console.log(`❌ No products found for ${sibling.name}`);
+              const product = mapERPWebsiteItemToProduct(websiteItems[0]);
+              if (product.images && product.images.length > 0) {
+                images[sibling.name] = product.images[0];
               }
-            } else {
-              console.log(`❌ No website items found for ${sibling.name}`);
             }
           } catch (error) {
-            console.warn(`❌ Could not fetch image for category ${sibling.name}:`, error);
+            // Silently fail for individual categories
           }
         }
-        console.log(`📸 Final sibling images:`, images);
         setSiblingImages(images);
       } catch (error) {
         console.error('Error fetching sibling categories:', error);
@@ -278,10 +224,16 @@ export const CategoryProductsScreen: React.FC = () => {
         {selectedCategory}
       </Text>
       <View style={styles.headerIcons}>
-        <TouchableOpacity style={styles.iconButton}>
+        <TouchableOpacity 
+          style={styles.iconButton}
+          onPress={() => (navigation as any).navigate('Search')}
+        >
           <Ionicons name="search" size={24} color={Colors.BLACK} />
         </TouchableOpacity>
-        <TouchableOpacity style={styles.iconButton}>
+        <TouchableOpacity 
+          style={styles.iconButton}
+          onPress={() => (navigation as any).navigate('Wishlist')}
+        >
           <Ionicons name="heart-outline" size={24} color={Colors.BLACK} />
         </TouchableOpacity>
       </View>
@@ -353,17 +305,17 @@ export const CategoryProductsScreen: React.FC = () => {
 
         <TouchableOpacity style={styles.filterChip}>
           <Text style={styles.filterChipText}>Category</Text>
-          <Ionicons name="chevron-down" size={16} color="#acc5e1" />
+          <Ionicons name="chevron-down" size={16} color={Colors.WINE} />
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.filterChip}>
           <Text style={styles.filterChipText}>Size</Text>
-          <Ionicons name="chevron-down" size={16} color="#acc5e1" />
+          <Ionicons name="chevron-down" size={16} color={Colors.WINE} />
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.filterChip}>
           <Text style={styles.filterChipText}>Color</Text>
-          <Ionicons name="chevron-down" size={16} color="#acc5e1" />
+          <Ionicons name="chevron-down" size={16} color={Colors.WINE} />
         </TouchableOpacity>
       </ScrollView>
     </View>
@@ -482,8 +434,7 @@ export const CategoryProductsScreen: React.FC = () => {
       if (!productsLoadingMore) return null;
       return (
         <View style={styles.footerLoader}>
-          <ActivityIndicator size="small" color="#acc5e1
-" />
+          <ActivityIndicator size="small" color={Colors.WINE} />
           <Text style={styles.footerLoaderText}>Loading more products...</Text>
         </View>
       );
@@ -500,8 +451,8 @@ export const CategoryProductsScreen: React.FC = () => {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            tintColor="#acc5e1"
-            colors={["#acc5e1"]}
+            tintColor={Colors.WINE}
+            colors={[Colors.WINE]}
           />
         }
         renderItem={renderProductItem}
@@ -525,8 +476,8 @@ export const CategoryProductsScreen: React.FC = () => {
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['bottom', 'left', 'right']}>
-      <View style={[styles.headerContainer, { paddingTop: Math.max(insets.top - 20, 0) }]}>
+    <SafeAreaView style={styles.container}>
+      <View style={[styles.headerContainer, { marginTop: -insets.top }]}>
         {renderHeader()}
       </View>
       {renderProducts()}
@@ -538,6 +489,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.WHITE,
+    paddingTop: 0,
   },
   headerContainer: {
     backgroundColor: Colors.WHITE,
@@ -554,7 +506,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: Spacing.PADDING_SM,
-    paddingVertical: Spacing.PADDING_SM,
+    paddingTop: 60,
+    paddingBottom: Spacing.PADDING_SM,
     borderBottomWidth: 1,
     borderBottomColor: Colors.LIGHT_GRAY,
     backgroundColor: Colors.WHITE,
@@ -580,14 +533,14 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.WHITE,
   },
   siblingScroll: {
-    paddingHorizontal: Spacing.PADDING_SM,
+    paddingHorizontal: Spacing.SCREEN_PADDING,
     paddingVertical: Spacing.PADDING_XS,
     gap: Spacing.MARGIN_XS,
   },
   siblingTab: {
     alignItems: 'center',
     paddingVertical: Spacing.PADDING_XS,
-    marginRight: Spacing.MARGIN_XS,
+    marginRight: 0,
     maxWidth: width * 0.25,
   },
   siblingTabActive: {
@@ -600,6 +553,8 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.MARGIN_XS / 2,
     backgroundColor: Colors.LIGHT_GRAY,
     overflow: 'hidden',
+    borderWidth: 2,
+    borderColor: Colors.WINE,
   },
   siblingTabImage: {
     width: '100%',
@@ -613,6 +568,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: Spacing.MARGIN_XS / 2,
+    borderWidth: 2,
+    borderColor: Colors.WINE,
   },
   siblingTabText: {
     fontSize: Typography.FONT_SIZE_XS - 1,
@@ -621,18 +578,13 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   siblingTabTextActive: {
-    color: Colors.FLASH_SALE_RED, // Burgundy
+    color: Colors.WINE,
     fontWeight: '600',
   },
   stickyFiltersWrapper: {
     backgroundColor: Colors.WHITE,
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 8,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
   },
   filtersContainer: {
     borderBottomWidth: 1,
@@ -651,7 +603,7 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.PADDING_XS,
     borderRadius: 4,
     borderWidth: 1,
-    borderColor: Colors.FLASH_SALE_RED, // Burgundy border
+    borderColor: Colors.WINE,
     marginRight: Spacing.MARGIN_XS,
   },
   filterChipText: {
@@ -661,11 +613,11 @@ const styles = StyleSheet.create({
     marginRight: 3,
   },
   listHeader: {
-    backgroundColor: Colors.WHITE,
+    backgroundColor: 'transparent',
   },
   productsList: {
     paddingHorizontal: Spacing.PADDING_SM,
-    paddingTop: Spacing.PADDING_SM,
+    paddingTop: 0,
     paddingBottom: Spacing.PADDING_MD,
   },
   productRow: {

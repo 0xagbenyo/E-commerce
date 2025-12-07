@@ -331,7 +331,7 @@ const styles = StyleSheet.create({
   promoBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFF3E0',
+    backgroundColor: 'Colors.LIGHT_ORANGE_BG',
     paddingHorizontal: 12,
     paddingVertical: 10,
     marginHorizontal: 20,
@@ -453,7 +453,7 @@ const styles = StyleSheet.create({
     width: 24,
     height: 24,
     borderRadius: 12,
-    backgroundColor: '#4285F4',
+    backgroundColor: 'Colors.BLUE_GOOGLE',
     color: Colors.WHITE,
     textAlign: 'center',
     lineHeight: 24,
@@ -465,7 +465,7 @@ const styles = StyleSheet.create({
     width: 24,
     height: 24,
     borderRadius: 12,
-    backgroundColor: '#1877F2',
+    backgroundColor: 'Colors.BLUE_FACEBOOK',
     color: Colors.WHITE,
     textAlign: 'center',
     lineHeight: 24,
@@ -520,4 +520,5 @@ const styles = StyleSheet.create({
     color: Colors.ELECTRIC_BLUE,
   },
 });
+
 
